@@ -243,3 +243,26 @@
   unpacked RST0 archives); retail logs the same miss. Not a port bug.
 - Still open on the title: the [2] button icon in the banner, a one-pixel dashed seam across the video (indirect
   coordinate rounding), audio.
+
+## 2026-11-15 (afternoon): the full title screen (logo, sparkle, [2] icon)
+- **Int/float parameter order (tools/gametrial/regorder.py, docs/REGORDER.md):** on PowerPC ints and floats go
+  in separate register files, so `f(int, u32, float...)` and `f(int, float..., u32)` are the same call; on x86
+  the callee reads the wrong stack slots. 52 declarations of 34 functions differ from their C definitions
+  (fn_802354A0, the art drawer, in 12 units: widgets' colour -1 landed in x as NaN, so all gart art vanished).
+  prep turns each into a static inline adapter that forwards to the definition's symbol in its order (49).
+- **Weak inline helpers:** units that declare `Dot`/`Max`/... without the body called MWCC's out-of-line weak
+  copy; clang only emits inline functions where it does not inline them, so the call was stubbed (a float stub
+  returns NaN: the logo sparkle's matrix). prep rule inline-emit adds `__attribute__((used))` (680 sites).
+- **Itanium bridges:** C++ declarations whose types differ from the definition (mcsys fn_802E6BD8 as
+  achieve/ident declare it) have another mangled name; link.py now binds them to the single definition of that
+  name and scope (stubs 399 -> 309).
+- **fn_802C8E00 (mrender) forwards its caller's vertex** to tristrip fn_801E4F3C by leaving the registers alone
+  (patch arity-forwarders): the [2] icon in "Press [2] to Start" and every immediate-mode quad.
+- The game's stack-overrun check budgets 29K (patch host-stack: 256K on the PC).
+- FIFO: the GP breakpoint moves with the data when the buffer restarts at 0.
+- NICECRASH_SHOT / NICECRASH_DRAWLOG count retrace frames now (menus present many copies per retrace).
+- Boot flow seen: NAND "corrupted" dialog (NAND is stubbed), save-file dialog, **Choose a Profile** (over its
+  background movie), then the title with logo, sparkle, the [2] icon and the uisingle.bik video
+  (docs/screenshots/m3_title_full.png, retrace 1300 with presses 200:2, 420:2, 640:2, 900:1).
+- Open: a 4-row band of the video (screen rows 204-207) takes the wrong indirect ramp offset (cosmetic); a faint
+  rectangle behind the logo; NAND saves; audio.
