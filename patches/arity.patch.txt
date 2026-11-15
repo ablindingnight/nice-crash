@@ -1,0 +1,15 @@
+@@@ mrender.cpp | ARITY: declared fn_802CAD74(void) and called without the argument, relying on r3 still holding `a` (PPC register ABI). On x86 the callee reads garbage. Pass it explicitly
+<<<
+void fn_802CAD74(void);
+===
+void fn_802CAD74(s32 id);
+>>>
+
+@@@ mrender.cpp | ARITY: pass the texture id through explicitly (was implicit in r3)
+<<<
+void fn_802C8B70(int a) {
+    fn_802CAD74();
+===
+void fn_802C8B70(int a) {
+    fn_802CAD74(a);
+>>>

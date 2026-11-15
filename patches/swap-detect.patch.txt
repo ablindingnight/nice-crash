@@ -1,0 +1,10 @@
+@@@ model.cpp | ENDIAN: "already fixed up?" was tested by the counts looking small (unswapped LE counts read huge on the BE Wii). On an LE host the counts are always small; test whether elems is still a file offset instead (fixed-up data points into MEM1/MEM2)
+<<<
+    if ((u32)m->nElems < 16000 && (u32)m->nExtras < 16000) {
+        return;
+    }
+===
+    if ((u32)m->elems >= 0x80000000u) {
+        return;
+    }
+>>>

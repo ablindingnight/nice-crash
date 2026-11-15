@@ -92,3 +92,17 @@
 - **Run now:** kernel init, heaps ("stackmem: base == 0x80004000 ..."), mp3 thread, "gx: NTSC 480i ... did flip",
   `res: loading tocres.res`, the 9 startup sets queued, a chunk read, "texture: loaded lightmap" (the game's own
   texture.cpp), sound mixer; stops in model.cpp (debug-draw model setup in AppInit).
+
+## 2026-11-15: AppInit done; the boot reaches the memory-card dialog (first interactive screen)
+- model.cpp: mrModelFixup decided "already fixed up" when the counts looked small (true for unswapped LE data on
+  the BE Wii); on an LE host they always look small. Port patch: test whether `elems` is still an offset.
+- **Arity bugs** (new class): mrender.cpp declared `fn_802CAD74(void)` and relied on r3 still holding the texture
+  id (PPC register ABI); on x86 the callee read garbage. Port patch passes it. tools/gametrial/arity.py finds every
+  address-named function declared with fewer parameters than its definition: **107 call sites, 83 functions**
+  (docs/ARITY.md, for the decomp sessions). The 240 sites declaring extra parameters are harmless with cdecl.
+- **Run now:** AppInit completes (options, stats, achievements, chunks), AppMain -> menu main -> MemCardSystemLoad:
+  no save data, "rmemcard: new user, missing either banner or memcard", then the memory-card dialog loop
+  (MemCardDialogBg::RunChoices) waits for input. Nothing is drawn yet (milestone 2) and gtext.cpp (fonts, on the
+  boot path, does not compile yet) is stubbed.
+- Next: milestone 2 (GX: compile the decomp's SDK GX for the host + FIFO interpreter + window), input (KPADRead from
+  keyboard), VI retrace pacing.
