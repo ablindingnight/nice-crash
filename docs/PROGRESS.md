@@ -321,3 +321,8 @@
   exes, used for the window/taskbar.
 - Open: HOME menu (HBM library is stubbed), controller (XInput), profile slots on Choose a Profile (compare with
   Dolphin).
+- Launcher (milestone 2.5) requirement from the user, via the coordinator: Settings must offer an ASPECT RATIO
+  option with at least 4:3 (retail), 16:9 (the Wii's widescreen mode) and the window's native aspect, applied to
+  the 3D view and the UI layout. Spec: ../handoff/port_refs/LAUNCHER_SPEC_2026-11-15.md. Today: NICECRASH_ASPECT
+  (4:3 / 16:9) drives SCGetAspectRatio and the window shape; "native" needs the projection and VI stretch to
+  follow the window's own ratio.
