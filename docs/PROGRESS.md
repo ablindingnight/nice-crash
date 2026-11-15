@@ -286,3 +286,17 @@
 - Debug aids: NICECRASH_TEVDBG=[c|b|i]<stage> (final/base texel coords, indirect values), NICECRASH_NEAREST,
   NICECRASH_NANTRAP=<n> (stack of NaN floats sent to the GPU), crash reports dump memory + vptr symbol for
   registers pointing into Wii memory.
+
+## 2026-11-15 (night): audio
+- **Host AX mixer (sdk/ax.cpp):** PCM16 / PCM8 / DSP-ADPCM voices read from the Wii memory image, linear SRC,
+  volume envelope and main L/R mix at 32 kHz; voice state in the real VPB fields (Excite Truck's older AX: PB at
+  VPB+0x138, current address at VPB+0x1BC as the game reads it); one AX frame callback per 96 samples, paced by the
+  retrace; waveOut (winmm, part of Windows) through a 2 s ring buffer. Not yet: aux/reverb sends, surround, LPF,
+  the Wii Remote speaker.
+- **DSP-ADPCM headers are big-endian** inside the little-endian SFX0 resources (Nintendo tool output embedded in
+  Monster Games' format): swapped once on load and for streamed samples (patch dsp-adpcm-header). Before that the
+  loop/end addresses were garbage and the title played noise.
+- PCM16 is read in host order (the port does not run the game's byte swaps; the MP3 player's PCM is CPU-built);
+  NICECRASH_PCMBE flips it if a big-endian source turns up.
+- Verified from a capture (NICECRASH_WAV): title music, an ADPCM stereo loop; sample autocorrelation 0.93, L/R
+  correlation 0.93, peaks ~17k. NICECRASH_AXLOG lists voice setups. Not yet listened to on speakers by a human.
