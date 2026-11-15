@@ -1,47 +1,96 @@
-# Integer/float parameter order differs from the definition: 0 declarations (0 functions)
+# Integer/float parameter order differs from the definition: 51 declarations (33 functions)
 
 PPC-equivalent: same calls on the Wii, wrong argument slots on x86.
 
+- fn_800109E4  escape.cpp:83 `(f32 x, f32 y, f32 w, f32 h, u32 color)` vs definition dashhelper.cpp:1125 `(u32 color, f32 x, f32 y, f32 w, f32 h)`
+- fn_800109E4  overlay.cpp:286 `(f32 x, f32 y, f32 w, f32 h, u32 color)` vs definition dashhelper.cpp:1125 `(u32 color, f32 x, f32 y, f32 w, f32 h)`
+- fn_80130978  ringchal.cpp:140 `(char* buf, f32 v, int size)` vs definition locale.cpp:417 `(char* buf, s32 size, f32 secs)`
+- fn_80147C50  water.cpp:124 `(f32 t, u32 a, u32 b)` vs definition ovlayout.cpp:1333 `(u32 a, u32 b, f32 t)`
+- fn_8019DF88  corners.cpp:67 `(f32 mass, f32 e, const RVec3* pos, const RVec3* vel, const RMat33* invI, const RVec3* at, const RVec3* n)` vs definition sphcoll.cpp:1922 `(const u8* com, const RVec3* v, const u8* iinv, const RVec3* at, const f32* n, f32 mass, f32 e)`
+- fn_801A324C  trackobj.cpp:665 `(void* p, void* o, f32 k, f32 s, const char* file)` vs definition sphcoll.cpp:3751 `(u8* p, u32 id, const char* name, f32 s0, f32 s1)`
+- fn_801AD148  trailer.cpp:82 `(Hitch* h, const RVec3* at, f32 k, f32 len, CarBody* car)` vs definition obstacles.cpp:1392 `(u8* p, const CVec3* a, u8* body, f32 x, f32 y)`
+- fn_801AD28C  trailer.cpp:83 `(Hitch* h, const RVec3* at, f32 k, f32 len, CarBody* car, const RVec3* carAt)` vs definition obstacles.cpp:1416 `(u8* p, const CVec3* a, CollVolume* other, const CVec3* b, f32 x, f32 y)`
+- fn_801CB648  betarace.cpp:2539 `(int id, f32 t, int done)` vs definition awards.cpp:502 `(int car, int valid, f32 t)`
+- fn_801CB648  crushmaster.cpp:1307 `(int id, f32 t, int done)` vs definition awards.cpp:502 `(int car, int valid, f32 t)`
+- fn_801E3CB4  pgfx.cpp:31 `(const ValVec3* p, const ValVec3* q, f32 size, s32 color)` vs definition dbgdraw.cpp:190 `(const DVec3* pos, const DVec3* dir, u32 color, f32 size)`
+- fn_801E4040  pgfx.cpp:32 `(const ValVec3* p, const ValVec3* q, f32 size, s32 color, s32 extra)` vs definition dbgdraw.cpp:245 `(const DVec3* a, const DVec3* b, u32 c0, u32 c1, f32 width)`
+- fn_801E41E0  pgfx.cpp:34 `(const ValVec3* p, f32 size, s32 color)` vs definition dbgdraw.cpp:266 `(const DVec3* pos, u32 color, f32 size)`
+- fn_801E44F4  sphcoll.cpp:308 `(u8* m, u32 color, f32 a, f32 b, f32 c)` vs definition dbgdraw.cpp:315 `(const DFrame* m, f32 sx, f32 sy, f32 sz, u32 color)`
+- fn_801E4F3C  mrender.cpp:42 `(f32 x, f32 y, f32 z, f32 u, f32 v, u32 color, int a)` vs definition tristrip.cpp:91 `(u32 color, int strip, f32 x, f32 y, f32 z, f32 u, f32 v)`
+- fn_801E53A8  skid.cpp:97 `(const Vec* p, const Vec* a, const Vec* b, f32 alpha, int on)` vs definition tristrip.cpp:180 `(const TVec3* p, const TVec3* tan, const TVec3* side, int draw, f32 alpha)`
+- fn_801E7890  mrender.cpp:60 `(void* p, int a, int b, f32 x, f32 y, f32 z, f32 s, f32 t)` vs definition gendrawlist.cpp:72 `(GenericDrawList* list, f32 x, f32 y, f32 z, u32 color, f32 u, f32 v, int strip)`
+- fn_8021BD98  uiapi.cpp:620 `(WidgetFragment* self, int x, int y, void* value, float scale, const char* format, float bias, int height)` vs definition widgets.cpp:1748 `(WidgetFragment* self,int x,int y,float* value,const char* format,int height,float scale,float bias)`
+- fn_8021CEEC  uiapi.cpp:621 `(WidgetFragment*, int, int, void*, float, const char*, float, int)` vs definition widgets.cpp:1798 `(WidgetFragment* self,int x,int y,int* value,const char* format,int height,float scale,float bias)`
+- fn_8021F678  uiapi.cpp:617 `(WidgetFragment*, int, int, int, int, void*, float, int, float)` vs definition widgets.cpp:2257 `(WidgetFragment* self,int x,int y,int width,int height,float minimum,float maximum,float* value,int rate)`
+- fn_8022BAD0  contmenu.cpp:8 `(int style, int x, int y, int z, int w, int h, const char* text, int color, f32 scale, int a)` vs definition uistyle.cpp:513 `(int style,int x,int y,int w,int h,int z,const char* p,u32 q,u8 flag,f32 scale)`
+- fn_8022BAD0  uiapi.cpp:86 `(s32 style, s32 x, s32 y, s32 z, s32 w, s32 h, const char* text, s32 color, f32 scale, s32 extra)` vs definition uistyle.cpp:513 `(int style,int x,int y,int w,int h,int z,const char* p,u32 q,u8 flag,f32 scale)`
+- fn_8022BAD0  uioptions.cpp:184 `(int id, int x, int y, int z, int w, int h, const char* s, int sel, f32 scale, int extra)` vs definition uistyle.cpp:513 `(int style,int x,int y,int w,int h,int z,const char* p,u32 q,u8 flag,f32 scale)`
+- fn_8022BAD0  unk_80262F8C.c:18 `(s32, s32, s32, s32, s32, s32, s32, s32, f32, s32)` vs definition uistyle.cpp:513 `(int style,int x,int y,int w,int h,int z,const char* p,u32 q,u8 flag,f32 scale)`
+- fn_8022BD40  credits.cpp:362 `(void*,const char*,int,int,f32,f32,f32,f32,f32,f32)` vs definition uistyle.cpp:532 `(int style,f32 x,f32 y,f32 depth,f32 width,f32 height,f32 unused,const char* text,u32 frame,u8 initialShadow)`
+- fn_8022BD40  mroll.cpp:948 `(int font, const char* text, int a, int b, f32 x, f32 y, f32 z, f32 w, f32 h, f32 scale)` vs definition uistyle.cpp:532 `(int style,f32 x,f32 y,f32 depth,f32 width,f32 height,f32 unused,const char* text,u32 frame,u8 initialShadow)`
+- fn_80233010  dashhelper.cpp:152 `(const char* text, int font, u32 color, int flags, f32 x, f32 y, f32 w, f32 scale, f32 z, f32 alpha, int wrap)` vs definition gtext.cpp:878 `(const char* text, GTextFont* f, u32 color, int align, int ingame, f32 x, f32 y, f32 maxw, f32 scale, f32 z, f32 xs)`
+- fn_802344CC  dashhelper.cpp:150 `(const char* text, u32 color, int flags, f32 x, f32 y, f32 scale, int unk)` vs definition gtext.cpp:1156 `(const char* s, u32 color, int align, int wide, f32 x, f32 y, f32 scale)`
+- fn_802344CC  uitext.cpp:17 `(const char* text, u32 color, int flags, f32 x, f32 y, f32 scale, int unk)` vs definition gtext.cpp:1156 `(const char* s, u32 color, int align, int wide, f32 x, f32 y, f32 scale)`
+- fn_802354A0  garage.cpp:83 `(u8* o, int kind, s32 v, f32 x, f32 y, f32 z, f32 w, f32 h)` vs definition gart.cpp:298 `(gArtSet* s, int idx, f32 x, f32 y, f32 z, f32 w, f32 h, int color)`
+- fn_802354A0  gtext.cpp:133 `(gArtSet* s, f32 x, f32 y, f32 z, int idx, u32 color, f32 w, f32 h)` vs definition gart.cpp:298 `(gArtSet* s, int idx, f32 x, f32 y, f32 z, f32 w, f32 h, int color)`
+- fn_802354A0  ovlayout.cpp:25 `(f32 x, f32 y, f32 z, f32 w, f32 h, int art, int part, u32 color)` vs definition gart.cpp:298 `(gArtSet* s, int idx, f32 x, f32 y, f32 z, f32 w, f32 h, int color)`
+- fn_802354A0  racing.cpp:229 `(int art, int frame, u32 color, f32 x, f32 y, f32 z, f32 w, f32 h)` vs definition gart.cpp:298 `(gArtSet* s, int idx, f32 x, f32 y, f32 z, f32 w, f32 h, int color)`
+- fn_802354A0  trackmap.cpp:159 `(int art, int part, u32 color, f32 x, f32 y, f32 z, f32 w, f32 h)` vs definition gart.cpp:298 `(gArtSet* s, int idx, f32 x, f32 y, f32 z, f32 w, f32 h, int color)`
+- fn_802354A0  uiobjs.cpp:14 `(int img, f32 x, f32 y, f32 z, f32 w, f32 h, int frame, int a)` vs definition gart.cpp:298 `(gArtSet* s, int idx, f32 x, f32 y, f32 z, f32 w, f32 h, int color)`
+- fn_802354A0  uistyle.cpp:158 `(u32,int,u32,f32,f32,f32,f32,f32)` vs definition gart.cpp:298 `(gArtSet* s, int idx, f32 x, f32 y, f32 z, f32 w, f32 h, int color)`
+- fn_802354A0  widgets.cpp:549 `(void*,int,u32,float,float,float,float,float)` vs definition gart.cpp:298 `(gArtSet* s, int idx, f32 x, f32 y, f32 z, f32 w, f32 h, int color)`
+- fn_802354A0  widgets.cpp:693 `(void*,int,u32,float,float,float,float,float)` vs definition gart.cpp:298 `(gArtSet* s, int idx, f32 x, f32 y, f32 z, f32 w, f32 h, int color)`
+- fn_802354A0  widgets.cpp:1310 `(void*,int,unsigned int,float,float,float,float,float)` vs definition gart.cpp:298 `(gArtSet* s, int idx, f32 x, f32 y, f32 z, f32 w, f32 h, int color)`
+- fn_80235AFC  credits.cpp:272 `(int,u32,u32,f32,f32,f32,f32,f32,f32)` vs definition gart.cpp:373 `(gArtSet* s, int idx, f32 x, f32 y, f32 z, f32 w, f32 h, f32 angle, u32 color)`
+- fn_80235AFC  trackmap.cpp:160 `(int art, int part, u32 color, f32 x, f32 y, f32 z, f32 w, f32 h, f32 angle)` vs definition gart.cpp:373 `(gArtSet* s, int idx, f32 x, f32 y, f32 z, f32 w, f32 h, f32 angle, u32 color)`
+- fn_80235CBC  cartags.cpp:50 `(void* art, int part, u32 color, f32 x, f32 y, f32 z, f32 w, f32 h)` vs definition gart.cpp:406 `(gArtSet* s, int idx, f32 x, f32 y, f32 z, f32 w, f32 h, int color)`
+- fn_8026A2CC  tutorial.cpp:376 `(CamFrame* cam, f32 fov, int a)` vs definition cammgr.cpp:1705 `(const Words12* s, int i, f32 v)`
+- fn_80275B9C  cammgr.cpp:1434 `(f32 a, f32 b, f32 c, CamRec* rec)` vs definition camstate.cpp:592 `(u8* p, f32 radius, f32 height, f32 speed)`
+- fn_802A9BFC  zone.cpp:1777 `(PlainVec3* a, PlainVec3* b, s32 tex, int d, int e, int f, int g, f32 t)` vs definition lightwall.cpp:176 `(const LVec* from, const LVec* to, s32 tex, f32 fade, int u0, int v0, int u1, int v1)`
+- fn_802C7AE0  wheelmod.cpp:26 `(int model, const ValMatrix* m, f32 height, int a)` vs definition model.cpp:1041 `(s32 i, const MFrame* f, u32 mask, f32 t)`
+- fn_802C9124  precip.cpp:208 `(int x0, int y0, int x1, int y1, f32 u0, f32 v0, f32 u1, f32 v1, u32 color)` vs definition mrender.cpp:535 `(int x0, int y0, int x1, int y1, u32 color, f32 u0, f32 v0, f32 u1, f32 v1)`
+- fn_802C94A0  mlist.cpp:154 `(const MVec3* c, f32 r, u8* clip, f32* dist)` vs definition mrender.cpp:584 `(const VecP* p, u8* visible, f32* depth, f32 r)`
+- fn_802C94A0  model.cpp:161 `(const MVec3* c, f32 r, u8* clip, f32* dist)` vs definition mrender.cpp:584 `(const VecP* p, u8* visible, f32* depth, f32 r)`
+- fn_802C9638  model.cpp:162 `(const MVec3* c, f32 r, u8* clip)` vs definition mrender.cpp:618 `(const VecP* p, u8* visible, f32 r)`
+- fn_802D01B0  mrender.cpp:47 `(f32 a, void* v)` vs definition gx.cpp:1162 `(const V3* dir, f32 scale)`
 
-# Other class/count mismatches: 222 (see ARITY.md for counts)
+# Other class/count mismatches: 236 (see ARITY.md for counts)
 
 - Apply  springcar.cpp:56 `i` vs unk_8020A6AC.cpp:289 ``
 - Apply  springcar.cpp:68 `ii` vs unk_8020A6AC.cpp:289 ``
 - Apply  uianime.cpp:66 `f` vs unk_8020A6AC.cpp:289 ``
 - CenterLine  phob.cpp:359 `ii` vs ilresmgr.cpp:198 ``
-- Cull  sound.cpp:123 `ii` vs mlist.cpp:208 `i`
+- Cull  sound.cpp:123 `ii` vs mlist.cpp:225 `i`
 - DrawFade  trackmod.cpp:140 `ii` vs loadtimer.cpp:31 `f`
-- DrawText  crashmode.cpp:182 `ii` vs contmenu.cpp:39 `iiiii`
-- DrawText  ringchal.cpp:153 `ii` vs contmenu.cpp:39 `iiiii`
-- Drop  ball.cpp:437 `` vs trailer.cpp:305 `i`
+- Drop  ball.cpp:437 `` vs trailer.cpp:300 `i`
 - Flush  carbody.cpp:180 `ii` vs partman.cpp:122 ``
 - Flush  obstacles.cpp:90 `ii` vs partman.cpp:122 ``
 - Flush  panelvol.cpp:90 `ii` vs partman.cpp:122 ``
 - Flush  rigid.cpp:193 `ii` vs partman.cpp:122 ``
 - GetEvent  stats.cpp:207 `` vs eve.cpp:224 `i`
-- Open  res.cpp:1182 `iiii` vs unk_8020A6AC.cpp:272 ``
+- Open  res.cpp:1196 `iiii` vs unk_8020A6AC.cpp:272 ``
 - Place  skagbag.cpp:36 `if` vs trackobj.cpp:484 `iii`
 - Poll  loadpool.cpp:18 `i` vs sdmp3.cpp:119 ``
-- Poll  res.cpp:378 `i` vs sdmp3.cpp:119 ``
+- Poll  res.cpp:392 `i` vs sdmp3.cpp:119 ``
 - Poll  texture.cpp:15 `i` vs sdmp3.cpp:119 ``
-- Restart  res.cpp:1181 `i` vs uiobjs.cpp:38 ``
-- Retry  res.cpp:1115 `` vs skagbag.cpp:81 `ii`
-- SetName  ringchal.cpp:563 `ii` vs xlobj.cpp:377 `i`
-- SetState  pathman.cpp:39 `iii` vs overlay.cpp:451 `i`
-- SetState  rigid.cpp:194 `iii` vs overlay.cpp:451 `i`
-- SetState  tutorial.cpp:234 `iii` vs overlay.cpp:451 `i`
+- Restart  res.cpp:1195 `i` vs uiobjs.cpp:36 ``
+- Retry  res.cpp:1129 `` vs skagbag.cpp:81 `ii`
+- SetName  ringchal.cpp:561 `ii` vs xlobj.cpp:377 `i`
+- SetState  pathman.cpp:39 `iii` vs overlay.cpp:449 `i`
+- SetState  rigid.cpp:194 `iii` vs overlay.cpp:449 `i`
+- SetState  tutorial.cpp:234 `iii` vs overlay.cpp:449 `i`
 - SetState__7CarBodyFPC9BodyState  springcar.cpp:259 `i` vs carbody.cpp:3369 `ii`
 - Snap  fire.cpp:283 `iiiii` vs uitable.cpp:86 `ff`
 - Snap  netcar.cpp:155 `` vs uitable.cpp:86 `ff`
-- Step  chunks.cpp:105 `` vs tree.cpp:336 `fff`
-- Step  chunks.cpp:125 `` vs tree.cpp:336 `fff`
-- Step  chunks.cpp:144 `` vs tree.cpp:336 `fff`
-- Step  idealline.cpp:113 `i` vs tree.cpp:336 `fff`
-- Step  ringchal.cpp:560 `i` vs tree.cpp:336 `fff`
-- Step  sound.cpp:124 `ii` vs tree.cpp:336 `fff`
-- Step  sparks.cpp:276 `` vs tree.cpp:336 `fff`
-- Step  sparks.cpp:304 `` vs tree.cpp:336 `fff`
-- Step  springcar.cpp:57 `if` vs tree.cpp:336 `fff`
+- Step  chunks.cpp:105 `` vs tree.cpp:349 `fff`
+- Step  chunks.cpp:125 `` vs tree.cpp:349 `fff`
+- Step  chunks.cpp:144 `` vs tree.cpp:349 `fff`
+- Step  idealline.cpp:113 `i` vs tree.cpp:349 `fff`
+- Step  ringchal.cpp:558 `i` vs tree.cpp:349 `fff`
+- Step  sound.cpp:124 `ii` vs tree.cpp:349 `fff`
+- Step  sparks.cpp:276 `` vs tree.cpp:349 `fff`
+- Step  sparks.cpp:304 `` vs tree.cpp:349 `fff`
+- Step  springcar.cpp:57 `if` vs tree.cpp:349 `fff`
 - Tick  fire.cpp:284 `if` vs betarace.cpp:824 ``
 - Tick  fire.cpp:355 `if` vs betarace.cpp:824 ``
 - Tick  fire.cpp:464 `ii` vs betarace.cpp:824 ``
@@ -51,7 +100,8 @@ PPC-equivalent: same calls on the Wii, wrong argument slots on x86.
 - fn_8000D7F4  world.cpp:374 `i` vs stubs.cpp:9 ``
 - fn_8000D7F8  deity.cpp:350 `if` vs stubs.cpp:11 ``
 - fn_8001071C  overlay.cpp:270 `ii` vs dashhelper.cpp:1100 `i`
-- fn_800108C8  ovlayout.cpp:1165 `ii` vs dashhelper.cpp:1115 `if`
+- fn_800108C8  ovlayout.cpp:1163 `ii` vs dashhelper.cpp:1115 `if`
+- fn_80011280  loading.cpp:124 `ifffi` vs dashhelper.cpp:1303 `iiffff`
 - fn_800126B4  gamedo.cpp:149 `iiii` vs fwd126b4.cpp:18 `ii`
 - fn_800126C0  gamedo.cpp:150 `ii` vs fwd126b4.cpp:22 ``
 - fn_8012795C  gameloop.cpp:232 `i` vs prof.cpp:184 ``
@@ -59,26 +109,26 @@ PPC-equivalent: same calls on the Wii, wrong argument slots on x86.
 - fn_80127F94  unk_80116BD4.c:430 `i` vs bg.cpp:149 ``
 - fn_8012820C  kernel.cpp:593 `i` vs mem.cpp:152 ``
 - fn_80129324  raceload.cpp:69 `i` vs spubank.cpp:25 ``
-- fn_80129BC4  widgets.cpp:377 `i` vs joy.cpp:245 ``
-- fn_8013181C  interlude.cpp:273 `iii` vs valtable.cpp:347 `i`
+- fn_80129BC4  widgets.cpp:371 `i` vs joy.cpp:245 ``
+- fn_8013181C  interlude.cpp:273 `iii` vs valtable.cpp:354 `i`
 - fn_80134E34  cammgr.cpp:49 `if` vs aidriver.cpp:436 `f`
 - fn_80136414  physcam.cpp:314 `iii` vs idealline.cpp:658 `ii`
 - fn_80136414  xlobj.cpp:47 `iii` vs idealline.cpp:658 `ii`
 - fn_80136468  cammgr.cpp:50 `ii` vs idealline.cpp:664 `if`
 - fn_80136468  physcam.cpp:26 `iif` vs idealline.cpp:664 `if`
-- fn_80136468  trackmap.cpp:184 `iif` vs idealline.cpp:664 `if`
+- fn_80136468  trackmap.cpp:180 `iif` vs idealline.cpp:664 `if`
 - fn_80136594  aiobst.cpp:134 `iii` vs idealline.cpp:705 `ii`
-- fn_80136594  betarace.cpp:3200 `iii` vs idealline.cpp:705 `ii`
+- fn_80136594  betarace.cpp:3198 `iii` vs idealline.cpp:705 `ii`
 - fn_80136594  cammgr.cpp:421 `iii` vs idealline.cpp:705 `ii`
 - fn_80139044  aidriver.cpp:22 `i` vs aiwidth.cpp:16 ``
 - fn_8013A1F8  gameloop.cpp:224 `i` vs aistub.cpp:22 ``
 - fn_8013B4E0  aidriver.cpp:19 `ii` vs aiskill.cpp:316 `i`
 - fn_8013CA3C  carrival.cpp:40 `ii` vs subtask.cpp:36 ``
-- fn_8014DE50  amaster.cpp:203 `i` vs betarace.cpp:2677 ``
-- fn_8014DE50  amaster.cpp:225 `i` vs betarace.cpp:2677 ``
-- fn_8014E7D8  popup.cpp:122 `iii` vs betarace.cpp:2733 ``
-- fn_80161BB8  amaster.cpp:16 `i` vs tutorial.cpp:1117 ``
-- fn_80167840  betarace.cpp:3428 `i` vs stub5.cpp:15 ``
+- fn_8014DE50  amaster.cpp:203 `i` vs betarace.cpp:2675 ``
+- fn_8014DE50  amaster.cpp:225 `i` vs betarace.cpp:2675 ``
+- fn_8014E7D8  popup.cpp:122 `iii` vs betarace.cpp:2731 ``
+- fn_80161BB8  amaster.cpp:16 `i` vs tutorial.cpp:1115 ``
+- fn_80167840  betarace.cpp:3426 `i` vs stub5.cpp:15 ``
 - fn_80172C28  amaster.cpp:204 `i` vs crushmaster.cpp:1108 ``
 - fn_80172C28  amaster.cpp:227 `i` vs crushmaster.cpp:1108 ``
 - fn_801792F4  trackobj.cpp:657 `` vs phob.cpp:1199 `i`
@@ -91,12 +141,12 @@ PPC-equivalent: same calls on the Wii, wrong argument slots on x86.
 - fn_8018AE5C  playcar.cpp:1169 `i` vs carbody.cpp:3761 ``
 - fn_8018BF5C  gameloop.cpp:233 `` vs carbody.cpp:4073 `i`
 - fn_8018E3EC  carbody.cpp:3171 `iiiiiiii` vs cardmg.cpp:899 `iiiiii`
-- fn_801A0258  carbody.cpp:758 `iiifffff` vs sphcoll.cpp:2750 `iifff`
-- fn_801A0258  obstacles.cpp:317 `iiifff` vs sphcoll.cpp:2750 `iifff`
+- fn_801A0258  carbody.cpp:758 `iiifffff` vs sphcoll.cpp:2763 `iifff`
+- fn_801A0258  obstacles.cpp:317 `iiifff` vs sphcoll.cpp:2763 `iifff`
 - fn_801A902C  controls.cpp:110 `i` vs inputbind.cpp:956 ``
 - fn_801AE59C  gameloop.cpp:226 `i` vs stub6.cpp:11 ``
 - fn_801B327C  gameloop.cpp:230 `i` vs deity.cpp:1468 ``
-- fn_801B3B24  sphcoll.cpp:2510 `iii` vs collisionsound.cpp:203 ``
+- fn_801B3B24  sphcoll.cpp:2523 `iii` vs collisionsound.cpp:203 ``
 - fn_801B526C  playcar.cpp:128 `i` vs physreplay.cpp:382 ``
 - fn_801B5360  collisionsound.cpp:110 `iii` vs physreplay.cpp:415 ``
 - fn_801B6650  playcar.cpp:130 `i` vs spotter.cpp:132 ``
@@ -108,19 +158,19 @@ PPC-equivalent: same calls on the Wii, wrong argument slots on x86.
 - fn_801CB6B4  deity.cpp:354 `iii` vs awards.cpp:509 ``
 - fn_801D0DFC  crashmode.cpp:171 `i` vs updlist.cpp:40 ``
 - fn_801D0DFC  pathman.cpp:64 `i` vs updlist.cpp:40 ``
-- fn_801DCEF0  terchunk.cpp:30 `i` vs heightfld.cpp:508 ``
-- fn_801DDC8C  stunts.cpp:1168 `iff` vs heightfld.cpp:727 `ff`
+- fn_801DCEF0  terchunk.cpp:30 `i` vs heightfld.cpp:519 ``
+- fn_801DDC8C  stunts.cpp:1168 `iff` vs heightfld.cpp:738 `ff`
 - fn_801E3FC8  interlude.cpp:259 `ifi` vs dbgdraw.cpp:235 `if`
-- fn_801E3FC8  pgfx.cpp:37 `ifi` vs dbgdraw.cpp:235 `if`
-- fn_801E3FC8  sphcoll.cpp:292 `iif` vs dbgdraw.cpp:235 `if`
+- fn_801E3FC8  pgfx.cpp:33 `ifi` vs dbgdraw.cpp:235 `if`
+- fn_801E3FC8  sphcoll.cpp:307 `iif` vs dbgdraw.cpp:235 `if`
 - fn_801E4F20  billboard.cpp:11 `i` vs tristrip.cpp:84 ``
-- fn_801E4F20  dashhelper.cpp:174 `i` vs tristrip.cpp:84 ``
+- fn_801E4F20  dashhelper.cpp:171 `i` vs tristrip.cpp:84 ``
 - fn_801E4F20  lightwall.cpp:17 `i` vs tristrip.cpp:84 ``
 - fn_801E4F20  mrender.cpp:41 `i` vs tristrip.cpp:84 ``
-- fn_801E4F20  racing.cpp:233 `i` vs tristrip.cpp:84 ``
+- fn_801E4F20  racing.cpp:231 `i` vs tristrip.cpp:84 ``
 - fn_801E9DD4  chunks.cpp:219 `ii` vs ground.cpp:60 ``
 - fn_801E9DD4  fire.cpp:152 `ii` vs ground.cpp:60 ``
-- fn_801FA298  world.cpp:338 `i` vs trackobj.cpp:1484 ``
+- fn_801FA298  world.cpp:338 `i` vs trackobj.cpp:1489 ``
 - fn_801FC8DC  world.cpp:336 `i` vs trackgrf.cpp:24 ``
 - fn_801FC908  camproj.cpp:20 `i` vs trackgrf.cpp:33 ``
 - fn_80203F0C  cmdline.cpp:22 `i` vs cenvmap.cpp:564 ``
@@ -141,14 +191,14 @@ PPC-equivalent: same calls on the Wii, wrong argument slots on x86.
 - fn_802168CC  uiapi.cpp:36 `if` vs widgetwin.cpp:361 `iif`
 - fn_802168D4  uiapi.cpp:28 `i` vs widgetwin.cpp:365 `ii`
 - fn_802168D4  uiapi.cpp:35 `i` vs widgetwin.cpp:365 `ii`
-- fn_802168D8  uiapi.cpp:1699 `i` vs widgetwin.cpp:367 `ii`
+- fn_802168D8  uiapi.cpp:1691 `i` vs widgetwin.cpp:367 `ii`
 - fn_802168E0  uiapi.cpp:30 `iii` vs widgetwin.cpp:371 `iiii`
 - fn_802168E0  uiapi.cpp:37 `iii` vs widgetwin.cpp:371 `iiii`
 - fn_80217834  widgetwin.cpp:71 `iii` vs window.cpp:389 `i`
 - fn_80217854  widgetwin.cpp:72 `iii` vs window.cpp:395 `i`
 - fn_8022D0D8  eve.cpp:24 `ii` vs strlist.cpp:23 `i`
-- fn_80231504  gameloop.cpp:146 `i` vs gtext.cpp:231 ``
-- fn_8023293C  uistyle.cpp:285 `iii` vs gtext.cpp:710 `iif`
+- fn_80231504  gameloop.cpp:146 `i` vs gtext.cpp:270 ``
+- fn_8023293C  uistyle.cpp:283 `iii` vs gtext.cpp:749 `iif`
 - fn_80235F64  popwarn.cpp:1121 `iif` vs gart.cpp:442 `ii`
 - fn_80265D38  springcar.cpp:266 `ii` vs stub16.cpp:9 ``
 - fn_80265D3C  springcar.cpp:267 `i` vs stub16.cpp:11 ``
@@ -182,42 +232,57 @@ PPC-equivalent: same calls on the Wii, wrong argument slots on x86.
 - fn_802C2AA8  app.cpp:55 `i` vs vidsetup.cpp:90 ``
 - fn_802C2AA8  discerr.cpp:24 `i` vs vidsetup.cpp:90 ``
 - fn_802C2C68  jumpcam.cpp:23 `ii` vs vidsetup.cpp:152 ``
-- fn_802C8230  waterpool.cpp:144 `f` vs model.cpp:1125 ``
-- fn_802C8234  waterpool.cpp:145 `f` vs model.cpp:1127 ``
-- fn_802C9474  graf.cpp:105 `i` vs mrender.cpp:583 ``
-- fn_802C9A4C  fabric.cpp:198 `f` vs mrender.cpp:736 ``
-- fn_802C9A4C  fire.cpp:181 `f` vs mrender.cpp:736 ``
-- fn_802C9A4C  gart.cpp:97 `f` vs mrender.cpp:736 ``
-- fn_802C9A4C  partman.cpp:24 `f` vs mrender.cpp:736 ``
-- fn_802C9A4C  precip.cpp:230 `f` vs mrender.cpp:736 ``
-- fn_802C9A4C  skid.cpp:110 `f` vs mrender.cpp:736 ``
-- fn_802C9A4C  sparks.cpp:149 `f` vs mrender.cpp:736 ``
-- fn_802C9A4C  trail.cpp:202 `f` vs mrender.cpp:736 ``
+- fn_802C8230  waterpool.cpp:144 `f` vs model.cpp:1129 ``
+- fn_802C8234  waterpool.cpp:145 `f` vs model.cpp:1131 ``
+- fn_802C8E00  boostman.cpp:173 `iifffff` vs mrender.cpp:466 ``
+- fn_802C8E00  cenvmap.cpp:82 `iifffff` vs mrender.cpp:466 ``
+- fn_802C8E00  dbgdraw.cpp:43 `iifffff` vs mrender.cpp:466 ``
+- fn_802C8E00  fabric.cpp:201 `iifffff` vs mrender.cpp:466 ``
+- fn_802C8E00  fire.cpp:179 `iifffff` vs mrender.cpp:466 ``
+- fn_802C8E00  gtext.cpp:142 `iifffff` vs mrender.cpp:466 ``
+- fn_802C8E00  lightwall.cpp:14 `iifffff` vs mrender.cpp:466 ``
+- fn_802C8E00  ovlayout.cpp:431 `iifffff` vs mrender.cpp:466 ``
+- fn_802C8E00  radar.cpp:13 `iifffff` vs mrender.cpp:466 ``
+- fn_802C8E00  sparks.cpp:146 `iifffff` vs mrender.cpp:466 ``
+- fn_802C8E00  splitscr.cpp:80 `iifffff` vs mrender.cpp:466 ``
+- fn_802C8E00  stuntpart.cpp:107 `iifffff` vs mrender.cpp:466 ``
+- fn_802C8E00  trackmap.cpp:190 `iifffff` vs mrender.cpp:466 ``
+- fn_802C8E00  waterpool.cpp:152 `iifffff` vs mrender.cpp:466 ``
+- fn_802C8E00  zone.cpp:2138 `iifffff` vs mrender.cpp:466 ``
+- fn_802C9474  graf.cpp:105 `i` vs mrender.cpp:576 ``
+- fn_802C9A4C  fabric.cpp:198 `f` vs mrender.cpp:729 ``
+- fn_802C9A4C  fire.cpp:181 `f` vs mrender.cpp:729 ``
+- fn_802C9A4C  gart.cpp:97 `f` vs mrender.cpp:729 ``
+- fn_802C9A4C  partman.cpp:24 `f` vs mrender.cpp:729 ``
+- fn_802C9A4C  precip.cpp:228 `f` vs mrender.cpp:729 ``
+- fn_802C9A4C  skid.cpp:108 `f` vs mrender.cpp:729 ``
+- fn_802C9A4C  sparks.cpp:149 `f` vs mrender.cpp:729 ``
+- fn_802C9A4C  trail.cpp:202 `f` vs mrender.cpp:729 ``
 - fn_802CE744  terchunk.cpp:43 `ii` vs modelpool.cpp:177 `i`
 - fn_802CF5F8  vidsetup.cpp:33 `i` vs gx.cpp:796 ``
-- fn_802D31D8  mrender.cpp:53 `i` vs gx.cpp:2188 ``
+- fn_802D31D8  mrender.cpp:49 `i` vs gx.cpp:2188 ``
 - fn_802D39A4  sunflare.cpp:79 `if` vs gx.cpp:2340 `f`
 - fn_802D3BB0  sunflare.cpp:82 `i` vs gx.cpp:2385 ``
-- fn_802D6C44  model.cpp:181 `i` vs drsurf.cpp:1246 ``
-- fn_802D6C48  model.cpp:182 `i` vs drsurf.cpp:1248 ``
-- fn_802D8DCC  texture.cpp:82 `ii` vs drtex.cpp:512 `i`
-- fn_802D9160  texture.cpp:88 `ii` vs drtex.cpp:599 `i`
-- fn_802DB2A8  mlist.cpp:167 `i` vs stub15.cpp:12 ``
-- fn_802DB2B0  mlist.cpp:168 `i` vs stub15.cpp:14 ``
-- fn_802DB2BC  model.cpp:196 `i` vs stub15.cpp:20 ``
+- fn_802D6C44  model.cpp:177 `i` vs drsurf.cpp:1260 ``
+- fn_802D6C48  model.cpp:178 `i` vs drsurf.cpp:1262 ``
+- fn_802D8DCC  texture.cpp:82 `ii` vs drtex.cpp:519 `i`
+- fn_802D9160  texture.cpp:88 `ii` vs drtex.cpp:606 `i`
+- fn_802DB2A8  mlist.cpp:165 `i` vs stub15.cpp:12 ``
+- fn_802DB2B0  mlist.cpp:166 `i` vs stub15.cpp:14 ``
+- fn_802DB2BC  model.cpp:192 `i` vs stub15.cpp:20 ``
 - fn_802DB2C0  texture.cpp:92 `i` vs stub15.cpp:22 ``
 - fn_802DB2C4  texture.cpp:93 `i` vs stub15.cpp:24 ``
 - fn_802DB2C8  gxcanvas.cpp:14 `iii` vs stub15.cpp:26 ``
-- fn_802DCFCC  water.cpp:131 `iffiii` vs gndtex.cpp:764 `iiiff`
+- fn_802DCFCC  water.cpp:129 `iffiii` vs gndtex.cpp:764 `iiiff`
 - fn_802E1718  movieinfo.cpp:15 `i` vs tevbink.cpp:876 ``
 - fn_802E47F8  inputbind.cpp:74 `i` vs keybd.cpp:92 ``
 - fn_802E4C14  physics.cpp:46 `i` vs vmem.cpp:31 ``
 - fn_802E4C18  phob.cpp:196 `i` vs vmem.cpp:33 ``
 - fn_802E4C18  vidsetup.cpp:47 `i` vs vmem.cpp:33 ``
-- fn_802E6234  unk_8020A6AC.cpp:42 `if` vs unk_802E4D84.cpp:842 ``
-- fn_802E6238  unk_8020A6AC.cpp:43 `if` vs unk_802E4D84.cpp:844 ``
-- fn_802E623C  unk_8020A6AC.cpp:44 `if` vs unk_802E4D84.cpp:846 ``
-- fn_802E6ABC  unk_8020A6AC.cpp:32 `i` vs unk_802E4D84.cpp:1119 ``
+- fn_802E6234  unk_8020A6AC.cpp:42 `if` vs unk_802E4D84.cpp:855 ``
+- fn_802E6238  unk_8020A6AC.cpp:43 `if` vs unk_802E4D84.cpp:857 ``
+- fn_802E623C  unk_8020A6AC.cpp:44 `if` vs unk_802E4D84.cpp:859 ``
+- fn_802E6ABC  unk_8020A6AC.cpp:32 `i` vs unk_802E4D84.cpp:1132 ``
 - fn_802E6CA4  mmain.cpp:8 `i` vs mcsys.cpp:86 ``
 - fn_802E7684  spubank.cpp:10 `f` vs strmbank.cpp:70 `i`
 - fn_802E8524  physdriver.cpp:15 `ii` vs rjoy.cpp:476 ``
