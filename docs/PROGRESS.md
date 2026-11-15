@@ -83,7 +83,7 @@
   port_fifo.h) that appends big-endian bytes to sdk/gxfifo.cpp's buffer. Plan for milestone 2: compile the decomp's
   matched SDK GX source for the host too, so all GX calls produce the real FIFO stream, and write a FIFO
   interpreter (BP/CP/XF + draws -> OpenGL), the way Dolphin's backends work.
-- Port patches (patches/*.patch.txt, exact-text, must match once): res.cpp evaluation order (fixed in the decomp at 3ba5ef67c, patch removed; MWCC evaluates call
+- Port patches (bg.cpp vtable patch dropped 2026-11-15: fixed in the decomp ef19dbe4d) (patches/*.patch.txt, exact-text, must match once): res.cpp evaluation order (fixed in the decomp at 3ba5ef67c, patch removed; MWCC evaluates call
   arguments before the object pointer), debug log printing (port-only), allocator boundary (port-only: untagged
   host `new` -> malloc, delete of non-MEM1/MEM2 pointers -> free).
 - **Endianness:** the 9 little-endian byte-swap helpers (36 definitions) are emptied in the port copy: the disc's
