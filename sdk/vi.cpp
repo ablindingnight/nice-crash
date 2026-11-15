@@ -102,9 +102,10 @@ VIRetraceCallback VISetPostRetraceCallback(VIRetraceCallback cb) {
 }
 
 // A display copy (EFB -> XFB, sdk/gxrender.cpp) finishes a frame: show the back buffer.
-// NICECRASH_SHOT=<frame>:<file.bmp>: save the back buffer at that display copy (bring-up screenshots).
+// NICECRASH_SHOT=<frame>:<file.bmp>: save the back buffer at the first display copy on or after that retrace
+// frame (the same clock as NICECRASH_INPUT; a menu can present many copies per retrace).
 static void MaybeShot() {
-    static int frame;
+    static int frame = g_retrace;
     static int want = -1;
     static char path[260];
     if (want == -1) {
@@ -113,7 +114,9 @@ static void MaybeShot() {
         const char* c = s ? strchr(s, ':') : nullptr;
         if (c) snprintf(path, sizeof path, "%s", c + 1);
     }
-    if (++frame != want || !path[0]) return;
+    frame = (int)g_retrace;
+    if (want < 0 || frame < want || !path[0]) return;
+    want = -3;  // once
     int w = g_w, h = g_h, stride = (w * 3 + 3) & ~3;
     unsigned char* px = (unsigned char*)malloc((size_t)stride * h);
     glPixelStorei(GL_PACK_ALIGNMENT, 4);

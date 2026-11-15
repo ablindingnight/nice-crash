@@ -31,6 +31,11 @@ void port_fifo_u32(u32 v) {
 void port_fifo_f32(f32 f) {
     u32 v;
     memcpy(&v, &f, 4);
+    if (f != f) {  // NICECRASH_NANTRAP: who sends a NaN to the GPU (first few)
+        static int left = getenv("NICECRASH_NANTRAP") ? atoi(getenv("NICECRASH_NANTRAP")) : 0;
+        extern void port_stack_here(const char*);
+        if (left > 0 && left--) port_stack_here("NaN written to the GX FIFO");
+    }
     port_fifo_u32(v);
 }
 }
@@ -50,8 +55,10 @@ const u8* sdk_fifo_data(size_t* len) {
 
 void sdk_fifo_consumed(size_t n) {
     g_read += n;
-    if (g_read == g_len) g_read = g_len = 0;  // all consumed: start over at the front
-    else if (g_read > (8u << 20)) {           // keep the buffer from growing forever
+    if (g_read == g_len) {  // all consumed: start over at the front (the breakpoint moves with the data)
+        if (g_bpOn) g_bp = g_bp > g_read ? g_bp - g_read : 0;
+        g_read = g_len = 0;
+    } else if (g_read > (8u << 20)) {           // keep the buffer from growing forever
         memmove(g_buf, g_buf + g_read, g_len - g_read);
         if (g_bpOn) g_bp -= g_read;
         g_len -= g_read;

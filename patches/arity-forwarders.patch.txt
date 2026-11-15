@@ -1,0 +1,11 @@
+@@@ mrender.cpp | ARITY: fn_802C8E00 forwards its caller's vertex (color, strip, x, y, z, u, v) to tristrip's fn_801E4F3C by leaving r3/r4/f1-f5 untouched (the call casts it to int(void)); on x86 the arguments must be passed on (gtext's button icons, every immediate-mode quad). tristrip defines it as int (u32, int, f32 x5)
+<<<
+void fn_802C8E00(void) {
+    u8 open = 0;
+    if (lbl_8055FC8F && !((int (*)(void))fn_801E4F3C)()) {
+===
+int port_tristrip_vertex(u32, int, f32, f32, f32, f32, f32) __asm__("_fn_801E4F3C");
+void fn_802C8E00(u32 color, int strip, f32 x, f32 y, f32 z, f32 u, f32 v) {
+    u8 open = 0;
+    if (lbl_8055FC8F && !port_tristrip_vertex(color, strip, x, y, z, u, v)) {
+>>>

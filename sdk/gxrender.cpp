@@ -26,14 +26,18 @@
 #endif
 
 extern "C" void sdk_vi_present_now();  // sdk/vi.cpp: swap buffers
+extern "C" u32 sdk_vi_retrace_count();
 extern "C" void sdk_vi_window_size(int* w, int* h);
 
 namespace {
 
 int g_frameNo;  // display copies so far
+// NICECRASH_DRAWLOG=<retrace frame>: log the draws of the first frame presented on or after it.
+int g_logFrame = -1;  // display copy being logged
 bool LogThisFrame() {
     static int want = getenv("NICECRASH_DRAWLOG") ? atoi(getenv("NICECRASH_DRAWLOG")) : -1;
-    return g_frameNo == want;
+    if (want >= 0 && g_logFrame < 0 && (int)sdk_vi_retrace_count() >= want) g_logFrame = g_frameNo;
+    return g_frameNo == g_logFrame;
 }
 
 const int EFB_W = 640, EFB_H = 528;  // EFB is 640 wide, up to 528 lines; the game uses 640x480

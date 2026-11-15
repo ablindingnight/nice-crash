@@ -203,3 +203,19 @@ extern "C" void port_watch(void* addr) {
     WaitForSingleObject(h, INFINITE);
     CloseHandle(h);
 }
+
+// port_stack_here(why): debugging aid, prints the calling thread's stack (symbolised) without stopping.
+extern "C" void port_stack_here(const char* why) {
+    HANDLE proc = GetCurrentProcess();
+    static bool init;
+    if (!init) {
+        SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES);
+        SymInitialize(proc, nullptr, TRUE);
+        init = true;
+    }
+    void* frames[24];
+    USHORT n = RtlCaptureStackBackTrace(1, 24, frames, nullptr);
+    fprintf(stderr, "[stack] %s\n", why);
+    for (USHORT i = 0; i < n; i++) PrintFrame(proc, (DWORD64)(uintptr_t)frames[i], i);
+    fflush(stderr);
+}

@@ -27,6 +27,11 @@ RULES = [
     # keeps all ones on the host. Bink's bit readers build masks this way with n == 0 for one-symbol trees.
     ('ppc-srw-mask', re.compile(r'(0xFFFFFFFFU?|\bones)\s*>>\s*\(32\s*-\s*((?:[^()]|\([^()]*\))+)\)'),
      r'port_srw(\1, 32 - (\2))'),
+    # File-scope `inline` functions (the game's weak helpers: Dot, Max, ...): MWCC kept an out-of-line weak copy that
+    # units declaring the function (without the body) call; clang emits an inline function only where it is not
+    # inlined, so those references went unresolved (stubbed: a float stub returns NaN). `used` emits every copy as
+    # COMDAT; the linker keeps one.
+    ('inline-emit', re.compile(r'(?m)^(\s*)inline(\s+)(?!namespace)'), r'\1inline __attribute__((used))\2'),
     ('template-cxx-linkage', re.compile(r'(?m)^template\s*<'), 'extern "C++" template <'),
 ]
 
@@ -145,6 +150,65 @@ def word_tables(fn, t):
     return t, n
 
 
+# Declarations that order int and float parameters differently from the C definition (tools/gametrial/regorder.py):
+# equivalent on PowerPC (separate register files), wrong argument slots on x86. Each becomes a static inline adapter
+# with the caller's own parameter list, forwarding to the definition's symbol with the arguments in its order.
+TYPE_WORDS = {'int', 'unsigned', 'signed', 'char', 'short', 'long', 'float', 'double', 'void', 'bool', 'BOOL',
+              'u8', 'u16', 'u32', 'u64', 's8', 's16', 's32', 's64', 'f32', 'f64', 'const', 'volatile'}
+
+
+def split_param(a, i):
+    """(type, name) of one parameter; unnamed ones get a generated name."""
+    a = a.strip()
+    m = re.match(r'^(.*?[\s\*&])([A-Za-z_]\w*)\s*$', a)
+    if m and m.group(2) not in TYPE_WORDS and re.search(r'[A-Za-z_]', m.group(1)):
+        return m.group(1).strip(), m.group(2)
+    return a, 'p%d' % i
+
+
+def regorder_adapters(texts):
+    sys.path.insert(0, HERE)
+    import regorder
+    found = regorder.scan(texts)
+    by_file = {}
+    for d in found:
+        by_file.setdefault(d['file'], []).append(d)
+    n = 0
+    for f, ds in by_file.items():
+        t = texts[f]
+        done = set()
+        for d in sorted(ds, key=lambda x: -x['start']):  # from the end, so earlier offsets stay valid
+            first = min(x['start'] for x in ds if x['name'] == d['name'])
+            if d['start'] != first:
+                t = t[:d['start']] + '/* port: regorder adapter for %s is above */' % d['name'] + t[d['end']:]
+                continue
+            ps = [split_param(a, i) for i, a in enumerate(d['params'].split(','))]
+            defps = [a.strip() for a in d['defparams'].split(',')]
+            ints = [i for i, c in enumerate(d['cls']) if c == 'i']
+            flts = [i for i, c in enumerate(d['cls']) if c == 'f']
+            order, real = [], []
+            for j, c in enumerate(d['defcls']):
+                k = (ints if c == 'i' else flts).pop(0)
+                order.append(ps[k][1])
+                if c == 'f':
+                    dt = re.sub(r'\b(const|volatile)\b', '', defps[j]).split()[0]
+                    real.append({'float': 'float', 'f32': 'float', 'double': 'double', 'f64': 'double'}.get(dt, ps[k][0]))
+                else:
+                    real.append(ps[k][0])
+            ret = re.sub(r'\b(extern|static|inline)\b|"C"', ' ', d['prefix']).strip()
+            cxx = not f.endswith('.c')
+            body = ('%s%s __port_ro_%s(%s) __asm__("_%s");\n'
+                    'static inline %s %s(%s) { %s__port_ro_%s(%s); }' % (
+                        'extern "C" ' if cxx else '', ret, d['name'], ', '.join(real), d['name'],
+                        ret, d['name'], ', '.join('%s %s' % p for p in ps),
+                        '' if ret == 'void' else 'return ', d['name'], ', '.join(order)))
+            t = t[:d['start']] + '/* port: regorder adapter (int/float parameter order differs from %s) */\n' % (
+                d['deffile']) + body + t[d['end']:]
+            n += 1
+        texts[f] = t
+    return texts, n
+
+
 def load_patches():
     pats = []
     for pf in sorted(glob.glob(os.path.join(PORT, 'patches', '*.patch.txt'))):
@@ -171,6 +235,7 @@ def main():
     counts = {r[0]: 0 for r in RULES}
     files = sorted(glob.glob(os.path.join(ET, 'src', 'game', '*.c*')))
     files += sorted(glob.glob(os.path.join(ET, 'include', '**', '*.h'), recursive=True))
+    outputs = []
     for src in (f for f in files if os.path.isfile(f)):
         t = open(src, encoding='utf-8', errors='surrogateescape').read()
         for name, rx, rep in RULES:
@@ -206,7 +271,17 @@ def main():
             t = NL.join(lines)
         srcroot = os.path.join(ET, 'src')
         rel = os.path.relpath(src, srcroot if src.startswith(srcroot + os.sep) else ET)
-        dst = os.path.join(OUT, rel)
+        outputs.append((os.path.join(OUT, rel), t))
+    # Integer/float parameter order (regorder.py): needs every unit, so it runs once all are prepared.
+    game = {os.path.basename(d): i for i, (d, _) in enumerate(outputs) if os.sep + 'game' + os.sep in d}
+    if os.environ.get('NICECRASH_NOREGORDER'):  # bisecting aid
+        texts, n = {b: outputs[i][1] for b, i in game.items()}, 0
+    else:
+        texts, n = regorder_adapters({b: outputs[i][1] for b, i in game.items()})
+    counts['regorder-adapters'] = n
+    for b, i in game.items():
+        outputs[i] = (outputs[i][0], texts[b])
+    for dst, t in outputs:
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         old = open(dst, encoding='utf-8', errors='surrogateescape').read() if os.path.exists(dst) else None
         if old != t:

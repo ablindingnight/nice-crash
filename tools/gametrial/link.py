@@ -274,6 +274,14 @@ def main():
             leaf = classify_leaf(d)
             if leaf:
                 by_base.setdefault(leaf, set()).add(d)
+    by_leaf = {}
+    for o, s in allsyms.items():
+        for d in s['def']:
+            if d.startswith('__Z'):
+                leaf, scopes = itanium_leaf(d)
+                by_leaf.setdefault((leaf, tuple(scopes)), set()).add(d)
+            elif d.startswith('_') and re.match(r'_(fn|func)_[0-9A-F]{8}$', d):
+                by_leaf.setdefault((d[1:], ()), set()).add(d)
     nb = 0
     # Retail vtables among the asm-only data (two zero words, then .text addresses): translated to host tables.
     defs = set()
@@ -322,8 +330,19 @@ def main():
         if sym in ('_port_dolfix_table', '_port_dolptr_table'):
             continue  # generated below
         mbase = sym.lstrip('_').split('__F')[0] if not sym.startswith('__Z') else None
+        target = None
         if kind != 'object' and mbase and len(by_base.get(mbase, ())) == 1:
             target = next(iter(by_base[mbase]))
+        elif kind != 'object' and sym.startswith('__Z'):
+            # A C++ declaration whose parameter types differ from the definition's (u32 vs int: mcsys
+            # fn_802E6BD8 as declared by achieve/ident) has another Itanium name; MWCC's mangling of the same
+            # pair differs too, but the retail call binds by address. Bridge when exactly one function of that
+            # name (and scope) is defined; argument order is regorder.py's business.
+            leaf, scopes = itanium_leaf(sym)
+            cands = by_leaf.get((leaf, tuple(scopes)), set())
+            if len(cands) == 1:
+                target = next(iter(cands))
+        if target:
             asm += ['\t.globl %s' % gas_name(sym), '%s:' % gas_name(sym), '\tjmp %s' % gas_name(target)]
             nb += 1
             continue
