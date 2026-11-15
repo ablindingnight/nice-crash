@@ -12,3 +12,4 @@ docs/screenshots/
 *.bmp
 *.png
 et_host.ini
+tools/gametrial/out/

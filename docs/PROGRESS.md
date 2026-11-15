@@ -30,3 +30,20 @@
 - `et_host --scan`: all 2,733 TEX resources on the disc decode (0x40 C4 20, 0x41 C8 25, 0x42 CMPR 1053,
   0x43 CMPR 75, 0x44 CMPR+I4 alpha 1091, 0x46 RGB5A3 169, 0x48 I4 230, 0x49 I8 7, 0x4A IA4 7, 0x4B IA8 56).
   Visual spot checks of C4, C8, RGB5A3, IA8, I4 and CMPR+alpha look right.
+
+## 2026-11-15 (later): route A confirmed (user, via the coordinator)
+- docs/BOOT_GAPS.md for the matching queue: 32 boot-path functions below 100% in 17 units, plus 36 NonMatching units.
+- **Compile trial** (`python tools/gametrial/trial.py --obj`): every src/game unit compiled for 32-bit x86 Windows
+  with zig. **310 of 361 compile as they are.**
+  - Port-side shims, no decomp edits: `shim/include/types.h` (the decomp's compat.h blanks `__attribute__`/`asm`
+    for clang editors and broke the system headers); u32/s32 as `int` (same size, matches x86 size_t: 310 clean vs
+    305 with `long`); `port_prefix.h` (NONMATCHING, `__declspec(section)`, `__fabs`/`__fabsf`/`__abs`/`__cntlzw`);
+    `tools/gametrial/prep.py` copies src + include into build/gamesrc with mechanical rewrites only
+    (`operator new(unsigned long` -> size_t, 15 sites).
+  - The other 51 units need real source changes: docs/SOURCE_NOTES.md lists each by cause and file:line
+    (templates inside extern "C" 18 files, extern "C"/C++ linkage mismatches 16, rvalue-to-reference calls 19,
+    switch jumps over initialised locals 4, conflicting prototypes 5, Bink/unk_8020F3B4 C files ...). 21 of them are
+    on the boot path.
+  - Tooling note: run zig with a working directory outside %LOCALAPPDATA%'s parent. From C:\Users\theop\AppData it
+    writes relative cache paths ("Local\zig\...") and fails with "failed to rename ... FileNotFound" (30 s/unit);
+    from port/ a unit takes 0.1-0.5 s.
