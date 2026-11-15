@@ -4,3 +4,15 @@
 ===
     if (lbl_8055FC8F && !((int (*)(f32, f32, f32, f32, f32, u32, int))fn_801E4F3C)(x, y, z, u, v, color, strip)) {
 >>>
+@@@ uiapi.cpp | UICustom::Slot64 forwards the key to its handler (MenuState::Key(int), slot 0x58) with no argument: on PPC the key is still in r4; on x86 the handler read garbage, so the name-entry keyboard ignored every arrow
+<<<
+        virtual s32 call();
+    };
+    Callback *obj = *(Callback **)((u8 *)arg0 + 0x244);
+    if (obj->call() != 0) return 1;
+===
+        virtual s32 call(int key);
+    };
+    Callback *obj = *(Callback **)((u8 *)arg0 + 0x244);
+    if (obj->call(arg1) != 0) return 1;
+>>>
