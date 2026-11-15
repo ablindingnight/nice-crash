@@ -326,3 +326,7 @@
   the 3D view and the UI layout. Spec: ../handoff/port_refs/LAUNCHER_SPEC_2026-11-15.md. Today: NICECRASH_ASPECT
   (4:3 / 16:9) drives SCGetAspectRatio and the window shape; "native" needs the projection and VI stretch to
   follow the window's own ratio.
+- Format-argument mismatches (coordinator, ../handoff/FMTARGS_2026-11-15.tsv): five warning calls print more
+  %s/%x than they pass, faithful to retail. On x86 a missing %s argument can crash the log call, not just print
+  garbage. Patch port-side if any is hit: animstream:238 (pass r->name, ver, 2), fabric:351, mcdialog:407,
+  popwarn:636 (retail passes nothing), gmat:443 (dead stub).
