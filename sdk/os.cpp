@@ -12,7 +12,7 @@
 // Arena bounds as the game sees them. MEM1's first 16 KB hold the OS globals (as on the Wii); the DOL and its
 // BSS do not live in MEM1 on the host, so nearly all of MEM1 is free. MEM2's top 0x00C20000 bytes belong to
 // IOS on retail (arena hi 0x933E0000); we keep that limit so the game sees retail-sized arenas.
-static void* s_mem1Lo = (void*)(uintptr_t)(WII_MEM1_BASE + 0x4000);
+static void* s_mem1Lo = (void*)(uintptr_t)0x80570000u;  // above the DOL image (bss ends 0x80565240), as on retail
 static void* s_mem1Hi = (void*)(uintptr_t)(WII_MEM1_BASE + WII_MEM1_SIZE);
 static void* s_mem2Lo = (void*)(uintptr_t)(WII_MEM2_BASE + 0x800);
 static void* s_mem2Hi = (void*)(uintptr_t)(WII_MEM2_BASE + 0x033E0000);
@@ -65,7 +65,10 @@ void OSFatal(u32 fg, u32 bg, const char* msg) {
 }
 
 // Time base: the Wii's runs at bus clock / 4 = 60.75 MHz. Derived from the host's performance counter.
+void sdk_vi_poll();  // sdk/vi.cpp: the retrace "interrupt"
+
 s64 OSGetTime(void) {
+    sdk_vi_poll();
     static LARGE_INTEGER f, t0;
     if (!f.QuadPart) {
         QueryPerformanceFrequency(&f);

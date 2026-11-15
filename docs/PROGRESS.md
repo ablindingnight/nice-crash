@@ -106,3 +106,30 @@
   boot path, does not compile yet) is stubbed.
 - Next: milestone 2 (GX: compile the decomp's SDK GX for the host + FIFO interpreter + window), input (KPADRead from
   keyboard), VI retrace pacing.
+
+## 2026-11-15: milestone 2 groundwork: real SDK GX on the host, FIFO interpreter, 60 fps frame loop
+- **The decomp's own SDK GX library runs on the host** (tools/gametrial/sdkbuild.py: all 15 libs/msc RVL_SDK/gx
+  files). Prep rewrites every `WGPIPE.x = v` to the port FIFO, replaces the 7 paired-single asm helpers
+  (GXTransform matrix/projection writers, GXLight WriteLightObj) with C that emits the same words, PPC intrinsics
+  (__rlwimi/__rlwinm/__cntlzw) in a prefix, -fgnu89-inline for MWCC-style `inline`, host overrides for the
+  interrupt-driven sync (GXDrawDone/Flush/sync callbacks/breakpoints/FIFO pointers).
+- **Wii address space:** MEM1/MEM2 mapped twice (cached 0x8/0x9 and uncached 0xC/0xD views of one section),
+  hardware register pages 0xCC000000/0xCD000000 and the locked cache 0xE0000000 as plain memory.
+- **DOL data at real addresses:** runtime/dolload.cpp loads main.dol's data sections into MEM1 at their addresses;
+  the asm-only data labels become absolute symbols there (scalars byte-swapped once from a generated table), so
+  string pools indexed past their label work. The MEM1 arena now starts above the DOL image (0x80570000).
+- **GX FIFO interpreter (sdk/gxinterp.cpp):** CP/XF/BP state, vertex sizes from VCD/VAT, display lists, draws,
+  copies; fires the draw-sync/draw-done callbacks at the token/finish BP registers, writes the PE token register,
+  and **honours GP breakpoints** (the game keeps the GPU a frame behind with GXEnableBreakPt; without it the
+  flip waited forever). tools/gametrial/fifoparse.py replays NICECRASH_FIFODUMP captures offline.
+- **VI:** window + the retrace as a polled "interrupt" (from OSGetTime, which every game wait calls): present,
+  window messages, AX tick, pre/post retrace callbacks every 1/59.94 s. Silent AX (sdk/ax.cpp) with real voice
+  objects. MWCC runtime names (__nw__FUlPCc ...) in runtime/mwcc_rt.cpp.
+- Compile: prep now normalises 32-bit `long` -> `int` and gives column-0 templates explicit C++ linkage:
+  **334 of 361 game units compile** (was 310). gtext (fonts), race, rmemcard, drsurf, homebtn, the file/sound
+  layer unk_802E4D84 (port patches: asm GQR setup, Bink lwbrx, fn-pointer casts) now build.
+- Tools: NICECRASH_STACKDUMP=<s> prints the main thread's stack after s seconds (find spins).
+- **Run now:** boot -> AppInit -> memory-card dialog ("new user"), which runs at 60 fps: ~550 draws, ~3,300
+  vertices, ~3.3 EFB copies per frame, 0 unknown FIFO opcodes. Nothing is rasterised yet; input not mapped.
+- Next: rasterise (vertex decode -> GL, textures via lib/texture decoders, TEV approximation, EFB copy -> XFB
+  texture -> window), then keyboard -> WPAD/KPAD to press A.

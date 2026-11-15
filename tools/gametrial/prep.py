@@ -17,6 +17,13 @@ RULES = [
     ('wgpipe-u8', re.compile(r'\(\*\(volatile\s+u8\s*\*\)\s*0xCC008000\)'), 'port_wgpipe.uc'),
     # The allocation operators must take size_t; on the Wii size_t is unsigned long, on x86 unsigned int.
     ('operator-new-size_t', re.compile(r'operator new(\[\])?\(\s*unsigned long\b'), r'operator new\1(size_t'),
+    # 32-bit `long` -> `int`: one type on MWCC (u32 is unsigned long there), two types to clang where the port's
+    # u32 is unsigned int (to match x86 size_t). Same size on both targets; `long long` and `long double` untouched.
+    ('long32-unsigned', re.compile(r'\bunsigned\s+long\b(?!\s+(?:long|double)\b)'), 'unsigned int'),
+    ('long32-signed', re.compile(r'\bsigned\s+long\b(?!\s+(?:long|double)\b)'), 'signed int'),
+    ('long32-plain', re.compile(r'(?<!\blong\s)(?<![\w])long\b(?!\s+(?:long|double|int)\b)(?=\s*[\w\*&\)\(,;>])'), 'int'),
+    # Templates declared inside an extern "C" block: MWCC gives them C++ linkage anyway; say so explicitly.
+    ('template-cxx-linkage', re.compile(r'(?m)^template\s*<'), 'extern "C++" template <'),
 ]
 
 

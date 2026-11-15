@@ -18,29 +18,6 @@ size_t in the port copy), decomp/compat.h clang branch (the port has its own typ
 - `mrender.cpp` declares `Pool::Pool(const char*, long, long)`; pool.cpp defines it with s32. Same type on
   MWCC, different mangled names elsewhere: use s32 in mrender.cpp.
 
-## templates-in-extern-C: 21 sites in 18 files
-
-Templates (or template helpers) sit inside an `extern "C" {` block. MWCC allows it; standard C++ does not. Close the extern "C" block before the template (matching is unaffected: templates are C++ anyway).
-
-- `birds.cpp`: lines 245
-- `caruimod.cpp`: lines 937
-- `cenvmap.cpp`: lines 185
-- `drivmod.cpp`: lines 472
-- `evpath.cpp`: lines 1316
-- `gtext.cpp`: lines 329
-- `heightfld.cpp`: lines 296
-- `masslist.cpp`: lines 416, 418, 505
-- `multievt.cpp`: lines 1052
-- `placecar.cpp`: lines 285
-- `ppsys.cpp`: lines 543
-- `racerslot.cpp`: lines 130
-- `ring.cpp`: lines 397
-- `sphcoll.cpp`: lines 2053
-- `stuntpart.cpp`: lines 378
-- `tedash.cpp`: lines 565
-- `tree.cpp`: lines 582
-- `uistyle.cpp`: lines 137, 138
-
 ## linkage-mismatch: 106 sites in 16 files
 
 A symbol is declared both inside and outside `extern "C"` in the same unit (usually an `extern` re-declared locally). Declare it once, with one linkage.
@@ -62,28 +39,11 @@ A symbol is declared both inside and outside `extern "C"` in the same unit (usua
 - `uiapi.cpp`: lines 2440, 2441, 2447
 - `unk_801BD620.cpp`: lines 2559, 2560, 2561, 2562, 2563, 2564, 2565, 2566, 2567, 2568, 2569, 2570, 2571, 2572, 2573, 2574, 2575, 2576, 2577, 2578, 2579, 2580, 2581, 2582, 2583, 2584, 2585, 2586, 2587, 2588 ...
 
-## no-matching-call: 40 sites in 19 files
+## no-matching-call: 5 sites in 2 files
 
 Usually a temporary/rvalue passed to a non-const reference or pointer parameter, or a call that relies on MWCC's looser conversions. See the candidate notes in the log; often `const T&` on the helper fixes it.
 
-- `birds.cpp`: lines 267, 281
-- `caruimod.cpp`: lines 975, 976
-- `cenvmap.cpp`: lines 192
-- `drivmod.cpp`: lines 483
-- `evpath.cpp`: lines 1330, 1347
-- `gtext.cpp`: lines 350
-- `heightfld.cpp`: lines 329, 362
-- `masslist.cpp`: lines 432, 438, 536
-- `multievt.cpp`: lines 1067
-- `placecar.cpp`: lines 341
-- `ppsys.cpp`: lines 568
-- `racerslot.cpp`: lines 246
-- `ring.cpp`: lines 409
-- `sphcoll.cpp`: lines 2090
-- `stuntpart.cpp`: lines 411
-- `tedash.cpp`: lines 578
-- `tree.cpp`: lines 593
-- `uistyle.cpp`: lines 293, 295, 297, 326, 327, 328, 329, 331, 332, 354, 355, 359, 360, 688, 689
+- `rmemcard.cpp`: lines 353, 373, 603
 - `unk_802E4D84.cpp`: lines 490, 1136
 
 ## placement-new-const: 1 sites in 1 files
@@ -101,27 +61,17 @@ A `case` label jumps past an initialised local declared in an earlier case. Wrap
 - `dashhelper.cpp`: lines 485, 498, 502, 508, 511, 520, 523
 - `interlude.cpp`: lines 2145, 2146
 
-## conflicting-types: 19 sites in 5 files
+## conflicting-types: 1 sites in 1 files
 
 Two different prototypes for the same function in one unit (often int vs s32/u32 or a header vs a local extern). Make them agree.
 
-- `fonttext.cpp`: lines 82, 116
-- `gart.cpp`: lines 93, 94
-- `gtext.cpp`: lines 702, 773, 909, 964, 972
 - `physcam.cpp`: lines 260
-- `uidraw.cpp`: lines 70, 108, 189, 214, 240, 266, 279, 458, 472
-
-## out-of-line-mismatch: 2 sites in 1 files
-
-A member definition does not match its declaration (types differ, e.g. long vs s32).
-
-- `uitable.cpp`: lines 259, 276
 
 ## implicit-function: 31 sites in 3 files
 
 C file calls a function with no prototype in scope. Add the prototype.
 
-- `unk_80116BD4.c`: lines 561, 766, 1440, 1449, 1845, 2224, 2389, 2453, 2535, 2545, 2584, 2593, 2626, 2634, 2655, 2658, 2996, 3187, 3189, 3221, 3241, 3261, 3271, 3290, 3302, 3314, 3328
+- `unk_80116BD4.c`: lines 561, 766, 1440, 1449, 1845, 2225, 2390, 2454, 2536, 2546, 2585, 2594, 2627, 2635, 2656, 2659, 2997, 3188, 3190, 3222, 3242, 3262, 3272, 3291, 3303, 3315, 3329
 - `unk_8020F3B4.c`: lines 510, 511, 522
 - `unk_80262F8C.c`: lines 25
 
@@ -142,10 +92,8 @@ Two declarations of the same function with different return types.
 
 - `aicar.cpp` 1979: call to 'fn_80137788' is ambiguous
 - `crushmaster.cpp` 1676: cannot combine with previous 'extern' declaration specifier
-- `drsurf.cpp` 1261: expected 'volatile', 'inline', 'goto', or '('
 - `gmat.cpp` 749: use of undeclared identifier 'count'
 - `gmat.cpp` 754: use of undeclared identifier 'data'
-- `homebtn.cpp` 159: expected 'volatile', 'inline', 'goto', or '('
 - `mcdialog.cpp` 65: non-constant-expression cannot be narrowed from type 'size_t' (aka 'unsigned int') to 'int' in initializer list [-Wc++11
 - `pickup.cpp` 841: cannot combine with previous 'extern' declaration specifier
 - `pickup.cpp` 864: cannot combine with previous 'extern' declaration specifier
@@ -153,9 +101,6 @@ Two declarations of the same function with different return types.
 - `race.cpp` 198: expected unqualified-id
 - `trailer.cpp` 230: call to implicitly-deleted default constructor of 'BodyState'
 - `uicontext.h` 10: unknown type name 'size_t'
-- `uitable.cpp` 161: incompatible pointer types assigning to 'long *' from 's32 *' (aka 'int *')
-- `uitable.cpp` 162: incompatible pointer types assigning to 'long *' from 's32 *' (aka 'int *')
-- `uitable.cpp` 261: incompatible pointer types assigning to 'const long *' from 'const s32 *' (aka 'const int *')
 - `unk_80116BD4.c` 1425: use of undeclared identifier 'uintptr_t'
 - `unk_80116BD4.c` 1426: use of undeclared identifier 'uintptr_t'
 - `unk_80116BD4.c` 1427: use of undeclared identifier 'decodeOffset'

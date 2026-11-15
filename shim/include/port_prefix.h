@@ -27,3 +27,7 @@ static inline unsigned int __cntlzw(unsigned int x) { return x ? (unsigned int)_
 
 // GX FIFO writes in game code go to the host FIFO (see port_fifo.h and prep.py rule wgpipe-*).
 #include "port_fifo.h"
+
+// MinGW's stdlib.h defines `environ` as a macro; the game uses it as a member name (race.cpp track table).
+#include <stdlib.h>
+#undef environ

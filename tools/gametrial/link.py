@@ -35,6 +35,11 @@ def main():
         if f.endswith('.o') and os.path.getsize(os.path.join(objdir, f)) and \
                 not re.search(r' error: ', open(log, encoding='utf-8', errors='replace').read()):
             good.append(os.path.join(objdir, f))
+    # The decomp's SDK compiled for the host (tools/gametrial/sdkbuild.py): GX today.
+    if '--nocompile' not in sys.argv:
+        subprocess.run([sys.executable, '-I', os.path.join(HERE, 'sdkbuild.py')], check=True, capture_output=True)
+    sdkdir = os.path.join(B, 'sdkobj')
+    good += sorted(os.path.join(sdkdir, f) for f in os.listdir(sdkdir) if f.endswith('.o')) if os.path.isdir(sdkdir) else []
     # Port runtime objects.
     rt = []
     import glob as _g
@@ -77,8 +82,17 @@ def main():
     data = ['\t.bss']
     rodata = ['\t.section .rdata,"dr"']
     nf = nd = 0
+    fixes = []
     for sym, name, kind, unit, sec, addr, size, cat in rows:
-        if kind == 'object':
+        if sym == '_port_dolfix_table':
+            continue  # generated below
+        if kind == 'object' and addr and 0x80000000 <= int(addr, 16) < 0x81800000:
+            # Asm-only data: an absolute symbol at its Wii address; runtime/dolload.cpp puts the retail bytes there.
+            data += ['\t.globl %s' % gas_name(sym), '\t.set %s, 0x%s' % (gas_name(sym), addr)]
+            if int(size) in (2, 4, 8) and sec in ('.sdata2', '.sdata', '.data', '.rodata', '.bss', '.sbss'):
+                fixes.append((addr, int(size)))
+            nd += 1
+        elif kind == 'object':
             n = max(int(size), 4)
             data += ['\t.balign 8', '\t.globl %s' % gas_name(sym), '%s:' % gas_name(sym), '\t.space %d' % n]
             nd += 1
@@ -88,6 +102,9 @@ def main():
             asm += ['\t.globl %s' % gas_name(sym), '%s:' % gas_name(sym),
                     '\tpushl $%s' % lab, '\tcall _port_unimpl', '\taddl $4, %esp', '\tret']
             nf += 1
+    # Scalars among the DOL-backed labels: byte-swapped once at startup (runtime/dolload.cpp).
+    rodata += ['\t.balign 4', '\t.globl _port_dolfix_table', '_port_dolfix_table:']
+    rodata += ['\t.long 0x%s, %d' % (a, n) for a, n in fixes] + ['\t.long 0, 0']
     s = os.path.join(B, 'stubs.s')
     open(s, 'w').write('\n'.join(asm + data + rodata) + '\n')
     so = os.path.join(B, 'stubs.o')

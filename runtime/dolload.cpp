@@ -1,0 +1,56 @@
+// Loads the player's main.dol DATA sections at their original addresses in the mapped MEM1 (as the Wii's
+// apploader does), so data that only exists in the matching build's assembly (the asm-only labels, defined as
+// absolute symbols at their Wii addresses in build/stubs.s) reads real retail bytes, including code that indexes
+// past a label. Scalars among those labels (4- and 8-byte values listed in port_dolfix_table) are byte-swapped
+// once here; everything else (strings, byte tables) is used as it is. Text sections (PowerPC code) are not loaded.
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <string>
+#include "portconfig.h"
+#include "wiimem.h"
+
+struct DolFix {
+    u32 addr, size;
+};
+extern "C" const DolFix port_dolfix_table[];  // build/stubs.s, terminated by {0, 0}
+
+static u32 BE(const unsigned char* p) { return (u32)p[0] << 24 | (u32)p[1] << 16 | (u32)p[2] << 8 | p[3]; }
+
+static void Swap(unsigned char* p, int n) {
+    for (int i = 0; i < n / 2; i++) {
+        unsigned char t = p[i];
+        p[i] = p[n - 1 - i];
+        p[n - 1 - i] = t;
+    }
+}
+
+__attribute__((constructor(104))) static void LoadDolData() {
+    std::string path;
+    portcfg::Values v;
+    if (portcfg::Read(portcfg::DumpIniPath(), v)) path = v["dol"];
+    if (const char* e = getenv("NICECRASH_DOL")) path = e;
+    FILE* f = path.empty() ? nullptr : fopen(path.c_str(), "rb");
+    if (!f) {
+        fprintf(stderr, "[dol] cannot open main.dol (%s): run build/import.exe on your disc first\n", path.c_str());
+        exit(94);
+    }
+    unsigned char h[0x100];
+    if (fread(h, 1, sizeof h, f) != sizeof h) exit(94);
+    for (int i = 7; i < 18; i++) {  // data sections D0-D10
+        u32 off = BE(h + i * 4), addr = BE(h + 0x48 + i * 4), size = BE(h + 0x90 + i * 4);
+        if (!size) continue;
+        if (addr < WII_MEM1_BASE || addr + size > WII_MEM1_BASE + WII_MEM1_SIZE) continue;
+        fseek(f, (long)off, SEEK_SET);
+        if (fread((void*)(uintptr_t)addr, 1, size, f) != size) {
+            fprintf(stderr, "[dol] short read in data section %d\n", i - 7);
+            exit(94);
+        }
+    }
+    fclose(f);
+    int n = 0;
+    for (const DolFix* d = port_dolfix_table; d->addr; d++, n++)
+        if (d->size == 2 || d->size == 4 || d->size == 8) Swap((unsigned char*)(uintptr_t)d->addr, (int)d->size);
+}

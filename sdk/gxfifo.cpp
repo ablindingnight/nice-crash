@@ -35,9 +35,40 @@ void port_fifo_f32(f32 f) {
 }
 }
 
-// The interpreter (milestone 2) consumes and resets the buffer once per frame.
+// The interpreter consumes [g_read, limit): limit is the GP breakpoint when one is set (the game stalls the GPU
+// at the current write position with GXEnableBreakPt and moves it each frame, so the GPU runs a frame behind),
+// else everything written so far.
+static size_t g_read;
+static bool g_bpOn;
+static size_t g_bp;
+
 const u8* sdk_fifo_data(size_t* len) {
-    *len = g_len;
-    return g_buf;
+    size_t limit = g_bpOn && g_bp < g_len ? g_bp : g_len;
+    *len = limit > g_read ? limit - g_read : 0;
+    return g_buf + g_read;
 }
-void sdk_fifo_reset() { g_len = 0; }
+
+void sdk_fifo_consumed(size_t n) {
+    g_read += n;
+    if (g_read == g_len) g_read = g_len = 0;  // all consumed: start over at the front
+    else if (g_read > (8u << 20)) {           // keep the buffer from growing forever
+        memmove(g_buf, g_buf + g_read, g_len - g_read);
+        if (g_bpOn) g_bp -= g_read;
+        g_len -= g_read;
+        g_read = 0;
+    }
+}
+
+extern "C" {
+// GP breakpoints in terms of the host FIFO: the position is "everything written so far".
+void GXEnableBreakPt(void* wr) {
+    g_bpOn = true;
+    g_bp = g_len;
+}
+void GXDisableBreakPt(void) { g_bpOn = false; }
+// The SDK's FIFO pointers are meaningless on the host; report an empty, consistent FIFO.
+void GXGetFifoPtrs(void* fifo, void** rd, void** wr) {
+    if (rd) *rd = nullptr;
+    if (wr) *wr = nullptr;
+}
+}

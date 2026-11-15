@@ -5,6 +5,7 @@
 #include <windows.h>
 #include <dbghelp.h>
 #include <cstdio>
+#include <cstdlib>
 
 static void PrintFrame(HANDLE proc, DWORD64 pc, int i) {
     char buf[sizeof(SYMBOL_INFO) + 256];
@@ -56,4 +57,44 @@ static LONG WINAPI OnCrash(EXCEPTION_POINTERS* ep) {
 __attribute__((constructor(101))) static void InstallCrashHandler() {
     SetUnhandledExceptionFilter(OnCrash);
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+}
+
+// NICECRASH_STACKDUMP=<seconds>: after that long, print the main thread's stack (where is it spinning?).
+static HANDLE g_mainThread;
+static DWORD WINAPI Watchdog(void* p) {
+    Sleep((DWORD)(uintptr_t)p * 1000);
+    HANDLE proc = GetCurrentProcess();
+    SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES);
+    SymInitialize(proc, nullptr, TRUE);
+    SuspendThread(g_mainThread);
+    CONTEXT ctx{};
+    ctx.ContextFlags = CONTEXT_FULL;
+    GetThreadContext(g_mainThread, &ctx);
+    fprintf(stderr, "\n[stackdump] main thread after %u s:\n", (unsigned)(uintptr_t)p);
+#ifdef _M_IX86
+    STACKFRAME64 sf{};
+    sf.AddrPC.Offset = ctx.Eip;
+    sf.AddrPC.Mode = AddrModeFlat;
+    sf.AddrFrame.Offset = ctx.Ebp;
+    sf.AddrFrame.Mode = AddrModeFlat;
+    sf.AddrStack.Offset = ctx.Esp;
+    sf.AddrStack.Mode = AddrModeFlat;
+    for (int i = 0; i < 24; i++) {
+        if (!StackWalk64(IMAGE_FILE_MACHINE_I386, proc, g_mainThread, &sf, &ctx, nullptr, SymFunctionTableAccess64,
+                         SymGetModuleBase64, nullptr) || !sf.AddrPC.Offset)
+            break;
+        PrintFrame(proc, sf.AddrPC.Offset, i);
+    }
+#endif
+    fflush(stderr);
+    ResumeThread(g_mainThread);
+    return 0;
+}
+
+__attribute__((constructor(103))) static void InstallWatchdog() {
+    const char* s = getenv("NICECRASH_STACKDUMP");
+    if (!s) return;
+    DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &g_mainThread, 0, FALSE,
+                    DUPLICATE_SAME_ACCESS);
+    CreateThread(nullptr, 0, Watchdog, (void*)(uintptr_t)atoi(s), 0, nullptr);
 }

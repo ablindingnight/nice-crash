@@ -1,0 +1,13 @@
+@@@ unk_802E4D84.cpp | CAST: a function pointer passed as void* without a cast (MWCC allows it, standard C++ does not)
+<<<
+    fn_802E2E0C(fn_802E540C, "Spu");
+===
+    fn_802E2E0C((void*)fn_802E540C, "Spu");
+>>>
+
+@@@ unk_802E4D84.cpp | CAST: a function pointer passed as void* without a cast (MWCC allows it, standard C++ does not)
+<<<
+    fn_802E2E0C(fn_802E6AD0, "DTK");
+===
+    fn_802E2E0C((void*)fn_802E6AD0, "DTK");
+>>>

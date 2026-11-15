@@ -39,7 +39,6 @@ s32 NANDInit(void) {
 }
 
 // VI / DVD init: nothing to set up yet.
-void VIInit(void) { sdk_log("VIInit"); }
 void DVDInit(void) { sdk_log("DVDInit"); }
 
 }  // extern "C"
