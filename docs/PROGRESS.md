@@ -300,3 +300,24 @@
   NICECRASH_PCMBE flips it if a big-endian source turns up.
 - Verified from a capture (NICECRASH_WAV): title music, an ADPCM stereo loop; sample autocorrelation 0.93, L/R
   correlation 0.93, peaks ~17k. NICECRASH_AXLOG lists voice setups. Listened to on speakers 2026-11-15: sounds right (user).
+
+## 2026-11-15 (late): compared with Dolphin; colours, 16:9, flicker, icon
+- **Palette byte order:** image palettes are little-endian on disc and the Wii loader swaps them; the port now
+  reverses each word in drtex fn_802D78D4 (logo orange/yellow/silver instead of pink; the profile star's blue box
+  and the faint box behind the logo were the alpha read from red).
+- **16:9:** SCGetAspectRatio reports widescreen (NICECRASH_ASPECT=4:3), window 854x480, the 448-line picture
+  centred with bars above and below as on a TV (and in Dolphin).
+- **__float_epsilon was a stub function:** classify.py stripped every leading underscore from C names, so MSL's
+  __float_epsilon/__float_max/_current_locale were stubbed as code; NearZero compared against code bytes. With the
+  data back, the widescreen camera widens its field of view and the UI matches Dolphin's 16:9 layout.
+- **Display = Wii VI:** EFB in an FBO, display copies into per-address XFB textures (sdk/xfb.cpp), one present per
+  retrace of the XFB the game selected; frame pacing (the first GXFlush after a display copy waits for the retrace;
+  deferring the FIFO instead deadlocks on the game's draw-sync busy-wait); empty copies are not shown. 0 black
+  frames in 1800 (was ~1 in 5 around the title).
+- **Video strip:** Dolphin shows it too unless "manual texture sampling" is on; the port now samples indirect
+  stages manually (1/128 texel coordinates, 1/16 bilinear weights, texel-centre fetches): gone.
+- **Keys like Dolphin:** 1/2 = remote 1/2, Enter = HOME. Pressing 2 on the title opens Choose a Profile.
+- **Icon:** the user's X artwork -> assets/icon (transparent PNG + .ico via tools/makeicon.py), embedded in both
+  exes, used for the window/taskbar.
+- Open: HOME menu (HBM library is stubbed), controller (XInput), profile slots on Choose a Profile (compare with
+  Dolphin).
