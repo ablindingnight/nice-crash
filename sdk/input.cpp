@@ -1,5 +1,6 @@
-// Host SDK: Wii Remote (WPAD/KPAD) and GameCube pad (PAD). Remote 0 is a connected core remote driven by the
-// keyboard (first version of milestone 4, docs/porting.md section 7):
+// Host SDK: Wii Remote (WPAD/KPAD) and GameCube pad (PAD). Remote 1 (chan 0) is always connected and driven by
+// the keyboard and pad 1; remotes 2-4 appear when XInput pads 2-4 are plugged in (pad mapping: see PadHold).
+// Keyboard (Dolphin-like):
 //   2 = 2 (confirm / accelerate: the remote is held sideways), 1 = 1 (back / brake), A = A, B = B,
 //   = / + = Plus, - = Minus, Enter or Home = HOME (as in Dolphin's default keyboard mapping),
 //   arrow keys = D-pad (the remote is held sideways, so the pad is rotated: screen-up is the pad's Right).
@@ -8,6 +9,7 @@
 // scripted bring-up runs. Buttons: A B 1 2 PLUS MINUS HOME UP DOWN LEFT RIGHT (screen directions).
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include "sdk.h"
@@ -78,6 +80,79 @@ static void LoadScript() {
 
 static bool Key(int vk) { return (GetAsyncKeyState(vk) & 0x8000) != 0; }
 
+// ---- XInput pads (part of Windows: xinput1_4.dll, loaded at run time; nothing to install) ----
+// Pad n drives remote n, held sideways as Excite Truck wants it:
+//   A or right trigger = 2 (accelerate / OK), B or left trigger = 1 (brake / back),
+//   left stick = tilt (left/right steers, forward/back leans the truck in the air),
+//   D-pad = the remote's D-pad (menus), X or RB = turbo (the D-pad's "up"), Start = +, LB = -, Back = HOME.
+// The game's rumble (WPADControlMotor) runs the pad's motors.
+struct XState {
+    DWORD packet;
+    WORD buttons;
+    BYTE lt, rt;
+    SHORT lx, ly, rx, ry;
+};
+struct XVibration {
+    WORD left, right;
+};
+typedef DWORD(WINAPI* XGetState)(DWORD, XState*);
+typedef DWORD(WINAPI* XSetState)(DWORD, XVibration*);
+static XGetState p_XInputGetState;
+static XSetState p_XInputSetState;
+
+static bool LoadXInput() {
+    static int ok = -1;
+    if (ok >= 0) return ok;
+    HMODULE m = LoadLibraryA("xinput1_4.dll");
+    if (!m) m = LoadLibraryA("xinput9_1_0.dll");
+    if (m) {
+        p_XInputGetState = (XGetState)(void*)GetProcAddress(m, "XInputGetState");
+        p_XInputSetState = (XSetState)(void*)GetProcAddress(m, "XInputSetState");
+    }
+    ok = p_XInputGetState != nullptr;
+    sdk_log("XInput %s", ok ? "available" : "not found: keyboard only");
+    return ok;
+}
+
+static bool PadState(int chan, XState* s) {
+    if (!LoadXInput()) return false;
+    memset(s, 0, sizeof *s);
+    return p_XInputGetState((DWORD)chan, s) == 0;  // ERROR_SUCCESS: a pad is connected
+}
+
+static f32 Axis(SHORT v, int dead) {
+    int a = v < 0 ? -v : v;
+    if (a <= dead) return 0;
+    f32 t = (f32)(a - dead) / (32767.0f - dead);
+    if (t > 1) t = 1;
+    return v < 0 ? -t : t;
+}
+
+// Buttons and the stick of pad `chan` as remote bits and a tilt (steer: -1..1 right; lean: -1..1 back/forward).
+static u32 PadHold(int chan, f32* steer, f32* lean) {
+    XState s;
+    *steer = *lean = 0;
+    if (!PadState(chan, &s)) return 0;
+    enum { DUP = 0x1, DDOWN = 0x2, DLEFT = 0x4, DRIGHT = 0x8, START = 0x10, BACK = 0x20, LB = 0x100, RB = 0x200,
+           XA = 0x1000, XB = 0x2000, XX = 0x4000, XY = 0x8000 };
+    u32 hold = 0;
+    WORD b = s.buttons;
+    if ((b & XA) || s.rt > 64) hold |= BTN_2;
+    if ((b & XB) || s.lt > 64) hold |= BTN_1;
+    if (b & START) hold |= BTN_PLUS;
+    if (b & LB) hold |= BTN_MINUS;
+    if (b & BACK) hold |= BTN_HOME;
+    // The remote is held sideways: screen-up is the pad's Right (as for the keyboard's arrows).
+    if (b & DUP) hold |= BTN_RIGHT;
+    if (b & DDOWN) hold |= BTN_LEFT;
+    if (b & DLEFT) hold |= BTN_UP;
+    if (b & DRIGHT) hold |= BTN_DOWN;
+    if ((b & XX) || (b & RB)) hold |= BTN_RIGHT;  // turbo
+    *steer = Axis(s.lx, 7849);
+    *lean = Axis(s.ly, 7849);
+    return hold;
+}
+
 static u32 CurrentHold(f32* tilt) {
     if (g_nscript < 0) LoadScript();
     u32 hold = 0;
@@ -123,7 +198,8 @@ WPADConnectCallback WPADSetConnectCallback(s32 chan, WPADConnectCallback cb) {
 }
 
 s32 WPADProbe(s32 chan, s32* type) {
-    if (chan == 0) {
+    XState s;
+    if (chan == 0 || (chan > 0 && chan < 4 && PadState(chan, &s))) {  // remote 1 always (keyboard); 2-4 with a pad
         if (type) *type = 0;  // WPAD_DEV_CORE
         return WPAD_ERR_NONE;
     }
@@ -132,7 +208,8 @@ s32 WPADProbe(s32 chan, s32* type) {
 }
 
 s32 WPADGetInfoAsync(s32 chan, void* info, WPADInfoCallback cb) {
-    if (chan != 0) return WPAD_ERR_NO_CONTROLLER;
+    XState s;
+    if (chan != 0 && !(chan > 0 && chan < 4 && PadState(chan, &s))) return WPAD_ERR_NO_CONTROLLER;
     if (info) memset(info, 0, 0x18);  // WPADInfo: no extension, battery etc. zero
     if (info) ((u8*)info)[0x10] = 4;   // battery level: full
     if (cb) cb(chan, WPAD_ERR_NONE);
@@ -140,27 +217,49 @@ s32 WPADGetInfoAsync(s32 chan, void* info, WPADInfoCallback cb) {
 }
 
 s32 KPADRead(s32 chan, void* buf, u32 n) {
-    if (chan != 0 || !buf || !n) return 0;
-    f32 tilt;
-    u32 hold = CurrentHold(&tilt);
+    if (chan < 0 || chan > 3 || !buf || !n) return 0;
+    f32 steer = 0, lean = 0;
+    u32 hold = 0;
+    if (chan == 0) {  // the keyboard (and the bring-up script) drive remote 1, together with pad 1
+        f32 tilt;
+        hold = CurrentHold(&tilt);
+        steer = tilt * 2.0f;
+    }
+    f32 ps, pl;
+    if (sdk_vi_has_focus() || chan != 0) hold |= PadHold(chan, &ps, &pl);
+    else ps = pl = 0;
+    if (ps != 0) steer = ps;
+    lean = pl;
+    XState probe;
+    if (chan != 0 && !PadState(chan, &probe)) return 0;  // no pad: no remote
+    static u32 prev[4];
     KStatus* k = (KStatus*)buf;
     memset(k, 0, sizeof *k);
-    if (hold != g_prevHold) sdk_log("KPADRead: hold %04x at retrace %u", hold, sdk_vi_retrace_count());
+    if (hold != prev[chan]) sdk_log("KPADRead %d: hold %04x at retrace %u", chan, hold, sdk_vi_retrace_count());
     k->hold = hold;
-    k->trig = hold & ~g_prevHold;
-    k->release = g_prevHold & ~hold;
-    g_prevHold = hold;
-    // Held sideways and level: gravity along the remote's X axis; steering tilts it (game: steer = -2 * accZ).
-    k->accX = -1.0f;
-    k->accY = 0.0f;
-    k->accZ = -tilt;
+    k->trig = hold & ~prev[chan];
+    k->release = prev[chan] & ~hold;
+    prev[chan] = hold;
+    if (chan == 0) g_prevHold = hold;
+    // The remote held sideways and level reads gravity on -Y (the game: steer = -2 * accZ, lean from atan2(accX,
+    // -accY), 0 when level). Steering rolls gravity into Z (full lock at accZ = -/+0.5), leaning pitches it into X
+    // (up to 45 degrees).
+    f32 roll = 0.5f * steer, pitch = 0.785398f * lean;
+    k->accZ = -roll;
+    k->accX = sinf(pitch);
+    k->accY = -sqrtf(fmaxf(0.0f, 1.0f - roll * roll)) * cosf(pitch);
     k->devType = 0;  // WPAD_DEV_CORE
     k->err = 0;      // WPAD_ERR_NONE
     return 1;
 }
 
 void WPADDisconnect(s32) {}
-void WPADControlMotor(s32, u32) {}
+// The game's rumble on remote `chan` -> that pad's motors.
+void WPADControlMotor(s32 chan, u32 on) {
+    if (chan < 0 || chan > 3 || !LoadXInput() || !p_XInputSetState) return;
+    XVibration v{on ? (WORD)36000 : (WORD)0, on ? (WORD)36000 : (WORD)0};
+    p_XInputSetState((DWORD)chan, &v);
+}
 u8 WPADGetRadioSensitivity(s32) { return 100; }
 void __WPADShutdown(void) {}
 void __WPADReconnect(void) {}
