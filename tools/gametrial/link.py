@@ -311,6 +311,7 @@ def main():
         return cands[0] if len(cands) == 1 else None
 
     nb = 0
+    bridges = []  # (undefined symbol, definition it binds to, the decomp's unit for it, how)
     # Retail vtables among the asm-only data (two zero words, then .text addresses): translated to host tables.
     defs = set()
     for s_ in allsyms.values():
@@ -392,10 +393,12 @@ def main():
                 asm += ['\tmovl %d(%%ebp), %%eax' % (8 + 4 * i), '\tmovl %%eax, %d(%%esp)' % (4 * i)]
             asm += ['\tcall %s' % gas_name(target), '\tmovl 8(%ebp), %eax', '\tleave', '\tret']
             nb += 1
+            bridges.append((sym, target, unit, 'ctor/dtor (returns this)'))
             continue
         if target:
             asm += ['\t.globl %s' % gas_name(sym), '%s:' % gas_name(sym), '\tjmp %s' % gas_name(target)]
             nb += 1
+            bridges.append((sym, target, unit, 'jump'))
             continue
         if re.match(r'(sdk_|gxr_|gxi_|port_)', name):
             sys.exit('link: the port\'s own symbol %s is undefined (declaration/linkage mismatch?)' % name)
@@ -486,6 +489,9 @@ def main():
         print(r.stderr[:3000])
         sys.exit(1)
     print('stubs: %d functions, %d data; %d MWCC-name bridges' % (nf, nd, nb))
+    with open(os.path.join(B, 'bridges.tsv'), 'w') as f:  # docs/BRIDGES.md is generated from this
+        for row in sorted(bridges):
+            f.write('\t'.join(str(x) for x in row) + '\n')
     cmd = base + [so]
     r = subprocess.run(rsp(cmd), cwd=PORT, capture_output=True, text=True, errors='replace', creationflags=0x08000000)
     out = r.stdout + r.stderr
