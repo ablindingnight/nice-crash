@@ -1,0 +1,9 @@
+@@@ res.cpp | MWCC evaluates the argument (which creates the pool) before loading lbl_8055E008; C++17 clang loads the null pointer first
+<<<
+void fn_8012A648(void) { lbl_8055E008->Free(AsyncResource::operator new(sizeof(AsyncResource), "baz")); }
+===
+void fn_8012A648(void) {
+    void* p = AsyncResource::operator new(sizeof(AsyncResource), "baz");
+    lbl_8055E008->Free(p);
+}
+>>>

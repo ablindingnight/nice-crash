@@ -74,3 +74,21 @@
   new before the game heap exists); unk_802E4D84.cpp (file layer on the boot path) still needs its compile fixes.
 - Next: OSThread/OSMutex/OSMessageQueue on Windows threads (Wii scheduling: priority, run until block), then the
   DVD layer on lib/res, then VI/GX.
+
+## 2026-11-15: threads, DVD, GX FIFO; the game's own resource system runs
+- sdk/thread.cpp: OSThread/OSMutex on Windows threads with one "CPU" lock (Wii single-core semantics; a thread
+  yields only where a Wii thread blocks). The MP3 decoder thread starts.
+- sdk/dvd.cpp: DVDOpen/Read/ReadAsync/Close from the imported disc folder (dump.ini).
+- GX FIFO: prep.py rewrites game code's `(*(volatile WGPipe*)0xCC008000)` to a host object (shim/include/
+  port_fifo.h) that appends big-endian bytes to sdk/gxfifo.cpp's buffer. Plan for milestone 2: compile the decomp's
+  matched SDK GX source for the host too, so all GX calls produce the real FIFO stream, and write a FIFO
+  interpreter (BP/CP/XF + draws -> OpenGL), the way Dolphin's backends work.
+- Port patches (patches/*.patch.txt, exact-text, must match once): res.cpp evaluation order (MWCC evaluates call
+  arguments before the object pointer), debug log printing (port-only), allocator boundary (port-only: untagged
+  host `new` -> malloc, delete of non-MEM1/MEM2 pointers -> free).
+- **Endianness:** the 9 little-endian byte-swap helpers (36 definitions) are emptied in the port copy: the disc's
+  LE data is already native on x86. Byte-level reads of swapped words (e.g. drtex palette unions) still need
+  case-by-case fixes as they are found.
+- **Run now:** kernel init, heaps ("stackmem: base == 0x80004000 ..."), mp3 thread, "gx: NTSC 480i ... did flip",
+  `res: loading tocres.res`, the 9 startup sets queued, a chunk read, "texture: loaded lightmap" (the game's own
+  texture.cpp), sound mixer; stops in model.cpp (debug-draw model setup in AppInit).

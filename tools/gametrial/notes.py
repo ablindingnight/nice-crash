@@ -60,7 +60,15 @@ def main():
          'please verify with the usual build before committing. Line numbers are as of the trial run.', '',
          'Already handled port-side without source changes (no action needed): `__declspec(section ...)`, MWCC',
          'intrinsics (`__fabs`, `__fabsf`, `__abs`, `__cntlzw`), `operator new(unsigned long, ...)` (rewritten to',
-         'size_t in the port copy), decomp/compat.h clang branch (the port has its own types.h).', '']
+         'size_t in the port copy), decomp/compat.h clang branch (the port has its own types.h), the GX FIFO macro',
+         '(0xCC008000 -> host FIFO object), and the little-endian byte-swap helpers (no-ops on an x86 host).', '',
+         '## Behaviour differences found at run time (port patches in port/patches; please fix in the decomp)', '',
+         '- `res.cpp` fn_8012A648: `lbl_8055E008->Free(AsyncResource::operator new(...))`: the argument creates the',
+         '  pool that lbl_8055E008 points to. MWCC evaluates the argument first; C++17 compilers load the (null)',
+         '  pointer first. Matching-neutral fix: `void* p = AsyncResource::operator new(...); lbl_8055E008->Free(p);`',
+         '  (check the match).',
+         '- `mrender.cpp` declares `Pool::Pool(const char*, long, long)`; pool.cpp defines it with s32. Same type on',
+         '  MWCC, different mangled names elsewhere: use s32 in mrender.cpp.', '']
     for key, rx, advice in CATS:
         units = by[key]
         if not units:

@@ -1,0 +1,41 @@
+@@@ mem.cpp | PORT-ONLY: host code (C++ runtime, port SDK) shares the global operator new with the game; untagged requests go to malloc instead of the game's "no name" panic
+<<<
+void* operator new(size_t size) {
+    if (lbl_8055DF80) {
+===
+extern "C" void* malloc(size_t size);
+extern "C" void free(void* p);
+// Game heaps live in the mapped MEM1/MEM2 (runtime/wiimem.cpp); anything else came from malloc.
+static inline int PortIsGamePtr(void* p) {
+    unsigned int a = (unsigned int)p;
+    return (a >= 0x80000000u && a < 0x81800000u) || (a >= 0x90000000u && a < 0x94000000u);
+}
+void* operator new(size_t size) {
+    if (!lbl_8055DF80) {
+        return malloc(size ? size : 1);
+    }
+    if (lbl_8055DF80) {
+>>>
+
+@@@ mem.cpp | PORT-ONLY: delete of host (malloc) pointers goes back to free
+<<<
+void operator delete(void* p) { MemFree(p, 3); }
+
+void operator delete[](void* p) { MemFree(p, 0); }
+===
+void operator delete(void* p) {
+    if (p && !PortIsGamePtr(p)) {
+        free(p);
+        return;
+    }
+    MemFree(p, 3);
+}
+
+void operator delete[](void* p) {
+    if (p && !PortIsGamePtr(p)) {
+        free(p);
+        return;
+    }
+    MemFree(p, 0);
+}
+>>>

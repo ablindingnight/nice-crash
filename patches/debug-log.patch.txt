@@ -1,0 +1,14 @@
+@@@ log.cpp | PORT-ONLY (not for the decomp): retail compiles the debug print out; the port prints it to stdout
+<<<
+void fn_802E3028(const char* fmt, va_list args, const char* prefix) {}
+===
+int vprintf(const char* fmt, va_list args);
+int printf(const char* fmt, ...);
+int fflush(struct _iobuf* f);
+void fn_802E3028(const char* fmt, va_list args, const char* prefix) {
+    if (prefix) printf("%s", prefix);
+    vprintf(fmt, args);
+    printf("\n");
+    fflush(0);
+}
+>>>

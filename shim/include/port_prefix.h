@@ -24,3 +24,6 @@ static inline unsigned int __cntlzw(unsigned int x) { return x ? (unsigned int)_
 
 // The game's main (kernel.cpp) becomes GameMain; the host's runtime/port_main.cpp calls it.
 #define main GameMain
+
+// GX FIFO writes in game code go to the host FIFO (see port_fifo.h and prep.py rule wgpipe-*).
+#include "port_fifo.h"

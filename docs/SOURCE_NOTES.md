@@ -6,7 +6,17 @@ please verify with the usual build before committing. Line numbers are as of the
 
 Already handled port-side without source changes (no action needed): `__declspec(section ...)`, MWCC
 intrinsics (`__fabs`, `__fabsf`, `__abs`, `__cntlzw`), `operator new(unsigned long, ...)` (rewritten to
-size_t in the port copy), decomp/compat.h clang branch (the port has its own types.h).
+size_t in the port copy), decomp/compat.h clang branch (the port has its own types.h), the GX FIFO macro
+(0xCC008000 -> host FIFO object), and the little-endian byte-swap helpers (no-ops on an x86 host).
+
+## Behaviour differences found at run time (port patches in port/patches; please fix in the decomp)
+
+- `res.cpp` fn_8012A648: `lbl_8055E008->Free(AsyncResource::operator new(...))`: the argument creates the
+  pool that lbl_8055E008 points to. MWCC evaluates the argument first; C++17 compilers load the (null)
+  pointer first. Matching-neutral fix: `void* p = AsyncResource::operator new(...); lbl_8055E008->Free(p);`
+  (check the match).
+- `mrender.cpp` declares `Pool::Pool(const char*, long, long)`; pool.cpp defines it with s32. Same type on
+  MWCC, different mangled names elsewhere: use s32 in mrender.cpp.
 
 ## templates-in-extern-C: 21 sites in 18 files
 
@@ -17,18 +27,18 @@ Templates (or template helpers) sit inside an `extern "C" {` block. MWCC allows 
 - `cenvmap.cpp`: lines 185
 - `drivmod.cpp`: lines 472
 - `evpath.cpp`: lines 1316
-- `gtext.cpp`: lines 343
-- `heightfld.cpp`: lines 307
+- `gtext.cpp`: lines 329
+- `heightfld.cpp`: lines 296
 - `masslist.cpp`: lines 416, 418, 505
 - `multievt.cpp`: lines 1052
 - `placecar.cpp`: lines 285
 - `ppsys.cpp`: lines 543
 - `racerslot.cpp`: lines 130
 - `ring.cpp`: lines 397
-- `sphcoll.cpp`: lines 2061
+- `sphcoll.cpp`: lines 2053
 - `stuntpart.cpp`: lines 378
 - `tedash.cpp`: lines 565
-- `tree.cpp`: lines 595
+- `tree.cpp`: lines 582
 - `uistyle.cpp`: lines 137, 138
 
 ## linkage-mismatch: 106 sites in 16 files
@@ -48,7 +58,7 @@ A symbol is declared both inside and outside `extern "C"` in the same unit (usua
 - `obstacles.cpp`: lines 855, 856, 857, 858, 1326, 1327, 1533
 - `playcar.cpp`: lines 1636, 1637, 1638
 - `popwarn.cpp`: lines 688, 796
-- `sphcoll.cpp`: lines 997, 999, 1888, 1960, 2756, 4382, 4383, 4384, 4385, 4386, 4387, 4388, 4389, 4390, 4391
+- `sphcoll.cpp`: lines 989, 991, 1880, 1952, 2748, 4370, 4371, 4372, 4373, 4374, 4375, 4376, 4377, 4378, 4379
 - `uiapi.cpp`: lines 2440, 2441, 2447
 - `unk_801BD620.cpp`: lines 2559, 2560, 2561, 2562, 2563, 2564, 2565, 2566, 2567, 2568, 2569, 2570, 2571, 2572, 2573, 2574, 2575, 2576, 2577, 2578, 2579, 2580, 2581, 2582, 2583, 2584, 2585, 2586, 2587, 2588 ...
 
@@ -61,20 +71,20 @@ Usually a temporary/rvalue passed to a non-const reference or pointer parameter,
 - `cenvmap.cpp`: lines 192
 - `drivmod.cpp`: lines 483
 - `evpath.cpp`: lines 1330, 1347
-- `gtext.cpp`: lines 364
-- `heightfld.cpp`: lines 340, 373
+- `gtext.cpp`: lines 350
+- `heightfld.cpp`: lines 329, 362
 - `masslist.cpp`: lines 432, 438, 536
 - `multievt.cpp`: lines 1067
 - `placecar.cpp`: lines 341
 - `ppsys.cpp`: lines 568
 - `racerslot.cpp`: lines 246
 - `ring.cpp`: lines 409
-- `sphcoll.cpp`: lines 2098
+- `sphcoll.cpp`: lines 2090
 - `stuntpart.cpp`: lines 411
 - `tedash.cpp`: lines 578
-- `tree.cpp`: lines 606
+- `tree.cpp`: lines 593
 - `uistyle.cpp`: lines 293, 295, 297, 326, 327, 328, 329, 331, 332, 354, 355, 359, 360, 688, 689
-- `unk_802E4D84.cpp`: lines 503, 1149
+- `unk_802E4D84.cpp`: lines 490, 1136
 
 ## placement-new-const: 1 sites in 1 files
 
@@ -97,7 +107,7 @@ Two different prototypes for the same function in one unit (often int vs s32/u32
 
 - `fonttext.cpp`: lines 82, 116
 - `gart.cpp`: lines 93, 94
-- `gtext.cpp`: lines 716, 787, 923, 978, 986
+- `gtext.cpp`: lines 702, 773, 909, 964, 972
 - `physcam.cpp`: lines 260
 - `uidraw.cpp`: lines 70, 108, 189, 214, 240, 266, 279, 458, 472
 
@@ -119,7 +129,7 @@ C file calls a function with no prototype in scope. Add the prototype.
 
 Taking the address of a temporary (MWCC allows it). Use a named local.
 
-- `sphcoll.cpp`: lines 3596, 3598, 3618, 3629
+- `sphcoll.cpp`: lines 3588, 3590, 3610, 3621
 - `trail.cpp`: lines 795
 
 ## return-type-overload: 1 sites in 1 files
@@ -132,7 +142,7 @@ Two declarations of the same function with different return types.
 
 - `aicar.cpp` 1979: call to 'fn_80137788' is ambiguous
 - `crushmaster.cpp` 1676: cannot combine with previous 'extern' declaration specifier
-- `drsurf.cpp` 1275: expected 'volatile', 'inline', 'goto', or '('
+- `drsurf.cpp` 1261: expected 'volatile', 'inline', 'goto', or '('
 - `gmat.cpp` 749: use of undeclared identifier 'count'
 - `gmat.cpp` 754: use of undeclared identifier 'data'
 - `homebtn.cpp` 159: expected 'volatile', 'inline', 'goto', or '('
