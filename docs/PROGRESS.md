@@ -173,3 +173,7 @@
   (MemCardDialogMgr -> uiapi -> window.cpp) and crashes in uiapi fn_80215AA4 reading a string as a pointer. Next.
 - Open: dialog line spacing (20-unit step vs 42-unit glyphs; same in Show() which matches 99%: needs a retail
   reference image).
+- **All 361 of 361 game units compile** (2026-11-15): the decomp's SOURCE_NOTES batches (8c7a664af, ac52fb77c) plus
+  port items the coordinator handed back: unk_8020F3B4.c compiled as C++ (it uses `#pragma cplusplus on`),
+  trailer.cpp TMtx() {} (patch), loading.cpp fn_80011280 arity with retail h = 140/160 (patch), and boostman.cpp
+  explicit specialisations declared before first use (patch). 376 objects link, 42 MWCC-name bridges.

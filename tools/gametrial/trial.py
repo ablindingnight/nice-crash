@@ -22,10 +22,16 @@ def find_zig():
     return g[0]
 
 
+# C files the decomp compiles with `#pragma cplusplus on` sections: build them as C++.
+CXX_C_FILES = {'unk_8020F3B4.c'}
+
+
 def flags_for(src):
+    if os.path.basename(src) in CXX_C_FILES:
+        return ['c++', ['-std=gnu++11', '-x', 'c++']]
     if src.endswith('.c'):
-        return ['cc', '-std=gnu99']
-    return ['c++', '-std=gnu++11']
+        return ['cc', ['-std=gnu99']]
+    return ['c++', ['-std=gnu++11']]
 
 
 def run(zig, src, obj):
@@ -34,7 +40,7 @@ def run(zig, src, obj):
     cache = os.path.join(PORT, 'build', 'zigcache')
     env = dict(os.environ, ZIG_LOCAL_CACHE_DIR=cache)
     out = ['-c', '-o', os.path.join(OUT, 'obj', b + '.o')] if obj else ['-fsyntax-only']
-    cmd = [zig, mode, '-target', 'x86-windows-gnu', std, *out, '-w', '-ferror-limit=100', '-O1', '-g',
+    cmd = [zig, mode, '-target', 'x86-windows-gnu', *std, *out, '-w', '-ferror-limit=100', '-O1', '-g',
            '-fno-sanitize=all', '-fno-strict-aliasing', '-fwrapv', '-fno-omit-frame-pointer'] + (['-fno-exceptions'] if mode == 'c++' else []) + [
            '-I', SHIM, '-I', os.path.join(PORT, 'build', 'gamesrc', 'include'), '-I', os.path.join(ET, 'include'), '-I', os.path.join(PORT, 'build', 'gamesrc'), '-I', os.path.join(ET, 'src'),
            '-include', os.path.join(SHIM, 'port_prefix.h'), src]
