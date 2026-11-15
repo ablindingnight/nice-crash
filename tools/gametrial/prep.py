@@ -31,7 +31,8 @@ NL = chr(10)
 
 # Byte-reversing helpers that turn the disc's little-endian data into the Wii's big-endian order. On an x86 host
 # that data is already native, so their bodies become empty (checked: each only reverses bytes in place).
-LE_SWAP_HELPERS = ['Swap4', 'Swap4Loop', 'Swap32', 'Swap16', 'SwapBytes', 'gxSwap32', 'SwfSwap32', 'SwfSwap16', 'SwapL']
+LE_SWAP_HELPERS = ['Swap4', 'Swap4Loop', 'Swap32', 'Swap16', 'SwapBytes', 'gxSwap32', 'SwfSwap32', 'SwfSwap16', 'SwapL',
+                   'PSwap16', 'PSwap32', 'SwapN', 'GSwap32', 'Swap2', 'SwapUV', 'SwapName']
 SWAP_DEF = re.compile(r'static inline void (%s)\(([^)]*)\)\s*\{' % '|'.join(LE_SWAP_HELPERS))
 
 

@@ -133,3 +133,20 @@
   vertices, ~3.3 EFB copies per frame, 0 unknown FIFO opcodes. Nothing is rasterised yet; input not mapped.
 - Next: rasterise (vertex decode -> GL, textures via lib/texture decoders, TEV approximation, EFB copy -> XFB
   texture -> window), then keyboard -> WPAD/KPAD to press A.
+
+## 2026-11-15: MILESTONE 2 first frame: the game's memory-card dialog rendered through its own code
+- sdk/gxrender.cpp: fixed-function GL rasteriser fed by the FIFO interpreter: vertex decode (direct + indexed
+  arrays, fixed-point fractions, all colour formats), XF position matrix/projection/viewport on the CPU, texgen
+  with texture matrices, textures from BP image registers (lib/texture.cpp GX decoders + C4/C8/C14X2 with TLUTs
+  loaded into a host TMEM), blend/depth/alpha-test/scissor from BP, TEV approximated as colour x texture,
+  EFB clears on copy, display copy = present. Screenshot: docs/screenshots/milestone2_first_frame_memcard_dialog.png
+  (git-ignored). Tools: NICECRASH_SHOT=<frame>:<bmp>, NICECRASH_DRAWLOG=<frame>, NICECRASH_TEXDUMP=1.
+- sdk/mtx.cpp: the SDK's paired-single MTX/VEC functions in C (Concat, InvXpose, Scale, Trans, Ortho, Perspective,
+  vector ops).
+- **MWCC-name bridges** (link.py): units that call a C++ function by its MWCC-mangled or plain C name
+  (Mat3Mul__FP4Mat3PC4Mat3PC4Mat3, used by gx.cpp) get a jump to the host definition: 26 bridges.
+- More LE byte-swap helpers neutralised after a body scan (SwapUV in gtext scrambled the glyph UVs, PSwap16/32,
+  SwapN, GSwap32, Swap2, SwapName): 16 helper names in total; value swaps (Swap, SwapItems) untouched.
+- The decomp adopted the ARITY fixes (2bf8689a7, 21a31da6b): the port's mrender patch is gone.
+- Visible issues: dialog lines overlap (line advance too small; to check), NAND is stubbed so the save reads as
+  "corrupted", TEV/lighting approximate, no input yet.

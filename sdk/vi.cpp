@@ -6,6 +6,7 @@
 #include <GL/gl.h>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include "gxinterp.h"
 #include "project.h"
 #include "sdk.h"
@@ -100,14 +101,57 @@ VIRetraceCallback VISetPostRetraceCallback(VIRetraceCallback cb) {
     return o;
 }
 
-static void Present() {
-    gxi_flush();
-    // Present (step 1: a colour that shows the frame state; the interpreter's EFB comes next).
-    glViewport(0, 0, g_w, g_h);
-    if (g_black) glClearColor(0, 0, 0, 1);
-    else glClearColor(0.10f, 0.12f, 0.16f, 1);
-    glClear(GL_COLOR_BUFFER_BIT);
+// A display copy (EFB -> XFB, sdk/gxrender.cpp) finishes a frame: show the back buffer.
+// NICECRASH_SHOT=<frame>:<file.bmp>: save the back buffer at that display copy (bring-up screenshots).
+static void MaybeShot() {
+    static int frame;
+    static int want = -1;
+    static char path[260];
+    if (want == -1) {
+        const char* s = getenv("NICECRASH_SHOT");
+        want = s ? atoi(s) : -2;
+        const char* c = s ? strchr(s, ':') : nullptr;
+        if (c) snprintf(path, sizeof path, "%s", c + 1);
+    }
+    if (++frame != want || !path[0]) return;
+    int w = g_w, h = g_h, stride = (w * 3 + 3) & ~3;
+    unsigned char* px = (unsigned char*)malloc((size_t)stride * h);
+    glPixelStorei(GL_PACK_ALIGNMENT, 4);
+    glReadBuffer(GL_BACK);
+    glReadPixels(0, 0, w, h, 0x80E0 /* GL_BGR */, GL_UNSIGNED_BYTE, px);
+    BITMAPFILEHEADER fh{};
+    BITMAPINFOHEADER ih{};
+    ih.biSize = sizeof ih;
+    ih.biWidth = w;
+    ih.biHeight = h;
+    ih.biPlanes = 1;
+    ih.biBitCount = 24;
+    ih.biSizeImage = stride * h;
+    fh.bfType = 0x4D42;
+    fh.bfOffBits = sizeof fh + sizeof ih;
+    fh.bfSize = fh.bfOffBits + ih.biSizeImage;
+    if (FILE* f = fopen(path, "wb")) {
+        fwrite(&fh, sizeof fh, 1, f);
+        fwrite(&ih, sizeof ih, 1, f);
+        fwrite(px, 1, (size_t)stride * h, f);
+        fclose(f);
+        fprintf(stderr, "[vi] saved frame %d to %s\n", frame, path);
+    }
+    free(px);
+}
+
+void sdk_vi_present_now() {
+    if (!g_dc) return;
+    MaybeShot();
     SwapBuffers(g_dc);
+}
+void sdk_vi_window_size(int* w, int* h) {
+    *w = g_w;
+    *h = g_h;
+}
+
+static void Present() {
+    gxi_flush();  // the frame itself is shown at the display copy; the retrace only drains the FIFO
     static int frames;
     if (getenv("NICECRASH_GXSTATS") && ++frames % 60 == 0) {
         GXFrameStats s = gxi_take_stats();

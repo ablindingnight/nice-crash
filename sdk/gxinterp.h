@@ -4,6 +4,20 @@
 #pragma once
 #include "sdk.h"
 
+// GPU register state the interpreter keeps (CP vertex formats, BP raster/TEV/texture, XF transform).
+struct GXRegs {
+    u32 cp[256];
+    u32 bp[256];
+    u32 xf[0x1100];  // XF memory (pos/tex matrices 0x000-, normals 0x400-, post 0x500-, lights 0x600-) + regs 0x1000-
+};
+extern GXRegs g_gx;
+
+// Renderer hooks (sdk/gxrender.cpp), called by the interpreter.
+int gxr_vertex_size(int vat);
+void gxr_draw(int prim, int vat, int count, const u8* data);
+void gxr_copy(u32 bp52);
+void gxr_tlut_load(u32 bp64, u32 bp65);
+
 struct GXFrameStats {
     u32 bytes, bpLoads, cpLoads, xfLoads, idxLoads, displayLists, draws, vertices, copies, unknown;
 };

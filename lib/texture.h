@@ -42,4 +42,10 @@ struct Decoded {
 // Parse a TEX resource body (the data fn_8012C370 returns) and decode LOD 0 to RGBA8.
 bool Decode(const u8* body, s32 size, u32 version, Decoded& out);
 
+// Decode raw GX texel data (GXTexFmt numbering: 0 I4, 1 I8, 2 IA4, 3 IA8, 4 RGB565, 5 RGB5A3, 6 RGBA8, 14 CMPR)
+// to RGBA8. Used by the GX renderer for textures the game loads from memory. Returns false for unsupported formats.
+bool DecodeRawGX(int gxfmt, const u8* data, int w, int h, std::vector<u8>& rgba);
+// Bytes of LOD 0 for a GX format (whole tiles).
+size_t GXImageSize(int gxfmt, int w, int h);
+
 }  // namespace tex

@@ -12,6 +12,12 @@ PORT = os.path.normpath(os.path.join(HERE, '..', '..'))
 B = os.path.join(PORT, 'build')
 sys.path.insert(0, HERE)
 import trial  # noqa: E402
+from classify import itanium_leaf  # noqa: E402
+
+
+def classify_leaf(d):
+    leaf, scope = itanium_leaf(d)
+    return leaf if not scope else None  # free functions only
 import coffsyms  # noqa: E402
 
 
@@ -45,10 +51,10 @@ def main():
     import glob as _g
     srcs = ['runtime/port_main.cpp', 'runtime/unimpl.cpp'] + sorted(
         os.path.relpath(p, PORT).replace(os.sep, '/') for p in _g.glob(os.path.join(PORT, 'runtime', '*.cpp')) +
-        _g.glob(os.path.join(PORT, 'sdk', '*.cpp')) + [os.path.join(PORT, 'lib', 'portconfig.cpp')] if os.path.basename(p) not in ('port_main.cpp', 'unimpl.cpp'))
+        _g.glob(os.path.join(PORT, 'sdk', '*.cpp')) + [os.path.join(PORT, 'lib', 'portconfig.cpp'), os.path.join(PORT, 'lib', 'texture.cpp')] if os.path.basename(p) not in ('port_main.cpp', 'unimpl.cpp'))
     for src in srcs:
         o = os.path.join(B, 'rt_' + src.replace('/', '_') + '.o')
-        r = zig('c++', '-target', 'x86-windows-gnu', '-std=c++17', '-O1', '-g', '-c', '-I', 'lib', '-fno-sanitize=all', src, '-o', o)
+        r = zig('c++', '-target', 'x86-windows-gnu', '-std=c++17', '-O1', '-g', '-c', '-I', 'lib', '-I', 'sdk', '-fno-sanitize=all', src, '-o', o)
         if r.returncode:
             print(r.stderr)
             sys.exit(1)
@@ -83,9 +89,28 @@ def main():
     rodata = ['\t.section .rdata,"dr"']
     nf = nd = 0
     fixes = []
+    # Bridges: units that call a C++ function by its MWCC-mangled name ("Mat3Mul__FP4Mat3...") or as a plain C
+    # name get a jump to the host's (Itanium-mangled) definition when exactly one function of that name exists.
+    by_base = {}
+    for o, s in allsyms.items():
+        for d in s['def']:
+            if not d.startswith('__Z'):
+                continue
+            leaf = classify_leaf(d)
+            if leaf:
+                by_base.setdefault(leaf, set()).add(d)
+    nb = 0
     for sym, name, kind, unit, sec, addr, size, cat in rows:
         if sym == '_port_dolfix_table':
             continue  # generated below
+        mbase = sym.lstrip('_').split('__F')[0] if not sym.startswith('__Z') else None
+        if kind != 'object' and mbase and len(by_base.get(mbase, ())) == 1:
+            target = next(iter(by_base[mbase]))
+            asm += ['\t.globl %s' % gas_name(sym), '%s:' % gas_name(sym), '\tjmp %s' % gas_name(target)]
+            nb += 1
+            continue
+        if re.match(r'(sdk_|gxr_|gxi_|port_)', name):
+            sys.exit('link: the port\'s own symbol %s is undefined (declaration/linkage mismatch?)' % name)
         if kind == 'object' and addr and 0x80000000 <= int(addr, 16) < 0x81800000:
             # Asm-only data: an absolute symbol at its Wii address; runtime/dolload.cpp puts the retail bytes there.
             data += ['\t.globl %s' % gas_name(sym), '\t.set %s, 0x%s' % (gas_name(sym), addr)]
@@ -112,7 +137,7 @@ def main():
     if r.returncode:
         print(r.stderr[:3000])
         sys.exit(1)
-    print('stubs: %d functions, %d data' % (nf, nd))
+    print('stubs: %d functions, %d data; %d MWCC-name bridges' % (nf, nd, nb))
     cmd = base + [so]
     r = subprocess.run(cmd, cwd=PORT, capture_output=True, text=True, errors='replace', creationflags=0x08000000)
     out = r.stdout + r.stderr

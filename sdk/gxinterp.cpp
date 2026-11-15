@@ -8,14 +8,14 @@
 const u8* sdk_fifo_data(size_t* len);
 void sdk_fifo_consumed(size_t n);
 
+GXRegs g_gx;
+
 namespace {
 
 struct State {
-    u32 cp[256];
-    u32 bp[256];
-    u32 xf[0x1100];   // XF memory (matrices 0x000-0x4FF, normals 0x400-, post 0x500-, lights 0x600-) + regs 0x1000-
     u32 lastCopyDst;
 } S;
+
 
 GXFrameStats g_stats;
 
@@ -27,40 +27,7 @@ DoneCallback g_doneCb;
 static inline u32 be32(const u8* p) { return (u32)p[0] << 24 | (u32)p[1] << 16 | (u32)p[2] << 8 | p[3]; }
 static inline u16 be16(const u8* p) { return (u16)(p[0] << 8 | p[1]); }
 
-// Size in bytes of one vertex for vertex format `vat`, from VCD (CP 0x50/0x60) and VAT (CP 0x70/0x80/0x90 + vat).
-static int VertexSize(int vat) {
-    u32 lo = S.cp[0x50], hi = S.cp[0x60];
-    u32 a = S.cp[0x70 + vat], b = S.cp[0x80 + vat], c = S.cp[0x90 + vat];
-    static const int compSize[8] = {1, 1, 2, 2, 4, 0, 0, 0};
-    static const int colSize[8] = {2, 3, 4, 2, 3, 4, 0, 0};
-    int size = 0;
-    size += lo & 1;                                  // position/normal matrix index
-    for (int i = 0; i < 8; i++) size += (lo >> (1 + i)) & 1;  // texture matrix indices
-    auto attr = [&](int type, int direct) { return type == 0 ? 0 : type == 1 ? direct : type == 2 ? 1 : 2; };
-    // Position
-    int posCnt = (a & 1) ? 3 : 2, posFmt = (a >> 1) & 7;
-    size += attr((lo >> 9) & 3, posCnt * compSize[posFmt]);
-    // Normal
-    int nrmCnt = (a >> 9) & 1 ? 9 : 3, nrmFmt = (a >> 10) & 7;
-    int nrmType = (lo >> 11) & 3;
-    if (nrmType >= 2 && ((a >> 31) & 1) && nrmCnt == 9) size += (nrmType == 2 ? 1 : 2) * 3;  // NBT index3
-    else size += attr(nrmType, nrmCnt * compSize[nrmFmt]);
-    // Colours
-    size += attr((lo >> 13) & 3, colSize[(a >> 14) & 7]);
-    size += attr((lo >> 15) & 3, colSize[(a >> 18) & 7]);
-    // Texture coordinates 0-7
-    int texCnt[8], texFmt[8];
-    texCnt[0] = (a >> 21) & 1; texFmt[0] = (a >> 22) & 7;
-    texCnt[1] = b & 1;         texFmt[1] = (b >> 1) & 7;
-    texCnt[2] = (b >> 9) & 1;  texFmt[2] = (b >> 10) & 7;
-    texCnt[3] = (b >> 18) & 1; texFmt[3] = (b >> 19) & 7;
-    texCnt[4] = (b >> 27) & 1; texFmt[4] = (b >> 28) & 7;
-    texCnt[5] = (c >> 5) & 1;  texFmt[5] = (c >> 6) & 7;
-    texCnt[6] = (c >> 14) & 1; texFmt[6] = (c >> 15) & 7;
-    texCnt[7] = (c >> 23) & 1; texFmt[7] = (c >> 24) & 7;
-    for (int i = 0; i < 8; i++) size += attr((hi >> (i * 2)) & 3, (texCnt[i] ? 2 : 1) * compSize[texFmt[i]]);
-    return size;
-}
+static int VertexSize(int vat) { return gxr_vertex_size(vat); }
 
 static void Run(const u8* p, size_t len, int depth);
 
@@ -73,7 +40,7 @@ static void LoadBP(u32 v) {
         mask = v & 0xFFFFFF;
         return;
     }
-    S.bp[reg] = (S.bp[reg] & ~mask) | (v & mask);
+    g_gx.bp[reg] = (g_gx.bp[reg] & ~mask) | (v & mask);
     mask = 0xFFFFFF;
     if (reg == 0x47 || reg == 0x48) {  // PE token (0x48 also raises the token interrupt)
         u16 token = (u16)(v & 0xFFFF);
@@ -81,9 +48,11 @@ static void LoadBP(u32 v) {
         if (reg == 0x48 && g_tokenCb) g_tokenCb(token);
     }
     if (reg == 0x45 && (v & 2) && g_doneCb) g_doneCb();  // PE "draw done" (finish interrupt)
+    if (reg == 0x65) gxr_tlut_load(g_gx.bp[0x64], g_gx.bp[0x65]);  // load TLUT from memory into TMEM
     if (reg == 0x52) {  // PE copy execute: bit 14 = copy to XFB (display copy) vs texture copy
         g_stats.copies++;
-        if (S.bp[0x52] & (1 << 14)) S.lastCopyDst = S.bp[0x4B] << 5;  // XFB address (BP 0x4B, 32-byte units)
+        gxr_copy(g_gx.bp[0x52]);
+        if (g_gx.bp[0x52] & (1 << 14)) S.lastCopyDst = g_gx.bp[0x4B] << 5;  // XFB address (BP 0x4B, 32-byte units)
     }
 }
 
@@ -94,7 +63,7 @@ static void Run(const u8* p, size_t len, int depth) {
         if (op == 0x00 || op == 0x48 || op == 0x44) continue;  // NOP, invalidate vertex cache, metrics
         if (op == 0x08) {  // CP register load
             if (end - p < 5) break;
-            S.cp[p[0]] = be32(p + 1);
+            g_gx.cp[p[0]] = be32(p + 1);
             g_stats.cpLoads++;
             p += 5;
         } else if (op == 0x10) {  // XF register/memory load
@@ -104,7 +73,7 @@ static void Run(const u8* p, size_t len, int depth) {
             u32 n = (h >> 16) + 1, addr = h & 0xFFFF;
             if ((size_t)(end - p) < n * 4) break;
             for (u32 i = 0; i < n; i++)
-                if (addr + i < sizeof(S.xf) / 4) S.xf[addr + i] = be32(p + i * 4);
+                if (addr + i < sizeof(g_gx.xf) / 4) g_gx.xf[addr + i] = be32(p + i * 4);
             p += n * 4;
             g_stats.xfLoads++;
         } else if (op == 0x20 || op == 0x28 || op == 0x30 || op == 0x38) {  // indexed XF loads (A-D)
@@ -126,6 +95,8 @@ static void Run(const u8* p, size_t len, int depth) {
             u16 n = be16(p);
             p += 2;
             size_t vs = VertexSize(vat);
+            if ((size_t)(end - p) < vs * n) break;
+            gxr_draw(op & 0xF8, vat, n, p);
             p += vs * n;
             g_stats.draws++;
             g_stats.vertices += n;

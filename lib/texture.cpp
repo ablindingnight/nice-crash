@@ -238,3 +238,17 @@ bool Decode(const u8* body, s32 size, u32 version, Decoded& o) {
 }
 
 }  // namespace tex
+
+namespace tex {
+bool DecodeRawGX(int gxfmt, const u8* data, int w, int h, std::vector<u8>& rgba) {
+    if (GxSize(gxfmt, w, h) == 0) return false;
+    Decoded o;
+    o.w = w;
+    o.h = h;
+    o.rgba.assign((size_t)w * h * 4, 0);
+    DecodeGx(gxfmt, data, o);
+    rgba.swap(o.rgba);
+    return true;
+}
+size_t GXImageSize(int gxfmt, int w, int h) { return GxSize(gxfmt, w, h); }
+}  // namespace tex
