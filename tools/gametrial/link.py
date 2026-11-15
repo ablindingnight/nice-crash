@@ -282,13 +282,41 @@ def main():
                 by_leaf.setdefault((leaf, tuple(scopes)), set()).add(d)
             elif d.startswith('_') and re.match(r'_(fn|func)_[0-9A-F]{8}$', d):
                 by_leaf.setdefault((d[1:], ()), set()).add(d)
+    # Members called by their MWCC names from C code ("Slot1C__8UIWidgetFii", "__ct__8UIWidgetFiiiii": the
+    # decomp's transitional extern "C" aliases) bind to the C++ definition (Itanium name) of the same class and
+    # member; overloads are told apart by the parameter encoding, which both manglings spell alike for these types.
+    def norm_mwcc_params(p):
+        p = p.replace('Ui', 'j').replace('Uc', 'h').replace('Us', 't').replace('Ul', 'j').replace('Sc', 'a')
+        p = p.replace('l', 'i').replace('PC', 'PK').replace('RC', 'RK')
+        return '' if p == 'v' else p
+
+    def mwcc_member_target(sym):
+        m = re.match(r'^_(__ct|__dt|[A-Za-z]\w*?)__(\d+)(.*)$', sym)
+        if not m:
+            return None
+        meth, n, tail = m.group(1), int(m.group(2)), m.group(3)
+        cls, params = tail[:n], tail[n:]
+        if not params.startswith('F'):
+            return None
+        params = params[1:]
+        leaf = {'__ct': cls, '__dt': '~' + cls}.get(meth, meth)
+        cands = sorted(by_leaf.get((leaf, (cls,)), set()))
+        if leaf == cls:
+            cands = [c for c in cands if 'C1E' in c] or cands
+        if leaf.startswith('~'):
+            cands = [c for c in cands if 'D1E' in c] or cands
+        if len(cands) > 1:
+            want = norm_mwcc_params(params)
+            cands = [c for c in cands if c.split('E', 1)[-1] in (want, want or 'v')]
+        return cands[0] if len(cands) == 1 else None
+
     nb = 0
     # Retail vtables among the asm-only data (two zero words, then .text addresses): translated to host tables.
     defs = set()
     for s_ in allsyms.values():
         defs.update(s_['def'])
     text_names = {}
-    for line in open(os.path.join(PORT, '..', 'excite-truck', 'config', 'REXE01', 'symbols.txt'), encoding='utf-8'):
+    for line in open(os.path.join(trial.ET, 'config', 'REXE01', 'symbols.txt'), encoding='utf-8'):
         m = re.match(r'^(\S+) = \.text:0x([0-9A-Fa-f]+);', line)
         if m:
             text_names.setdefault(int(m.group(2), 16), m.group(1))
@@ -342,6 +370,29 @@ def main():
             cands = by_leaf.get((leaf, tuple(scopes)), set())
             if len(cands) == 1:
                 target = next(iter(cands))
+        if not target and kind != 'object':
+            target = mwcc_member_target(sym)
+        if not target and kind != 'object':
+            # An address name (fn_802228B0) whose function the decomp has since named (a class ctor, ...): both
+            # are the same retail address, so bind to whatever symbols.txt now calls it.
+            m = re.match(r'^_fn_([0-9A-F]{8})$', sym)
+            renamed = text_names.get(int(m.group(1), 16)) if m else None
+            if renamed and renamed != sym[1:]:
+                if '_' + renamed in defs:
+                    target = '_' + renamed
+                else:
+                    target = mwcc_member_target('_' + renamed)
+        if target and re.search(r'[CD][12]E', target):
+            # MWCC constructors/destructors return `this`; Itanium ones on x86 return nothing. Callers written
+            # against the MWCC form use the result (`image = fn_80222530(image, ...)`), so call the member with a
+            # copy of the arguments (12 words; cdecl, the caller pops) and return the first one.
+            asm += ['\t.globl %s' % gas_name(sym), '%s:' % gas_name(sym), '\tpushl %ebp', '\tmovl %esp, %ebp',
+                    '\tsubl $48, %esp']
+            for i in range(12):
+                asm += ['\tmovl %d(%%ebp), %%eax' % (8 + 4 * i), '\tmovl %%eax, %d(%%esp)' % (4 * i)]
+            asm += ['\tcall %s' % gas_name(target), '\tmovl 8(%ebp), %eax', '\tleave', '\tret']
+            nb += 1
+            continue
         if target:
             asm += ['\t.globl %s' % gas_name(sym), '%s:' % gas_name(sym), '\tjmp %s' % gas_name(target)]
             nb += 1

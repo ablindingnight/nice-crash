@@ -8,7 +8,9 @@ import concurrent.futures, glob, os, re, subprocess, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PORT = os.path.normpath(os.path.join(HERE, '..', '..'))
-ET = os.path.normpath(os.path.join(PORT, '..', 'excite-truck'))
+sys.path.insert(0, HERE)
+import decomp  # noqa: E402
+ET = decomp.root()  # the pinned decomp snapshot (tools/gametrial/decomp.py)
 OUT = os.path.join(HERE, 'out')
 SHIM = os.path.join(PORT, 'shim', 'include')
 
@@ -51,7 +53,10 @@ def run(zig, src, obj):
     env = dict(os.environ, ZIG_LOCAL_CACHE_DIR=cache)
     out = ['-c', '-o', os.path.join(OUT, 'obj', b + '.o')] if obj else ['-fsyntax-only']
     cmd = [zig, mode, '-target', 'x86-windows-gnu', *HOST_TRIPLE, *std, *out, '-w', '-ferror-limit=100', '-O1', '-g',
-           '-fno-sanitize=all', '-fno-strict-aliasing', '-fwrapv', '-fno-omit-frame-pointer'] + (['-fno-exceptions'] if mode == 'c++' else []) + [
+           '-fno-sanitize=all', '-fno-strict-aliasing', '-fwrapv', '-fno-omit-frame-pointer',
+           # Non-void functions that fall off the end (UICustom::Slot68): PPC returns whatever r3/f1 holds; clang
+           # would treat the path as unreachable and run into the next function.
+           '-fno-strict-return'] + (['-fno-exceptions'] if mode == 'c++' else []) + [
            '-I', SHIM, '-I', os.path.join(PORT, 'build', 'gamesrc', 'include'), '-I', os.path.join(ET, 'include'), '-I', os.path.join(PORT, 'build', 'gamesrc'), '-I', os.path.join(ET, 'src'),
            '-include', os.path.join(SHIM, 'port_prefix.h'), src]
     p = subprocess.run(cmd, env=env, cwd=PORT, capture_output=True, text=True, errors='replace',

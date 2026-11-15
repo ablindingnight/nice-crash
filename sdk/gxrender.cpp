@@ -246,7 +246,7 @@ bool BindTexMap(int m) {
     static const GLint wrap[4] = {GL_CLAMP_TO_EDGE, GL_REPEAT, GL_MIRRORED_REPEAT, GL_REPEAT};
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrap[mode0 & 3]);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrap[(mode0 >> 2) & 3]);
-    GLint mag = (mode0 >> 4) & 1 ? GL_LINEAR : GL_NEAREST;
+    GLint mag = (mode0 >> 4) & 1 && !getenv("NICECRASH_NEAREST") ? GL_LINEAR : GL_NEAREST;
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, mag);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, mag);
     return true;

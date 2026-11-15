@@ -167,9 +167,12 @@ std::string BuildFS(int nStages, const bool texOk[8]) {
         u32 ss = g_gx.bp[0x25 + i / 2] >> ((i & 1) * 8);
         int sS = ss & 15, sT = (ss >> 4) & 15;
         if (texOk[imap]) {
+            // Fixed point as the hardware: the coordinate in 1/128 texels, the texel index wrapped by repeat, then
+            // a texel-centre sample (the GL sampler's own rounding put a row of the Bink ramp lookups one row off).
             snprintf(b, sizeof b,
-                     "  vec3 ind%d = floor(texture2D(tex[%d], gl_TexCoord[%d].st / vec2(%d.0, %d.0)).abg * 255.0 + 0.5);\n",
-                     i, imap, icoord, 1 << sS, 1 << sT);
+                     "  vec2 ic%d = floor(floor(gl_TexCoord[%d].st * tdim[%d] * 128.0 / vec2(%d.0, %d.0)) / 128.0);\n"
+                     "  vec3 ind%d = floor(texture2D(tex[%d], (mod(ic%d, tdim[%d]) + 0.5) / tdim[%d]).abg * 255.0 + 0.5);\n",
+                     i, icoord, imap, 1 << sS, 1 << sT, i, imap, i, imap, imap);
         } else {
             snprintf(b, sizeof b, "  vec3 ind%d = vec3(0.0);\n", i);
         }
@@ -232,8 +235,18 @@ std::string BuildFS(int nStages, const bool texOk[8]) {
             s += "  tx = vec4(0.0);\n";
         }
         if (const char* dbg = getenv("NICECRASH_TEVDBG"))  // debugging: show this stage's texture sample (and coords)
-            if (atoi(dbg) == st && nStages > 3)
-                s += "  gl_FragColor = vec4(tx.r, fract(prevtc / 128.0 / 64.0), 1.0); return;\n";
+            if (atoi(dbg + (*dbg >= 'a')) == st && nStages > 3) {
+                // c<stage>: final texel coordinate (X low in r, X high in g, Y mod 256 in b); b<stage>: the same
+                // before the indirect offset; i<stage>: the biased indirect values + 128; else: sample + coords.
+                if (*dbg == 'c' || *dbg == 'b')
+                    s += std::string("  { vec2 t = floor((prevtc") + (*dbg == 'b' ? " - itr" : "") +
+                         ") / 128.0); gl_FragColor = vec4(mod(t.x, 256.0) / 255.0, floor(t.x / 256.0) / 255.0, "
+                         "mod(t.y, 256.0) / 255.0, 1.0); return; }\n";
+                else if (*dbg == 'i')
+                    s += "  gl_FragColor = vec4((ic + 128.0) / 255.0, 1.0); return;\n";
+                else
+                    s += "  gl_FragColor = vec4(tx.r, fract(prevtc / 128.0 / 64.0), 1.0); return;\n";
+            }
         if (chan == 0) s += "  ras = gl_Color" + Swizzle(rswap) + ";\n";
         else if (chan == 1) s += "  ras = col1" + Swizzle(rswap) + ";\n";
         else s += "  ras = vec4(0.0);\n";

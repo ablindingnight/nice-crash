@@ -9,7 +9,9 @@ import collections, json, os, re, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PORT = os.path.normpath(os.path.join(HERE, '..', '..'))
-CFG = os.path.normpath(os.path.join(PORT, '..', 'excite-truck', 'config', 'REXE01'))
+sys.path.insert(0, HERE)
+import decomp  # noqa: E402
+CFG = os.path.join(decomp.root(), 'config', 'REXE01')
 
 
 def load_symbols():

@@ -4,7 +4,9 @@ usage: pastlabel.py [file...]   (default: every prepared game unit)"""
 import glob, os, re, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 PORT = os.path.normpath(os.path.join(HERE, '..', '..'))
-SYMS = os.path.join(PORT, '..', 'excite-truck', 'config', 'REXE01', 'symbols.txt')
+sys.path.insert(0, HERE)
+import decomp  # noqa: E402
+SYMS = os.path.join(decomp.root(), 'config', 'REXE01', 'symbols.txt')
 size = {}
 for l in open(SYMS, encoding='utf-8'):
     m = re.match(r'^(lbl_[0-9A-F]{8}) = \S+; // type:object size:0x([0-9A-F]+)', l)

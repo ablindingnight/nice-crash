@@ -39,6 +39,23 @@ static LONG WINAPI OnCrash(EXCEPTION_POINTERS* ep) {
         const CONTEXT* c = ep->ContextRecord;
         fprintf(stderr, "  eax %08lx ebx %08lx ecx %08lx edx %08lx esi %08lx edi %08lx ebp %08lx esp %08lx\n", c->Eax,
                 c->Ebx, c->Ecx, c->Edx, c->Esi, c->Edi, c->Ebp, c->Esp);
+        // Registers pointing into the mapped Wii memory: show the first words (vptrs, fields) of what they point at.
+        const DWORD regs[] = {c->Eax, c->Ebx, c->Ecx, c->Edx, c->Esi, c->Edi};
+        const char* rn[] = {"eax", "ebx", "ecx", "edx", "esi", "edi"};
+        for (int r = 0; r < 6; r++) {
+            if (regs[r] < 0x80000000u || regs[r] >= 0x94000000u) continue;
+            const unsigned* w = (const unsigned*)(uintptr_t)regs[r];
+            fprintf(stderr, "  [%s] %08lx:", rn[r], regs[r]);
+            for (int i = 0; i < 8; i++) fprintf(stderr, " %08x", w[i]);
+            char sb[sizeof(SYMBOL_INFO) + 256];
+            SYMBOL_INFO* si = (SYMBOL_INFO*)sb;
+            si->SizeOfStruct = sizeof(SYMBOL_INFO);
+            si->MaxNameLen = 255;
+            DWORD64 disp = 0;
+            if (SymFromAddr(proc, w[0], &disp, si))  // the vptr's table
+                fprintf(stderr, "  (vptr -> %s+0x%llx)", si->Name, (unsigned long long)disp);
+            fprintf(stderr, "\n");
+        }
         const unsigned char* ip = (const unsigned char*)c->Eip;
         MEMORY_BASIC_INFORMATION mbi;
         if (VirtualQuery(ip, &mbi, sizeof mbi) && mbi.State == MEM_COMMIT) {

@@ -8,7 +8,9 @@ import glob, os, re, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PORT = os.path.normpath(os.path.join(HERE, '..', '..'))
-ET = os.path.normpath(os.path.join(PORT, '..', 'excite-truck'))
+sys.path.insert(0, HERE)
+import decomp  # noqa: E402
+ET = decomp.root()  # the pinned decomp snapshot (tools/gametrial/decomp.py)
 OUT = os.path.join(PORT, 'build', 'gamesrc')
 
 RULES = [
