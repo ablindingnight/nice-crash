@@ -266,3 +266,23 @@
   (docs/screenshots/m3_title_full.png, retrace 1300 with presses 200:2, 420:2, 640:2, 900:1).
 - Open: a 4-row band of the video (screen rows 204-207) takes the wrong indirect ramp offset (cosmetic); a faint
   rectangle behind the logo; NAND saves; audio.
+
+## 2026-11-15 (evening): pinned decomp, NAND saves, framework transition
+- **Pinned decomp:** tools/gametrial/decomp_ref.txt + pin.sh; tools read a `git archive` snapshot in build/decomp/<commit>
+  (read-only on the matching repo), so other sessions' work in progress no longer breaks the port mid-day.
+  Pinned at 25ff62004 (UI framework step 1 included). 9 regorder adapters left (the decomp fixed the rest).
+- **Framework transition (real UIWidget classes):** link.py binds MWCC-named member calls from C code to the
+  Itanium definitions (overloads by parameter encoding), binds old fn_<addr> names to whatever symbols.txt now
+  calls that address, and gives ctor/dtor bridges a thunk that returns `this` (MWCC ctors return it).
+  `-fno-strict-return`: UICustom::Slot68 falls off the end of an int function (PPC returns r3).
+- **NAND saves (sdk/nand.cpp):** the game's NAND home = %LOCALAPPDATA%\NiceCrash\nand. First boot: new user,
+  banner.bin + foo.bar written; next boot: "banner is ok", straight to the title.
+- **Faint box behind the logo:** the logo's alpha palette gives its transparent pixels alpha 15 (~6%), built
+  from the game's own palette bytes as on the Wii; not changed (no hardware reference to compare).
+- **Video seam (open):** a dashed 4-row band in the uisingle.bik picture near screen row 204. Ruled out: the
+  decoded frame (clean), bilinear filtering (still there with nearest), sampler rounding of the ramp lookups (now
+  fixed point as the hardware). The final luma coordinates follow the same ramp phase as the good rows; next: dump
+  the Y plane of the exact frame shown and compare texel by texel.
+- Debug aids: NICECRASH_TEVDBG=[c|b|i]<stage> (final/base texel coords, indirect values), NICECRASH_NEAREST,
+  NICECRASH_NANTRAP=<n> (stack of NaN floats sent to the GPU), crash reports dump memory + vptr symbol for
+  registers pointing into Wii memory.
