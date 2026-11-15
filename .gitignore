@@ -1,0 +1,14 @@
+# Build outputs
+build/
+# Never commit game data or anything derived from it (screenshots of game assets stay local)
+*.dol
+*.iso
+*.wbfs
+*.res
+*.toc
+*.tex
+*.tm0
+docs/screenshots/
+*.bmp
+*.png
+et_host.ini
