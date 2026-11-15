@@ -27,6 +27,121 @@ def zig(*args, **kw):
                           creationflags=0x08000000, **kw)
 
 
+BUILTIN8 = set('xyd')  # long long, unsigned long long, double: 8 bytes on the stack
+
+
+def _skip_name(s, i):
+    """Skip one <name> or <type> component starting at s[i]; return the new index (simplified Itanium grammar)."""
+    if s[i].isdigit():
+        j = i
+        while s[j].isdigit():
+            j += 1
+        i = j + int(s[i:j])
+        if i < len(s) and s[i] == 'I':
+            i = _skip_templ(s, i)
+        return i
+    if s[i] == 'N':
+        i += 1
+        while s[i] in 'KVr':
+            i += 1
+        while s[i] != 'E':
+            if s[i] == 'S':
+                i = _skip_subst(s, i)
+            elif s[i] in 'CD':
+                i += 2
+            elif s[i] == 'I':
+                i = _skip_templ(s, i)
+            else:
+                i = _skip_name(s, i)
+        return i + 1
+    if s[i] == 'S':
+        return _skip_subst(s, i)
+    raise ValueError
+
+
+def _skip_subst(s, i):
+    j = s.index('_', i)
+    return j + 1
+
+
+def _skip_templ(s, i):
+    depth, i = 1, i + 1
+    while depth:
+        if s[i] == 'I':
+            depth += 1
+        elif s[i] == 'E':
+            depth -= 1
+        i += 1
+    return i
+
+
+def _param_sizes(s, i):
+    """Stack sizes of the parameters in an Itanium mangled parameter list starting at s[i]."""
+    sizes = []
+    while i < len(s):
+        c = s[i]
+        if c in 'PR':  # pointer / reference to anything: 4 bytes
+            i += 1
+            while s[i] in 'KVr':
+                i += 1
+            if s[i] == 'F':  # function type: skip to its E
+                depth = 1
+                i += 1
+                while depth:
+                    depth += {'F': 1, 'E': -1}.get(s[i], 0)
+                    i += 1
+            elif s[i] in 'NS' or s[i].isdigit():
+                i = _skip_name(s, i)
+            elif s[i] in 'PR':
+                inner = _param_sizes(s[:i] + s[i:], i)  # nested pointer: consume exactly one type
+                return None if inner is None else sizes + [4] + inner[1:]
+            else:
+                i += 1
+            sizes.append(4)
+        elif c == 'K' or c == 'V':
+            i += 1
+        elif c == 'z':
+            return None  # variadic: cdecl
+        elif c == 'v':
+            i += 1
+        elif c.isalpha() and c.islower():
+            sizes.append(8 if c in BUILTIN8 else 12 if c == 'e' else 4)
+            i += 1
+        elif c in 'NS' or c.isdigit():
+            i = _skip_name(s, i)
+            sizes.append(4)  # class by value: unknown size, assume one word
+        else:
+            return None
+    return sizes
+
+
+def thiscall_pop(sym):
+    """Bytes a __thiscall member function pops (i386 MinGW: non-static member functions are thiscall, callee
+    cleans the stack). None for anything else (free functions, C names, varargs)."""
+    if not sym.startswith('__ZN'):
+        return None
+    s = sym[3:]
+    try:
+        if s.startswith('N12_GLOBAL__N_1') or s.startswith('NSt'):
+            return None
+        end = _skip_name(s, 0)
+        sizes = _param_sizes(s, end)
+    except (ValueError, IndexError):
+        return None
+    if sizes is None:
+        return None
+    return sum(sizes)
+
+
+def rsp(cmd):
+    """lld-link with its arguments in a response file (the command line outgrew Windows' 32K limit)."""
+    path = os.path.join(B, 'link.rsp')
+    with open(path, 'w', encoding='utf-8') as f:
+        for a in cmd[2:]:
+            f.write('"%s"\n' % a.replace('"', '\\"'))
+    return cmd[:2] + ['@' + path]
+
+
 def gas_name(s):
     return '"%s"' % s
 
@@ -75,7 +190,7 @@ def main():
     base = [trial.find_zig(), 'lld-link', *keep, '-OUT:' + exe, '-PDB:' + exe[:-4] + '.pdb', '/force:multiple', '/LARGEADDRESSAWARE', '/DYNAMICBASE:NO',
             '/demangle:no', *good, *rt]
     # Pass 1 without stubs: the linker tells us exactly what nobody (game, runtime, CRT, Windows) defines.
-    r1 = subprocess.run(base, cwd=PORT, capture_output=True, text=True, errors='replace', creationflags=0x08000000)
+    r1 = subprocess.run(rsp(base), cwd=PORT, capture_output=True, text=True, errors='replace', creationflags=0x08000000)
     linker_undef = set(re.findall(r'undefined symbol: (\S+)', r1.stdout + r1.stderr))
     # Unresolved symbols across game + runtime.
     allsyms = {os.path.basename(o): coffsyms.read_syms(o) for o in good + rt}
@@ -124,8 +239,10 @@ def main():
         else:
             lab = 'Lname%d' % nf
             rodata += ['%s: .asciz "%s (%s, %s)"' % (lab, name.replace('"', ''), unit, addr or '?')]
+            pop = thiscall_pop(sym)
             asm += ['\t.globl %s' % gas_name(sym), '%s:' % gas_name(sym),
-                    '\tpushl $%s' % lab, '\tcall _port_unimpl', '\taddl $4, %esp', '\tret']
+                    '\tpushl $%s' % lab, '\tcall _port_unimpl', '\taddl $4, %esp',
+                    '\tret $%d' % pop if pop else '\tret']
             nf += 1
     # Scalars among the DOL-backed labels: byte-swapped once at startup (runtime/dolload.cpp).
     rodata += ['\t.balign 4', '\t.globl _port_dolfix_table', '_port_dolfix_table:']
@@ -139,7 +256,7 @@ def main():
         sys.exit(1)
     print('stubs: %d functions, %d data; %d MWCC-name bridges' % (nf, nd, nb))
     cmd = base + [so]
-    r = subprocess.run(cmd, cwd=PORT, capture_output=True, text=True, errors='replace', creationflags=0x08000000)
+    r = subprocess.run(rsp(cmd), cwd=PORT, capture_output=True, text=True, errors='replace', creationflags=0x08000000)
     out = r.stdout + r.stderr
     open(os.path.join(B, 'link.log'), 'w', encoding='utf-8').write(out)
     print('link', 'OK' if r.returncode == 0 else 'FAILED', '(%d game objects)' % len(good))

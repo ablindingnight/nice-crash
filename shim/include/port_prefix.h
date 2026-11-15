@@ -31,3 +31,9 @@ static inline unsigned int __cntlzw(unsigned int x) { return x ? (unsigned int)_
 // MinGW's stdlib.h defines `environ` as a macro; the game uses it as a member name (race.cpp track table).
 #include <stdlib.h>
 #undef environ
+
+// More PowerPC intrinsics (Bink): high word of 32x32 multiplies, reciprocal (square root) estimates.
+static inline unsigned int __mulhwu(unsigned int a, unsigned int b) { return (unsigned int)(((unsigned long long)a * b) >> 32); }
+static inline int __mulhw(int a, int b) { return (int)(((long long)a * b) >> 32); }
+static inline double __frsqrte(double x) { return 1.0 / __builtin_sqrt(x); }
+static inline float __fres(float x) { return 1.0f / x; }

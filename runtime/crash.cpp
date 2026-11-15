@@ -35,6 +35,33 @@ static LONG WINAPI OnCrash(EXCEPTION_POINTERS* ep) {
                 (void*)er->ExceptionInformation[1]);
     fprintf(stderr, "\n");
 #ifdef _M_IX86
+    {
+        // A jump through a bad pointer leaves EIP outside any code: list the stack's likely return addresses.
+        HMODULE mod = GetModuleHandleA(nullptr);
+        IMAGE_NT_HEADERS* nt = (IMAGE_NT_HEADERS*)((char*)mod + ((IMAGE_DOS_HEADER*)mod)->e_lfanew);
+        uintptr_t lo = (uintptr_t)mod, hi = lo + nt->OptionalHeader.SizeOfImage;
+        uintptr_t eip = ep->ContextRecord->Eip;
+        if (eip < lo || eip >= hi) {
+            fprintf(stderr, "  EIP is outside the exe; EBP chain:\n");
+            uintptr_t* bp = (uintptr_t*)ep->ContextRecord->Ebp;
+            for (int i = 0; i < 16 && bp; i++) {
+                MEMORY_BASIC_INFORMATION mbi;
+                if (!VirtualQuery(bp, &mbi, sizeof mbi) || mbi.State != MEM_COMMIT) break;
+                PrintFrame(proc, bp[1], i);
+                bp = (uintptr_t*)bp[0];
+            }
+            fprintf(stderr, "  return addresses found on the stack:\n");
+            uintptr_t* sp = (uintptr_t*)ep->ContextRecord->Esp;
+            int found = 0;
+            for (int i = 0; i < 512 && found < 12; i++) {
+                MEMORY_BASIC_INFORMATION mbi;
+                if (!VirtualQuery(sp + i, &mbi, sizeof mbi) || mbi.State != MEM_COMMIT) break;
+                if (sp[i] >= lo && sp[i] < hi) {
+                    PrintFrame(proc, sp[i], found++);
+                }
+            }
+        }
+    }
     CONTEXT ctx = *ep->ContextRecord;
     STACKFRAME64 sf{};
     sf.AddrPC.Offset = ctx.Eip;

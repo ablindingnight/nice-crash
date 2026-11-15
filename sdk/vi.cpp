@@ -200,3 +200,6 @@ void GXWaitDrawDone(void) { gxi_flush(); }
 void GXFlush(void) { gxi_flush(); }
 
 }  // extern "C"
+
+u32 sdk_vi_retrace_count() { return g_retrace; }
+bool sdk_vi_has_focus() { return g_hwnd && GetForegroundWindow() == g_hwnd; }

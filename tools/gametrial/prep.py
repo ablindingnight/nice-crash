@@ -70,6 +70,13 @@ def load_patches():
 def main():
     patches = load_patches()
     applied = 0
+    linkfix = {}
+    lf = os.path.join(HERE, 'linkage_fix.txt')
+    if os.path.exists(lf):
+        for l in open(lf):
+            p = l.rstrip('\n').split('\t')
+            if len(p) == 3:
+                linkfix.setdefault(p[0], []).append((int(p[1]), p[2]))
     counts = {r[0]: 0 for r in RULES}
     files = sorted(glob.glob(os.path.join(ET, 'src', 'game', '*.c*')))
     files += sorted(glob.glob(os.path.join(ET, 'include', '**', '*.h'), recursive=True))
@@ -87,6 +94,17 @@ def main():
                     sys.exit('patch %s for %s matched %d times (want 1): %s' % (pf, fn, n, why))
                 t = t.replace(old, new)
                 applied += 1
+        # Linkage fixes (linkagefix.py): the later C++-scope declaration of a name an extern "C" block declared.
+        base = os.path.basename(src)
+        if base in linkfix and src.replace(os.sep, '/').find('/src/game/') >= 0:
+            lines = t.split(NL)
+            for ln, name in linkfix[base]:
+                i = ln - 1
+                if 0 <= i < len(lines) and re.search(r'\b%s\b' % name, lines[i]) and \
+                        not lines[i].lstrip().startswith('extern "C"') and not lines[i].lstrip().startswith('static'):
+                    lines[i] = re.sub(r'^(\s*)(?:extern\s+)?', r'\1extern "C" ', lines[i], count=1)
+                    counts['linkage-fix'] = counts.get('linkage-fix', 0) + 1
+            t = NL.join(lines)
         srcroot = os.path.join(ET, 'src')
         rel = os.path.relpath(src, srcroot if src.startswith(srcroot + os.sep) else ET)
         dst = os.path.join(OUT, rel)

@@ -150,3 +150,26 @@
 - The decomp adopted the ARITY fixes (2bf8689a7, 21a31da6b): the port's mrender patch is gone.
 - Visible issues: dialog lines overlap (line advance too small; to check), NAND is stubbed so the save reads as
   "corrupted", TEV/lighting approximate, no input yet.
+
+## 2026-11-15: input, the dialogs answered, "demo mode", and three new bug classes
+- **Input (sdk/input.cpp):** remote 0 is a connected core remote. Keyboard: Enter = 2 (confirm/accelerate: the
+  remote is held sideways), Backspace = 1, A/B, +/-/Home, arrows = D-pad (rotated). NICECRASH_INPUT scripts
+  presses by frame. With "200:2,420:2" the boot answers both memory-card dialogs ("cannot be used ... corrupted",
+  "You will not be able to save ... Is this okay? Yes") and reaches **"mmain: demo mode!"** (the title-screen
+  path) when MenuDoDemo/popwarn was still stubbed.
+- **The decomp's batch-1 portability fixes** (8c7a664af) + port **linkage fixes** (tools/gametrial/linkagefix.py:
+  the later C++-scope declaration of a name an extern "C" block declared gets `extern "C"`, 106 sites):
+  **359 of 361 game units compile**. Obsolete port patches removed (homebtn asm, unk_802E4D84 casts, arity).
+  Response-file link (command line > 32K).
+- **New bug class: __thiscall stubs.** i386 MinGW member functions are thiscall (callee pops its stack args); the
+  generated stubs now `ret N` with N parsed from the Itanium mangled parameters (link.py thiscall_pop). A stubbed
+  UITable::Set had left 16 bytes on the stack and the caller returned into the heap.
+- **New bug class: vtable destructor slots.** MWCC: a virtual destructor is one slot; Itanium: two. bg.cpp declared
+  BgObject {vf08, Update}, other units {~BgObject, Update}: the background-task Update() ran ~SoundManager. Port
+  patch for bg.cpp; tools/gametrial/vslots.py lists 14 more candidate classes -> docs/VTABLE_NOTES.md.
+- Intrinsics __mulhwu/__mulhw/__frsqrte/__fres; crash handler walks EBP / scans the stack when EIP is wild;
+  game units built with frame pointers.
+- **Run now:** AppInit completes (music tracks load), the memory-card dialog now runs through the real UI system
+  (MemCardDialogMgr -> uiapi -> window.cpp) and crashes in uiapi fn_80215AA4 reading a string as a pointer. Next.
+- Open: dialog line spacing (20-unit step vs 42-unit glyphs; same in Show() which matches 99%: needs a retail
+  reference image).

@@ -1,0 +1,14 @@
+@@@ bg.cpp | VTABLE: other units declare BgObject with a virtual destructor in this slot (res.cpp, soundmgr.cpp). One slot on MWCC, two (complete + deleting) on the Itanium ABI, so bg.cpp's Update() call hit the deleting destructor. Declare it as the destructor
+<<<
+class BgObject {
+public:
+    virtual void vf08(void);
+    virtual void Update(void);  // 0xC
+};
+===
+class BgObject {
+public:
+    virtual ~BgObject(void);    // 0x8 (was vf08: the destructor slot)
+    virtual void Update(void);  // 0xC
+};
+>>>

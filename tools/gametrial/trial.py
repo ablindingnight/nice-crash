@@ -35,7 +35,7 @@ def run(zig, src, obj):
     env = dict(os.environ, ZIG_LOCAL_CACHE_DIR=cache)
     out = ['-c', '-o', os.path.join(OUT, 'obj', b + '.o')] if obj else ['-fsyntax-only']
     cmd = [zig, mode, '-target', 'x86-windows-gnu', std, *out, '-w', '-ferror-limit=100', '-O1', '-g',
-           '-fno-sanitize=all', '-fno-strict-aliasing', '-fwrapv'] + (['-fno-exceptions'] if mode == 'c++' else []) + [
+           '-fno-sanitize=all', '-fno-strict-aliasing', '-fwrapv', '-fno-omit-frame-pointer'] + (['-fno-exceptions'] if mode == 'c++' else []) + [
            '-I', SHIM, '-I', os.path.join(PORT, 'build', 'gamesrc', 'include'), '-I', os.path.join(ET, 'include'), '-I', os.path.join(PORT, 'build', 'gamesrc'), '-I', os.path.join(ET, 'src'),
            '-include', os.path.join(SHIM, 'port_prefix.h'), src]
     p = subprocess.run(cmd, env=env, cwd=PORT, capture_output=True, text=True, errors='replace',

@@ -5,28 +5,6 @@
     (void)v;  /* port: GQR6 setup (paired-single quantisation) not needed on the host */
 >>>
 
-@@@ homebtn.cpp | ASM: GQR2-5 setup (OSInitFastCast) has no meaning on the host
-<<<
-static inline void InitFastCast(void) {
-    asm {
-        li r3, 4
-        oris r3, r3, 4
-        mtspr 0x392, r3
-        li r3, 5
-        oris r3, r3, 5
-        mtspr 0x393, r3
-        li r3, 6
-        oris r3, r3, 6
-        mtspr 0x394, r3
-        li r3, 7
-        oris r3, r3, 7
-        mtspr 0x395, r3
-    }
-}
-===
-static inline void InitFastCast(void) {}  /* port: GQR setup not needed on the host */
->>>
-
 @@@ unk_80116BD4.c | ASM/ENDIAN: lwbrx = load a little-endian word; on the x86 host that is a plain load
 <<<
     asm { lwbrx v, z, p }
