@@ -25,3 +25,23 @@ RigidBody                slot 0: destructor in phob.cpp; plain virtual in ball.c
 StatBar                  slot 0: destructor in garage.cpp; plain virtual in mroll.cpp(v08)
 VR                       slot 0: destructor in evpath.cpp; plain virtual in carbody.cpp(v08)
 ```
+
+## Resolution (decomp, 2026-11-15; checked against the retail vtables by the coordinator, code-neutral on MWCC)
+- bg.cpp BgObject: destructor in slot 0 (ef19dbe4d). Port patch removed.
+- 474cf9a9b: GameMode/GameUI destructor in slot 0 in actseq, cardmg, crashmode, overlay, racing, aidriver,
+  tutorial (their `Arena` is the current GameMode).
+- 17a8a3b4e: CollVolume is [Init(CollDesc*), dtor, Reset, ...]; carbody and phob now declare Init before the
+  destructor (fixes RigidBody/MutPhob/CarBody). physcol's Phob is really CollVolume; physcol's Shape (CollShape) and
+  carbody's VR have the destructor in slot 0.
+- 043a6fd44: Chunks (partemit), StatBar (mroll): destructor in slot 0.
+- Scanner false positives, unchanged: ringchal `Arena` is a separate class [CountDynos, Spawn, dtor]; BoxShape and
+  RacingOverlay inherit a destructor-first base; orbit's `LineSet` is really PathSet [GetLine, ..., dtor last];
+  sol.cpp's Phob is not CollVolume (retail deletes it through slot 0x2C).
+- **Port caveat:** retail RigidBody/MutPhob override `Init(BodyDesc*)` while CollVolume declares
+  `Init(CollDesc*)`: on the PC those are two different virtuals, not an override. Unify the parameter type
+  port-side when that path runs.
+- Unchecked: carbody's other v08 placeholders (VG, CbShapeV, CbBodyV, CbFlagsV, ...), tutorial.cpp:1842 vf08.
+- uiapi placeholder dispatch classes (VfObj, Vf4Obj, fn_80215AA4's Callback): destructor in slot 0 (port patch
+  uiapi-vslots).
+- Related link-name fixes in the decomp (3326f7684, 19 units: AXQuit, zone LineFollower/fn_801B8048/fn_801B8514,
+  sphcoll HitWall, phob BoxVolume/Wheel ctors, trackobj Tube/Sphere vtables, ...): MWCC-name bridges 42 -> 24.
