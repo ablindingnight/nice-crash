@@ -277,6 +277,7 @@ int main(int argc, char** argv) {
     wc.lpfnWndProc = WndProc;
     wc.hInstance = GetModuleHandleA(nullptr);
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wc.hIcon = LoadIconA(GetModuleHandleA(nullptr), MAKEINTRESOURCEA(1));  // assets/icon (title bar, taskbar)
     wc.lpszClassName = "ExciteTruckHost";
     RegisterClassA(&wc);
     RECT r{0, 0, g_winW, g_winH};

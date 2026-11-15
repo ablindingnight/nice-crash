@@ -14,5 +14,7 @@ cxx() {
 }
 cxx -o "$B/import.exe" "$HERE/tools/import/import.cpp"
 echo "built $B/import.exe"
-cxx -o "$B/NiceCrash.exe" "$HERE/host/src/main.cpp" -lopengl32 -lgdi32 -luser32
+# The program icon (assets/icon): a resource object both executables embed.
+(cd "$HERE/assets/icon" && MSYS_NO_PATHCONV=1 "$Z" rc /fo ../../build/nicecrash.res nicecrash.rc)
+cxx -o "$B/NiceCrash.exe" "$HERE/host/src/main.cpp" "$B/nicecrash.res" -lopengl32 -lgdi32 -luser32
 echo "built $B/NiceCrash.exe"

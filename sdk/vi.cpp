@@ -49,6 +49,7 @@ static void CreateGameWindow() {
     wc.lpfnWndProc = WndProc;
     wc.hInstance = GetModuleHandleA(nullptr);
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wc.hIcon = LoadIconA(GetModuleHandleA(nullptr), MAKEINTRESOURCEA(1));  // assets/icon (title bar, taskbar)
     wc.lpszClassName = "NiceCrashGame";
     RegisterClassA(&wc);
     g_w = sdk_widescreen() ? 854 : 640;  // the 640-wide EFB is stretched to 16:9, as a widescreen TV does

@@ -1,0 +1,3 @@
+// Nice Crash program icon (assets/icon/nicecrash.ico, built by tools/makeicon.py). Resource id 1: the exe icon
+// in Explorer, and the window and taskbar icon (sdk/vi.cpp, host/src/main.cpp load it with LoadIcon(.., 1)).
+1 ICON "nicecrash.ico"

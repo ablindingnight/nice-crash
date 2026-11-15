@@ -494,6 +494,15 @@ def main():
         for row in sorted(bridges):
             f.write('\t'.join(str(x) for x in row) + '\n')
     cmd = base + [so]
+    # The program icon (assets/icon/nicecrash.rc -> a .res lld-link embeds): Explorer, window and taskbar.
+    res = os.path.join(B, 'nicecrash.res')
+    rr = subprocess.run([trial.find_zig(), 'rc', '/fo', res, os.path.join(PORT, 'assets', 'icon', 'nicecrash.rc')],
+                        cwd=os.path.join(PORT, 'assets', 'icon'), capture_output=True, text=True,
+                        creationflags=0x08000000)
+    if rr.returncode == 0:
+        cmd.append(res)
+    else:
+        print('WARNING: icon resource not built:', rr.stderr[:500])
     r = subprocess.run(rsp(cmd), cwd=PORT, capture_output=True, text=True, errors='replace', creationflags=0x08000000)
     out = r.stdout + r.stderr
     open(os.path.join(B, 'link.log'), 'w', encoding='utf-8').write(out)
