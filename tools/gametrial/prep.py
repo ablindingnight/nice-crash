@@ -124,7 +124,7 @@ def past_label(t):
 
 # Byte tables the code reads as big-endian words (Bink's dequantisation tables: u8 initialisers, read as s32).
 # Their initialisers are rewritten with each group of `n` bytes reversed, so the words read right on x86.
-WORD_TABLES = {'unk_80116BD4.c': [('lbl_802F6A40', 4), ('lbl_802F7A40', 4)]}
+WORD_TABLES = {}  # Bink's dequant tables: the decomp declares them s32 now (af0384038)
 
 
 def word_tables(fn, t):
