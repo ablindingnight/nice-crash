@@ -120,7 +120,7 @@ def prep():
 def compile_one(zig, src):
     b = os.path.basename(src)
     o = os.path.join(OBJ, 'sdk_' + b + '.o')
-    cmd = [zig, 'cc', '-target', 'x86-windows-gnu', '-std=gnu99', '-fgnu89-inline', '-O1', '-g', '-w', '-fno-sanitize=all',
+    cmd = [zig, 'cc', '-target', 'x86-windows-gnu', *trial.HOST_TRIPLE, '-std=gnu99', '-fgnu89-inline', '-O1', '-g', '-w', '-fno-sanitize=all',
            '-fno-strict-aliasing', '-fwrapv', '-c', '-ferror-limit=50', '-Wno-error=implicit-function-declaration', '-Wno-error=int-conversion', '-Wno-error=incompatible-pointer-types',
            '-I', os.path.join(PORT, 'shim', 'sdk_include'),
            '-I', os.path.join(OUT, 'include'), '-I', os.path.join(MSC, 'include'),

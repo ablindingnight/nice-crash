@@ -115,10 +115,13 @@ def _param_sizes(s, i):
     return sizes
 
 
+THISCALL = False  # game methods are cdecl on the host (port_prefix.h); stubs then need no callee pops
+
+
 def thiscall_pop(sym):
     """Bytes a __thiscall member function pops (i386 MinGW: non-static member functions are thiscall, callee
     cleans the stack). None for anything else (free functions, C names, varargs)."""
-    if not sym.startswith('__ZN'):
+    if not THISCALL or not sym.startswith('__ZN'):
         return None
     s = sym[3:]
     try:
@@ -131,6 +134,35 @@ def thiscall_pop(sym):
     if sizes is None:
         return None
     return sum(sizes)
+
+
+def read_dol_data():
+    """Big-endian word reader over the player's main.dol data sections (path from the importer's dump.ini), or None.
+    Used at link time only to recognise retail vtables; nothing from the DOL is written into the build."""
+    # Read dump.ini through cmd.exe: a Microsoft Store Python sees a virtualised %LOCALAPPDATA%.
+    dolp = os.environ.get('NICECRASH_DOL')
+    if not dolp:
+        r = subprocess.run(['cmd.exe', '/c', 'type', '%LOCALAPPDATA%\\NiceCrash\\dump.ini'], capture_output=True,
+                           text=True, errors='replace', creationflags=0x08000000)
+        for l in r.stdout.splitlines():
+            if l.startswith('dol='):
+                dolp = l[4:].strip()
+    if not dolp or not os.path.exists(dolp):
+        return None
+    b = open(dolp, 'rb').read()
+    import struct
+    secs = []
+    for i in range(7, 18):
+        off, addr, size = (struct.unpack_from('>I', b, x)[0] for x in (i * 4, 0x48 + i * 4, 0x90 + i * 4))
+        if size:
+            secs.append((addr, size, off))
+
+    def word(a):
+        for addr, size, off in secs:
+            if addr <= a < addr + size - 3:
+                return struct.unpack_from('>I', b, off + a - addr)[0]
+        return None
+    return word
 
 
 def rsp(cmd):
@@ -215,8 +247,50 @@ def main():
             if leaf:
                 by_base.setdefault(leaf, set()).add(d)
     nb = 0
+    # Retail vtables among the asm-only data (two zero words, then .text addresses): translated to host tables.
+    defs = set()
+    for s_ in allsyms.values():
+        defs.update(s_['def'])
+    text_names = {}
+    for line in open(os.path.join(PORT, '..', 'excite-truck', 'config', 'REXE01', 'symbols.txt'), encoding='utf-8'):
+        m = re.match(r'^(\S+) = \.text:0x([0-9A-Fa-f]+);', line)
+        if m:
+            text_names.setdefault(int(m.group(2), 16), m.group(1))
+    dol = read_dol_data()
+    nvt = 0
+    ptrfix = []
+    data_rw = ['\t.data']
+    missing = {}
+
+    def dol_vtable(addr, size):
+        if not dol:
+            return None
+        a0 = int(addr, 16)
+        words = [dol(a0 + 4 * i) for i in range(max(int(size), 8) // 4)]
+        if None in words[:3] or words[0] or words[1] or not (0x80004000 <= words[2] < 0x802ED060):
+            return None
+        out = []
+        for w in words[2:]:
+            if not (0x80004000 <= w < 0x802ED060):
+                break
+            out.append(w)
+        return out if len(out) >= 2 else None
+
+    def host_func(a):
+        name = text_names.get(a, 'fn_%08X' % a)
+        if '_' + name in defs:
+            return '_' + name
+        m = re.match(r'^(\w+?)__(\d+)(\w+?)F', name)  # MWCC "Method__<len>ClassF..."
+        if m:
+            leaf, cls = m.group(1), m.group(3)[:int(m.group(2))]
+            hits = [d for d in defs if d.startswith('__Z') and itanium_leaf(d) == (leaf, [cls])]
+            if len(hits) == 1:
+                return hits[0]
+        lab = missing.setdefault(a, 'Lvtmiss_%08X' % a)
+        return lab
+
     for sym, name, kind, unit, sec, addr, size, cat in rows:
-        if sym == '_port_dolfix_table':
+        if sym in ('_port_dolfix_table', '_port_dolptr_table'):
             continue  # generated below
         mbase = sym.lstrip('_').split('__F')[0] if not sym.startswith('__Z') else None
         if kind != 'object' and mbase and len(by_base.get(mbase, ())) == 1:
@@ -226,11 +300,43 @@ def main():
             continue
         if re.match(r'(sdk_|gxr_|gxi_|port_)', name):
             sys.exit('link: the port\'s own symbol %s is undefined (declaration/linkage mismatch?)' % name)
+        vt = dol_vtable(addr, size) if kind == 'object' and addr else None
+        if vt:
+            # A retail MWCC vtable in asm-only data: build the host (Itanium-layout) table from the same functions.
+            lab = 'Lvt%d' % nvt
+            entries = []
+            for k, a in enumerate(vt):
+                if k == 0:  # MWCC destructor dtor(this, flag) -> complete (flag 0) and deleting (flag 1) thunks
+                    target = host_func(a)
+                    for flag, suf in ((0, 'D1'), (1, 'D0')):
+                        asm += ['%s_%s:' % (lab, suf), '\tpushl $%d' % flag, '\tpushl 8(%esp)',
+                                '\tcall %s' % gas_name(target), '\taddl $8, %esp', '\tret']
+                        entries.append('%s_%s' % (lab, suf))
+                else:
+                    entries.append(gas_name(host_func(a)))
+            data_rw.extend(['\t.balign 4', '%s:' % lab, '\t.long 0, 0, ' + ', '.join(entries),
+                            '\t.globl %s' % gas_name(sym), '\t.set %s, %s + 8' % (gas_name(sym), lab)])
+            nvt += 1
+            continue
         if kind == 'object' and addr and 0x80000000 <= int(addr, 16) < 0x81800000:
             # Asm-only data: an absolute symbol at its Wii address; runtime/dolload.cpp puts the retail bytes there.
             data += ['\t.globl %s' % gas_name(sym), '\t.set %s, 0x%s' % (gas_name(sym), addr)]
-            if int(size) in (2, 4, 8) and sec in ('.sdata2', '.sdata', '.data', '.rodata', '.bss', '.sbss'):
-                fixes.append((addr, int(size)))
+            a0, sz = int(addr, 16), int(size)
+            # Pointer words in the retail bytes: code pointers -> host function, data pointers -> byte-swapped.
+            ptr_words = set()
+            if dol and sec not in ('.bss', '.sbss'):
+                for k in range(0, sz - 3, 4):
+                    w = dol(a0 + k)
+                    if w is None:
+                        continue
+                    if 0x80004000 <= w < 0x802ED060 and w in text_names:
+                        ptrfix.append((a0 + k, host_func(w)))
+                        ptr_words.add(k)
+                    elif 0x802ED060 <= w < 0x80565240 and w % 4 == 0:
+                        ptrfix.append((a0 + k, None))
+                        ptr_words.add(k)
+            if sz in (2, 4, 8) and not ptr_words and sec in ('.sdata2', '.sdata', '.data', '.rodata', '.bss', '.sbss'):
+                fixes.append((addr, sz))
             nd += 1
         elif kind == 'object':
             n = max(int(size), 4)
@@ -244,6 +350,17 @@ def main():
                     '\tpushl $%s' % lab, '\tcall _port_unimpl', '\taddl $4, %esp',
                     '\tret $%d' % pop if pop else '\tret']
             nf += 1
+    for a, lab in sorted(missing.items()):  # vtable entries with no host function: report by name when called
+        rodata += ['%s_n: .asciz "vtable entry %s (%08X)"' % (lab, text_names.get(a, '?'), a)]
+        asm += ['%s:' % lab, '\tpushl $%s_n' % lab, '\tcall _port_unimpl', '\taddl $4, %esp', '\tret']
+    data += data_rw
+    if not dol:
+        print('WARNING: main.dol not found (set NICECRASH_DOL or use link.sh): retail vtables NOT translated')
+    print('dol vtables: %d translated, %d entries without a host function' % (nvt, len(missing)))
+    # Pointer words in DOL-backed labels (runtime/dolload.cpp applies them after loading the data sections).
+    rodata += ['	.balign 4', '	.globl _port_dolptr_table', '_port_dolptr_table:']
+    rodata += ['	.long 0x%08X, %s' % (a, gas_name(h) if h else '0') for a, h in ptrfix] + ['	.long 0, 0']
+    print('dol data pointers: %d code, %d data' % (sum(1 for _, h in ptrfix if h), sum(1 for _, h in ptrfix if not h)))
     # Scalars among the DOL-backed labels: byte-swapped once at startup (runtime/dolload.cpp).
     rodata += ['\t.balign 4', '\t.globl _port_dolfix_table', '_port_dolfix_table:']
     rodata += ['\t.long 0x%s, %d' % (a, n) for a, n in fixes] + ['\t.long 0, 0']

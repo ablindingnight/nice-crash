@@ -37,3 +37,4 @@ static inline unsigned int __mulhwu(unsigned int a, unsigned int b) { return (un
 static inline int __mulhw(int a, int b) { return (int)(((long long)a * b) >> 32); }
 static inline double __frsqrte(double x) { return 1.0 / __builtin_sqrt(x); }
 static inline float __fres(float x) { return 1.0f / x; }
+

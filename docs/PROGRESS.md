@@ -177,3 +177,25 @@
   port items the coordinator handed back: unk_8020F3B4.c compiled as C++ (it uses `#pragma cplusplus on`),
   trailer.cpp TMtx() {} (patch), loading.cpp fn_80011280 arity with retail h = 140/160 (patch), and boostman.cpp
   explicit specialisations declared before first use (patch). 376 objects link, 42 MWCC-name bridges.
+
+## 2026-11-15: cdecl methods (Cygwin triple), retail vtables and DOL pointers translated, first layout dialog runs
+- **Calling convention:** game and SDK code now compile with clang's i686 *Cygwin* triple (MinGW headers/libs kept,
+  `_WIN32`/`__MINGW32__` re-defined): C++ methods are cdecl (MinGW's default is thiscall), so `this` is the first
+  stack argument as it is the first register argument on PowerPC. That keeps hand-written vtables of free functions
+  and per-unit virtual declarations with differing parameter lists working. Bonus: GCC-style bitfield packing (as
+  MWCC), not MS-style. Thiscall stubs (`ret N`) switched off. `#pragma clang attribute cdecl` is not supported.
+- **Hand-written vtables (uiapi.cpp, 7):** prep rewrites them to Itanium layout (two destructor thunks, vptr at
+  slot 0). Placeholder dispatch classes VfObj/Vf4Obj/Callback get a destructor in slot 0 (port patch).
+- **Retail vtables in asm-only data (75):** link.py reads them from the player's DOL and builds host tables: each
+  entry resolved to the host function by name (C names, or MWCC `Method__<n>ClassF` -> Itanium), destructor -> D1/D0
+  thunks; the label points at the host table. All 75 resolved.
+- **DOL data pointers:** words in asm-only data that point into retail code become the host function (52), data
+  pointers are byte-swapped (4) (runtime/dolload.cpp, port_dolptr_table). The memcard MenuDesc's poll callback was
+  the case found.
+- The Microsoft Store Python cannot see %LOCALAPPDATA%\NiceCrash (filesystem virtualisation):
+  tools/gametrial/link.sh passes the DOL path in NICECRASH_DOL.
+- **Run now:** the layout-driven dialog mc_dialog.lyt runs its loop through the real UI (UIDoMappedDialog); the
+  scripted press chose "delete" (rmemcard: deleting foo.bar / banner.bin); the next dialog crashes in a virtual
+  call where HitTest lands in a Bounds function (widgets.cpp fn_80229AE4 -> fn_80222AFC): a class whose
+  declarations disagree about the destructor slot. widgets.cpp has ~115 hand-written dispatch helpers: next step is
+  a systematic slot audit (extend vslots.py to dispatch structs and translated tables) rather than crash-by-crash.

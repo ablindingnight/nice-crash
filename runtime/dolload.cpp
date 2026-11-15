@@ -16,6 +16,10 @@ struct DolFix {
     u32 addr, size;
 };
 extern "C" const DolFix port_dolfix_table[];  // build/stubs.s, terminated by {0, 0}
+struct DolPtr {
+    u32 addr, host;
+};
+extern "C" const DolPtr port_dolptr_table[];  // build/stubs.s, terminated by {0, 0}
 
 static u32 BE(const unsigned char* p) { return (u32)p[0] << 24 | (u32)p[1] << 16 | (u32)p[2] << 8 | p[3]; }
 
@@ -50,6 +54,12 @@ __attribute__((constructor(104))) static void LoadDolData() {
         }
     }
     fclose(f);
+    // Pointer words (link.py): a host function for retail code pointers, else a byte-swap of a data pointer
+    // (the data image sits at its retail addresses, so the value stays the same once it is native).
+    for (const DolPtr* p = port_dolptr_table; p->addr; p++) {
+        if (p->host) *(u32*)(uintptr_t)p->addr = p->host;
+        else Swap((unsigned char*)(uintptr_t)p->addr, 4);
+    }
     int n = 0;
     for (const DolFix* d = port_dolfix_table; d->addr; d++, n++)
         if (d->size == 2 || d->size == 4 || d->size == 8) Swap((unsigned char*)(uintptr_t)d->addr, (int)d->size);
