@@ -248,7 +248,7 @@ def main():
     # Keep zig's options and its CRT/import libraries; drop the probe's own outputs and objects.
     keep = [a for a in args if (a.startswith('-') and not a.startswith(('-OUT:', '-PDB', '-IMPLIB:')))
             or a.lower().endswith(('.lib', '.obj'))]
-    base = [trial.find_zig(), 'lld-link', *keep, '-OUT:' + exe, '-PDB:' + exe[:-4] + '.pdb', '/force:multiple', '/LARGEADDRESSAWARE', '/DYNAMICBASE:NO',
+    base = [trial.find_zig(), 'lld-link', *keep, '-OUT:' + exe, '-PDB:' + exe[:-4] + '.pdb', '/MAP:' + exe[:-4] + '.map', '/force:multiple', '/LARGEADDRESSAWARE', '/DYNAMICBASE:NO',
             '/demangle:no', *good, *rt]
     # Pass 1 without stubs: the linker tells us exactly what nobody (game, runtime, CRT, Windows) defines.
     r1 = subprocess.run(rsp(base), cwd=PORT, capture_output=True, text=True, errors='replace', creationflags=0x08000000)
