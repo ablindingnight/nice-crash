@@ -466,6 +466,13 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
         gxt_active_texture(m);
         texOk[m] = BindTexMap(m);
     }
+    for (int i = 0, nInd = (g_gx.bp[0x00] >> 16) & 7; i < nInd && i < 4; i++) {  // indirect stages' maps
+        int m = (g_gx.bp[0x27] >> (6 * i)) & 7;
+        if (tried[m]) continue;
+        tried[m] = true;
+        gxt_active_texture(m);
+        texOk[m] = BindTexMap(m);
+    }
     gxt_active_texture(0);
     ApplyState();
     bool tev = gxt_begin(texOk);

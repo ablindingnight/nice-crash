@@ -88,6 +88,20 @@ def replace_asm_helpers(t):
     return t
 
 
+# `*(u32*)&color` type-puns of GXColor (4 bytes) read the colour as a big-endian word on the Wii (r = bits 24-31).
+# On the host they become explicit big-endian loads/stores. GXColorS10 (four s16) packs (r<<16 | g), (b<<16 | a).
+# The float bit-casts in GXSetFogRangeAdj... (a_bits/c_bits) are left alone: they are not colours.
+PUN_ST = re.compile(r'\*\(u32\s*\*\)\s*&([\w\->\.\[\]]+)\s*=\s*([^;]+);')
+PUN_LD = re.compile(r'\*\(u32\s*\*\)\s*&([\w\->\.\[\]]+)')
+
+
+def colour_puns(t):
+    t = t.replace('sRG = *(u32*)&color;', 'sRG = (u32)(u16)color.r << 16 | (u16)color.g;')
+    t = t.replace('sBA = *((u32*)&color + 1);', 'sBA = (u32)(u16)color.b << 16 | (u16)color.a;')
+    t = PUN_ST.sub(lambda m: 'port_be_st32(&%s, %s);' % (m.group(1), m.group(2)), t)
+    return PUN_LD.sub(lambda m: m.group(0) if m.group(1) in ('a', 'c') else 'port_be_ld32(&%s)' % m.group(1), t)
+
+
 def prep():
     inc_src = os.path.join(MSC, 'libs', 'RVL_SDK', 'include')
     n = 0
@@ -108,6 +122,8 @@ def prep():
             # SDK functions the host layer replaces (sdk/*.cpp): rename the SDK's definitions out of the way.
             for name in HOST_OVERRIDES:
                 t = re.sub(r'(\n\w[\w \*]*\b)%s(\s*\([^)]*\)\s*\{)' % name, r'\1__sdk_unused_%s\2' % name, t)
+        if src.replace(os.sep, '/').find('/gx/') >= 0 and src.endswith('.c'):
+            t = colour_puns(t)
         t2 = rewrite(t)
         n += t2 != t
         rel = os.path.relpath(src, inc_src if src.startswith(inc_src) else os.path.join(MSC, 'src'))

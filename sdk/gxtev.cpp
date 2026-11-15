@@ -40,7 +40,7 @@ typedef char GLchar_;
     X(void, glUniform1i, (GLint, GLint))                                                   \
     X(void, glUniform1iv, (GLint, GLsizei, const GLint*))                                  \
     X(void, glUniform2f, (GLint, GLfloat, GLfloat))                                        \
-    X(void, glUniform4fv, (GLint, GLsizei, const GLfloat*))                                \
+    X(void, glUniform4fv, (GLint, GLsizei, const GLfloat*))                                    X(void, glUniform3fv, (GLint, GLsizei, const GLfloat*))                                    X(void, glUniform2fv, (GLint, GLsizei, const GLfloat*))                                    X(void, glUniform1fv, (GLint, GLsizei, const GLfloat*))                                \
     X(void, glVertexAttrib4f, (GLuint, GLfloat, GLfloat, GLfloat, GLfloat))               \
     X(void, glActiveTexture, (GLenum))                                                     \
     X(void, glMultiTexCoord2f, (GLenum, GLfloat, GLfloat))
@@ -68,7 +68,7 @@ bool Load() {
 
 struct Prog {
     GLuint id;
-    GLint reg, kon, aref, tex;
+    GLint reg, kon, aref, tex, tdim, imtx, ishift;
 };
 std::unordered_map<std::string, Prog> g_progs;
 
@@ -144,6 +144,9 @@ std::string BuildFS(int nStages, const bool texOk[8]) {
         "uniform vec4 reg[4];\n"
         "uniform vec4 kon[4];\n"
         "uniform vec2 aref;\n"
+        "uniform vec2 tdim[8];\n"
+        "uniform vec3 imtx[6];\n"
+        "uniform float ishift[3];\n"
         "varying vec4 col1;\n"
         "float q8(float x) { return floor(clamp(x, 0.0, 1.0) * 255.0 + 0.5); }\n"
         "vec3 q8(vec3 x) { return floor(clamp(x, 0.0, 1.0) * 255.0 + 0.5); }\n"
@@ -151,9 +154,27 @@ std::string BuildFS(int nStages, const bool texOk[8]) {
         "  vec4 r0 = reg[0], r1 = reg[1], r2 = reg[2], r3 = reg[3];\n"
         "  vec4 tx = vec4(0.0), ras = vec4(0.0);\n"
         "  vec3 kc = vec3(0.0); float ka = 0.0;\n"
-        "  vec3 ca, cb, cc, cd; float aa, ab, ac, ad;\n";
+        "  vec3 ca, cb, cc, cd; float aa, ab, ac, ad;\n"
+        "  vec2 tc = vec2(0.0), prevtc = vec2(0.0), itr; vec3 ic;\n";
     int lastC = 0, lastA = 0;
     char b[512];
+    // Indirect stages (BP 0x27 order, 0x25/0x26 coordinate scales): each looks up its texture once; the 8-bit values
+    // (alpha, blue, green = s, t, u) feed the TEV stages that reference the stage.
+    int nInd = (g_gx.bp[0x00] >> 16) & 7;
+    for (int i = 0; i < nInd && i < 4; i++) {
+        u32 iref = g_gx.bp[0x27] >> (6 * i);
+        int imap = iref & 7, icoord = (iref >> 3) & 7;
+        u32 ss = g_gx.bp[0x25 + i / 2] >> ((i & 1) * 8);
+        int sS = ss & 15, sT = (ss >> 4) & 15;
+        if (texOk[imap]) {
+            snprintf(b, sizeof b,
+                     "  vec3 ind%d = floor(texture2D(tex[%d], gl_TexCoord[%d].st / vec2(%d.0, %d.0)).abg * 255.0 + 0.5);\n",
+                     i, imap, icoord, 1 << sS, 1 << sT);
+        } else {
+            snprintf(b, sizeof b, "  vec3 ind%d = vec3(0.0);\n", i);
+        }
+        s += b;
+    }
     for (int st = 0; st < nStages; st++) {
         u32 ord = g_gx.bp[0x28 + st / 2] >> ((st & 1) * 12);
         int map = ord & 7, coord = (ord >> 3) & 7, en = (ord >> 6) & 1, chan = (ord >> 7) & 7;
@@ -164,12 +185,55 @@ std::string BuildFS(int nStages, const bool texOk[8]) {
         snprintf(b, sizeof b, "  // stage %d: map %d coord %d en %d chan %d cenv %06x aenv %06x\n", st, map, coord, en, chan,
                  cenv, aenv);
         s += b;
+        // Indirect texturing for this stage (BP 0x10 + stage): coordinates in 1/128 texel units, as the hardware.
+        u32 ind = g_gx.bp[0x10 + st];
+        int bt = ind & 3, ifmt = (ind >> 2) & 3, ibias = (ind >> 4) & 7, mid = (ind >> 9) & 15;
+        int sw = (ind >> 13) & 7, tw = (ind >> 16) & 7, addprev = (ind >> 20) & 1;
+        bool indOn = nInd > 0 && (mid || sw || tw || addprev);
+        if (indOn) {
+            static const int kWrap[8] = {0, 256, 128, 64, 32, 16, 0, 0};
+            snprintf(b, sizeof b, "  tc = floor(gl_TexCoord[%d].st * tdim[%d] * 128.0);\n", coord, map);
+            s += b;
+            if (sw) s += sw == 6 ? "  tc.x = 0.0;\n" : "  tc.x = mod(tc.x, " + std::to_string(kWrap[sw] * 128) + ".0);\n";
+            if (tw) s += tw == 6 ? "  tc.y = 0.0;\n" : "  tc.y = mod(tc.y, " + std::to_string(kWrap[tw] * 128) + ".0);\n";
+            if (mid && bt < nInd) {
+                static const int kBits[4] = {256, 32, 16, 8};
+                snprintf(b, sizeof b, "  ic = mod(ind%d, %d.0);\n", bt, kBits[ifmt]);
+                s += b;
+                const char* comp = "xyz";
+                for (int k = 0; k < 3; k++)
+                    if ((ibias >> k) & 1) s += std::string("  ic.") + comp[k] + (ifmt == 0 ? " -= 128.0;\n" : " += 1.0;\n");
+                int m = (mid & 3) - 1;
+                if (m >= 0) {
+                    if (mid < 4) {
+                        snprintf(b, sizeof b, "  itr = floor(vec2(dot(imtx[%d], ic), dot(imtx[%d], ic)) / 8.0);\n", 2 * m, 2 * m + 1);
+                    } else {  // dynamic S/T matrices: the coordinate times one indirect component
+                        snprintf(b, sizeof b, "  itr = floor(tc * ic.%c / 256.0);\n", mid < 8 ? 'x' : 'y');
+                    }
+                    s += b;
+                    snprintf(b, sizeof b, "  itr = ishift[%d] >= 0.0 ? floor(itr / exp2(ishift[%d])) : itr * exp2(-ishift[%d]);\n", m,
+                             m, m);
+                    s += b;
+                    s += "  tc += itr;\n";
+                }
+            }
+            if (addprev) s += "  tc += prevtc;\n";
+            s += "  prevtc = tc;\n";
+        } else {
+            s += "  prevtc = vec2(0.0);\n";
+        }
         if (en && texOk[map]) {
-            snprintf(b, sizeof b, "  tx = texture2D(tex[%d], gl_TexCoord[%d].st)%s;\n", map, coord, Swizzle(tswap).c_str());
+            if (indOn)
+                snprintf(b, sizeof b, "  tx = texture2D(tex[%d], tc / (128.0 * tdim[%d]))%s;\n", map, map, Swizzle(tswap).c_str());
+            else
+                snprintf(b, sizeof b, "  tx = texture2D(tex[%d], gl_TexCoord[%d].st)%s;\n", map, coord, Swizzle(tswap).c_str());
             s += b;
         } else {
             s += "  tx = vec4(0.0);\n";
         }
+        if (const char* dbg = getenv("NICECRASH_TEVDBG"))  // debugging: show this stage's texture sample (and coords)
+            if (atoi(dbg) == st && nStages > 3)
+                s += "  gl_FragColor = vec4(tx.r, fract(prevtc / 128.0 / 64.0), 1.0); return;\n";
         if (chan == 0) s += "  ras = gl_Color" + Swizzle(rswap) + ";\n";
         else if (chan == 1) s += "  ras = col1" + Swizzle(rswap) + ";\n";
         else s += "  ras = vec4(0.0);\n";
@@ -274,8 +338,15 @@ bool gxt_begin(const bool texOk[8]) {
         snprintf(b, sizeof b, "%06x%06x", g_gx.bp[0xC0 + st * 2] & 0xFFFFFF, g_gx.bp[0xC1 + st * 2] & 0xFFFFFF);
         key += b;
     }
+    snprintf(b, sizeof b, "|%06x|%06x%06x%06x|", g_gx.bp[0x00] & 0x7FFFFF, g_gx.bp[0x25] & 0xFFFFFF, g_gx.bp[0x26] & 0xFFFFFF,
+             g_gx.bp[0x27] & 0xFFFFFF);
+    key += b;
+    for (int st = 0; st < nStages; st++) {
+        snprintf(b, sizeof b, "%06x", g_gx.bp[0x10 + st] & 0x1FFFFF);
+        key += b;
+    }
     for (int i = 0; i < 8; i++) {
-        snprintf(b, sizeof b, "%06x", g_gx.bp[(i < 8 ? 0x28 : 0) + i] & 0xFFFFFF);
+        snprintf(b, sizeof b, "%06x", g_gx.bp[0x28 + i] & 0xFFFFFF);
         key += b;
         snprintf(b, sizeof b, "%06x", g_gx.bp[0xF6 + i] & 0xFFFFFF);
         key += b;
@@ -304,6 +375,9 @@ bool gxt_begin(const bool texOk[8]) {
                 pr.kon = p_glGetUniformLocation(pr.id, "kon");
                 pr.aref = p_glGetUniformLocation(pr.id, "aref");
                 pr.tex = p_glGetUniformLocation(pr.id, "tex");
+                pr.tdim = p_glGetUniformLocation(pr.id, "tdim");
+                pr.imtx = p_glGetUniformLocation(pr.id, "imtx");
+                pr.ishift = p_glGetUniformLocation(pr.id, "ishift");
             }
         }
         if (getenv("NICECRASH_TEVLOG")) fprintf(stderr, "[tev] program %zu (%s):\n%s\n", g_progs.size(), key.c_str(), fsrc.c_str());
@@ -334,6 +408,27 @@ bool gxt_begin(const bool texOk[8]) {
     p_glUniform2f(g_cur->aref, (float)(g_gx.bp[0xF3] & 0xFF), (float)((g_gx.bp[0xF3] >> 8) & 0xFF));
     static const GLint units[8] = {0, 1, 2, 3, 4, 5, 6, 7};
     p_glUniform1iv(g_cur->tex, 8, units);
+    // Texture sizes (BP image registers) and the indirect matrices (BP 0x06-0x0E: raw s11 elements, scale exponent).
+    float dims[16], mtx[18], shift[3];
+    for (int m = 0; m < 8; m++) {
+        u32 img0 = g_gx.bp[(m < 4 ? 0x88 : 0xA8) + (m & 3)];
+        dims[m * 2] = (float)((img0 & 0x3FF) + 1);
+        dims[m * 2 + 1] = (float)(((img0 >> 10) & 0x3FF) + 1);
+    }
+    auto s11 = [](u32 v) { int x = (int)(v & 0x7FF); return (float)(x & 0x400 ? x - 0x800 : x); };
+    for (int m = 0; m < 3; m++) {
+        u32 A = g_gx.bp[0x06 + 3 * m], B = g_gx.bp[0x07 + 3 * m], C = g_gx.bp[0x08 + 3 * m];
+        float row0[3] = {s11(A), s11(B), s11(C)}, row1[3] = {s11(A >> 11), s11(B >> 11), s11(C >> 11)};
+        for (int k = 0; k < 3; k++) {
+            mtx[m * 6 + k] = row0[k];
+            mtx[m * 6 + 3 + k] = row1[k];
+        }
+        int scale = (int)((A >> 22) & 3 | ((B >> 22) & 3) << 2 | ((C >> 22) & 3) << 4);
+        shift[m] = (float)(17 - scale);
+    }
+    p_glUniform2fv(g_cur->tdim, 8, dims);
+    p_glUniform3fv(g_cur->imtx, 6, mtx);
+    p_glUniform1fv(g_cur->ishift, 3, shift);
     return true;
 }
 
