@@ -213,3 +213,33 @@
   game. Screenshot docs/screenshots/milestone3_title_screen.png (git-ignored).
 - Missing on it: the background video (Bink: video/uisingle.bik; DVDFastOpen is a stub), the button icon in the
   banner, black boxes behind some text (TEV approximation), audio.
+
+## 2026-11-15 (later): the title's Bink video plays; TEV and indirect texturing as shaders
+- **DVD:** DVDConvertPathToEntrynum/DVDFastOpen/DVDCancel; open files are tagged inside DVDFileInfo so copies of
+  the struct (Bink reads through one) still find their file.
+- **Bink decode (unk_80116BD4.c), four port-only defects, all reported to the decomp:**
+  - PowerPC `srw` gives 0 for a shift count of 32; x86 keeps the value. `0xFFFFFFFF >> (32 - n)` masks with n == 0
+    (one-symbol Huffman trees) -> prep rule ppc-srw-mask (port_srw, 34 sites).
+  - Huffman lookup table 0 (lbl_802F65C0) is bytes written as big-endian u32 words (patch).
+  - The pattern-mask macros address lbl_802F65C0 + 0x3E0.. (past a 16-byte label; retail .rodata order only):
+    they are lbl_802F6990 + 0x10.. (patch).
+  - The dequantisation tables lbl_802F6A40/lbl_802F7A40 are u8 initialisers read as s32 (prep WORD_TABLES).
+- **DOL label swaps typed by the source:** link.py reads each extern declaration's element type; a label is
+  swapped per element (u8 tables no longer reversed as if they were f64, big u32/f32 tables now swapped).
+- **Past-label string pools:** `lbl_X + N` past a source-defined byte array (inputbind's 56 LocStrings) is
+  redirected to the retail address, where the DOL's data is loaded (prep rule past-label-retail;
+  tools/gametrial/pastlabel.py lists all candidates).
+- **TEV as GLSL (sdk/gxtev.cpp):** colour/alpha combiners incl. compare modes, konst, swap tables, alpha compare,
+  both colour channels, every texture map on its own unit; indirect texturing (stages, matrices + scale, wrap,
+  add-previous, dynamic S/T). NICECRASH_TEVLOG=1/2 (programs / per-draw use), NICECRASH_TEVDBG=<stage>,
+  NICECRASH_NOTEV (fixed-function fallback). The black boxes behind text are gone.
+- **Big-endian GX data built by the CPU:** drtex's font palettes (u16 stores, patch gx-stores) and the SDK's
+  `*(u32*)&GXColor` / GXColorS10 type-puns (sdkbuild.py colour_puns) -> konst/material/TEV colours now right.
+- Crash reporter: registers + code bytes at EIP; port_watch(addr) / port_watch_value / port_watch_range hardware
+  write watches (DR0) for "who overwrote this" bugs.
+- **Run:** the memcard dialogs and the title screen with the uisingle.bik video in colour
+  (docs/screenshots/m3_title_bink.png).
+- `gArtGet(extruck.art)` / `blinker*.img` "not found": no resource archive on the disc has them (searched the
+  unpacked RST0 archives); retail logs the same miss. Not a port bug.
+- Still open on the title: the [2] button icon in the banner, a one-pixel dashed seam across the video (indirect
+  coordinate rounding), audio.
