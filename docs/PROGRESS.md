@@ -299,4 +299,4 @@
 - PCM16 is read in host order (the port does not run the game's byte swaps; the MP3 player's PCM is CPU-built);
   NICECRASH_PCMBE flips it if a big-endian source turns up.
 - Verified from a capture (NICECRASH_WAV): title music, an ADPCM stereo loop; sample autocorrelation 0.93, L/R
-  correlation 0.93, peaks ~17k. NICECRASH_AXLOG lists voice setups. Not yet listened to on speakers by a human.
+  correlation 0.93, peaks ~17k. NICECRASH_AXLOG lists voice setups. Listened to on speakers 2026-11-15: sounds right (user).
