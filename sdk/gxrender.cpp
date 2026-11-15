@@ -17,6 +17,7 @@
 #include "gxinterp.h"
 #include "texture.h"
 #include "gxtev.h"
+#include "xfb.h"
 
 #ifndef GL_CLAMP_TO_EDGE
 #define GL_CLAMP_TO_EDGE 0x812F
@@ -27,6 +28,7 @@
 
 extern "C" void sdk_vi_present_now();  // sdk/vi.cpp: swap buffers
 extern "C" u32 sdk_vi_retrace_count();
+extern "C" void sdk_vi_note_copy();
 extern "C" void sdk_vi_window_size(int* w, int* h);
 
 namespace {
@@ -256,6 +258,7 @@ bool BindTexMap(int m) {
 void ApplyState() {
     int ww, wh;
     sdk_vi_window_size(&ww, &wh);
+    xfb_bind_efb(ww, wh);  // draw into the off-screen EFB (sdk/xfb.cpp)
     glViewport(0, 0, ww, wh);
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
@@ -386,8 +389,11 @@ void gxr_tlut_load(u32 bp64, u32 bp65) {
     if (dst + n <= sizeof(g_tmem)) memcpy(g_tmem + dst, src, n);
 }
 
+static u32 g_drawsSinceCopy;  // draws since the last display copy (an empty copy is not shown, see gxr_copy)
+
 void gxr_draw(int prim, int vat, int count, const u8* data) {
     if (!count) return;
+    g_drawsSinceCopy++;
     u32 lo = g_gx.cp[0x50], hi = g_gx.cp[0x60];
     VtxFmt f = Fmt(vat);
     float posScale = f.posFmt == 4 ? 1.0f : 1.0f / (float)(1 << f.posFrac);
@@ -500,6 +506,12 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
                 vs[0].col[0][0], vs[0].col[0][1], vs[0].col[0][2], vs[0].col[0][3], numChans, colVtx, texOn, texMap,
                 g_gx.bp[0x88 + texMap] & 0xFFFFFF, g_gx.bp[0x94 + texMap] & 0xFFFFFF, g_gx.bp[0x41] & 0xFFFFFF,
                 g_gx.bp[0x40] & 0xFFFFFF, g_gx.xf[0x1026]);
+        fprintf(stderr, "    proj %.4f %.4f %.4f %.4f %.4f %.4f viewport %.1f %.1f %.1f %.1f mtx row0 %.4f %.4f %.4f %.2f row1 %.4f %.4f %.4f %.2f row2 %.4f %.4f %.4f %.2f\n",
+                xff(0x1020), xff(0x1021), xff(0x1022), xff(0x1023), xff(0x1024), xff(0x1025), xff(0x101A),
+                xff(0x101B), xff(0x101D), xff(0x101E), xff(vs[0].pnmtx * 4), xff(vs[0].pnmtx * 4 + 1),
+                xff(vs[0].pnmtx * 4 + 2), xff(vs[0].pnmtx * 4 + 3), xff(vs[0].pnmtx * 4 + 4), xff(vs[0].pnmtx * 4 + 5),
+                xff(vs[0].pnmtx * 4 + 6), xff(vs[0].pnmtx * 4 + 7), xff(vs[0].pnmtx * 4 + 8), xff(vs[0].pnmtx * 4 + 9),
+                xff(vs[0].pnmtx * 4 + 10), xff(vs[0].pnmtx * 4 + 11));
         for (int k = 0; k < count && k < 6; k++)
             fprintf(stderr, "    v%d pos (%.2f %.2f %.2f) tex (%.4f %.4f) col %02x%02x%02x%02x\n", k, vs[k].pos[0], vs[k].pos[1],
                     vs[k].pos[2], vs[k].tex[0][0], vs[k].tex[0][1], vs[k].col[0][0], vs[k].col[0][1], vs[k].col[0][2], vs[k].col[0][3]);
@@ -569,11 +581,28 @@ void gxr_copy(u32 bp52) {
             fprintf(stderr, "[copy] src %06x size %06x yscale %06x dst stride %06x bp52 %06x\n", g_gx.bp[0x49] & 0xFFFFFF,
                     g_gx.bp[0x4A] & 0xFFFFFF, g_gx.bp[0x4E] & 0xFFFFFF, g_gx.bp[0x4D] & 0xFFFFFF, bp52 & 0xFFFFFF);
     }
+    int ww, wh;
+    sdk_vi_window_size(&ww, &wh);
     if (toXfb) {
-        sdk_vi_present_now();
+        if (xfb_active()) {  // the EFB goes to its XFB; the VI shows the one the game selects at the retrace
+            xfb_bind_efb(ww, wh);
+            sdk_vi_note_copy();
+            // A copy of an EFB nothing was drawn into since the last copy (the host's timing gives the game the odd
+            // empty frame; on the Wii they do not reach the screen) keeps the XFB's previous picture.
+            if (g_drawsSinceCopy || getenv("NICECRASH_EMPTYCOPIES")) {
+                if (getenv("NICECRASH_XFBLOG")) fprintf(stderr, "[xfb] draws in frame %u\n", g_drawsSinceCopy);
+                xfb_copy(g_gx.bp[0x4B] << 5, (int)((g_gx.bp[0x4A] >> 10) & 0x3FF) + 1);
+            } else if (getenv("NICECRASH_XFBLOG")) {
+                fprintf(stderr, "[xfb] empty copy skipped\n");
+            }
+            g_drawsSinceCopy = 0;
+        } else {
+            sdk_vi_present_now();
+        }
         g_frameNo++;
     }
     if (clear) {
+        xfb_bind_efb(ww, wh);
         u32 ar = g_gx.bp[0x4F], gb = g_gx.bp[0x50], z = g_gx.bp[0x51] & 0xFFFFFF;
         glDisable(GL_SCISSOR_TEST);
         glColorMask(1, 1, 1, 1);

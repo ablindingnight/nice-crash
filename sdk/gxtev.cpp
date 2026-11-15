@@ -150,6 +150,27 @@ std::string BuildFS(int nStages, const bool texOk[8]) {
         "varying vec4 col1;\n"
         "float q8(float x) { return floor(clamp(x, 0.0, 1.0) * 255.0 + 0.5); }\n"
         "vec3 q8(vec3 x) { return floor(clamp(x, 0.0, 1.0) * 255.0 + 0.5); }\n"
+        // Manual texture sampling, as the hardware (and Dolphin's \"manual texture sampling\"): the coordinate in
+        // 1/128 texel, the texel index wrapped by the texture's own mode (0 clamp, 1 repeat, 2 mirror), bilinear
+        // weights in 1/16, every fetch at an exact texel centre. The GL sampler's rounding drew a band of shifted
+        // blocks across the Bink title video.
+        "float wrapc(float i, float n, float m) {\n"
+        "  if (m == 1.0) return mod(i, n);\n"
+        "  if (m == 2.0) { float k = mod(i, 2.0 * n); return k < n ? k : 2.0 * n - 1.0 - k; }\n"
+        "  return clamp(i, 0.0, n - 1.0);\n"
+        "}\n"
+        "vec4 fetch(sampler2D t, vec2 i, vec2 n, vec2 m) {\n"
+        "  return texture2D(t, (vec2(wrapc(i.x, n.x, m.x), wrapc(i.y, n.y, m.y)) + 0.5) / n);\n"
+        "}\n"
+        "vec4 sampleGX(sampler2D t, vec2 tc, vec2 n, vec2 m, float lin) {\n"
+        "  if (lin < 0.5) return fetch(t, floor(tc / 128.0), n, m);\n"
+        "  vec2 c = tc - 64.0;\n"
+        "  vec2 i0 = floor(c / 128.0);\n"
+        "  vec2 f = floor((c - i0 * 128.0) / 8.0) / 16.0;\n"
+        "  vec4 a = fetch(t, i0, n, m), b = fetch(t, i0 + vec2(1.0, 0.0), n, m);\n"
+        "  vec4 d = fetch(t, i0 + vec2(0.0, 1.0), n, m), e = fetch(t, i0 + vec2(1.0, 1.0), n, m);\n"
+        "  return mix(mix(a, b, f.x), mix(d, e, f.x), f.y);\n"
+        "}\n"
         "void main() {\n"
         "  vec4 r0 = reg[0], r1 = reg[1], r2 = reg[2], r3 = reg[3];\n"
         "  vec4 tx = vec4(0.0), ras = vec4(0.0);\n"
@@ -227,7 +248,12 @@ std::string BuildFS(int nStages, const bool texOk[8]) {
         }
         if (en && texOk[map]) {
             if (indOn)
-                snprintf(b, sizeof b, "  tx = texture2D(tex[%d], tc / (128.0 * tdim[%d]))%s;\n", map, map, Swizzle(tswap).c_str());
+            {
+                u32 mode0 = g_gx.bp[(map < 4 ? 0x80 : 0xA0) + (map & 3)];
+                static const int kWrapMode[4] = {0, 1, 2, 1};
+                snprintf(b, sizeof b, "  tx = sampleGX(tex[%d], tc, tdim[%d], vec2(%d.0, %d.0), %d.0)%s;\n", map, map,
+                         kWrapMode[mode0 & 3], kWrapMode[(mode0 >> 2) & 3], (int)((mode0 >> 4) & 1), Swizzle(tswap).c_str());
+            }
             else
                 snprintf(b, sizeof b, "  tx = texture2D(tex[%d], gl_TexCoord[%d].st)%s;\n", map, coord, Swizzle(tswap).c_str());
             s += b;
@@ -356,6 +382,10 @@ bool gxt_begin(const bool texOk[8]) {
     key += b;
     for (int st = 0; st < nStages; st++) {
         snprintf(b, sizeof b, "%06x", g_gx.bp[0x10 + st] & 0x1FFFFF);
+        key += b;
+    }
+    for (int m = 0; m < 8; m++) {  // wrap and filter modes (sampleGX literals)
+        snprintf(b, sizeof b, "%02x", g_gx.bp[(m < 4 ? 0x80 : 0xA0) + (m & 3)] & 0x1F);
         key += b;
     }
     for (int i = 0; i < 8; i++) {

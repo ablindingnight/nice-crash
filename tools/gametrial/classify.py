@@ -55,7 +55,10 @@ def itanium_leaf(sym):
     """Very small Itanium demangler: returns the unqualified name (leaf) and the enclosing scopes."""
     s = sym.lstrip('_')
     if not s.startswith('Z'):
-        return sym.lstrip('_'), []
+        # A C name: drop only the one underscore COFF adds, so __float_epsilon stays __float_epsilon (stripping all
+        # of them hid MSL's double-underscore data from symbols.txt; it was stubbed as a function and NearZero
+        # compared against the stub's code bytes).
+        return sym[1:] if sym.startswith('_') else sym, []
     s = s[1:]
     parts = []
     if s.startswith('N'):
