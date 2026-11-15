@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds build/et_host.exe (phase 0 host) and build/import.exe (dump importer), 64-bit Windows, zig c++.
+# Builds build/NiceCrash.exe (phase 0 host) and build/import.exe (dump importer), 64-bit Windows, zig c++.
 # Only Windows system libraries are linked: nothing to download.
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -14,5 +14,5 @@ cxx() {
 }
 cxx -o "$B/import.exe" "$HERE/tools/import/import.cpp"
 echo "built $B/import.exe"
-cxx -o "$B/et_host.exe" "$HERE/host/src/main.cpp" -lopengl32 -lgdi32 -luser32
-echo "built $B/et_host.exe"
+cxx -o "$B/NiceCrash.exe" "$HERE/host/src/main.cpp" -lopengl32 -lgdi32 -luser32
+echo "built $B/NiceCrash.exe"

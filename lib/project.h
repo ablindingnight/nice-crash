@@ -2,7 +2,7 @@
 // the user); the game's real title is used only to describe the player's own dump.
 #pragma once
 
-#define PROJECT_NAME "Project Placeholder"
+#define PROJECT_NAME "Nice Crash"
 #define PROJECT_TAGLINE "Decomp Project"
 
 // The supported dump: Wii (USA), REXE01. SHA-1 of DATA/sys/main.dol, the same value as the decomp's
@@ -11,4 +11,4 @@
 #define DUMP_DOL_SHA1 "e51685814152f377e5c76a50067d8132e25f672b"
 
 // Per-user data folder name under %LOCALAPPDATA% (imported-dump config and index). Renamed with the project.
-#define PROJECT_DIRNAME "ProjectPlaceholder"
+#define PROJECT_DIRNAME "NiceCrash"

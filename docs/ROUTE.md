@@ -101,9 +101,9 @@ From BOOT_PATH.md (static call graph from `__start`, plus resolved indirect call
   - Game art (logo, disc banner opening.bnr, menu/track textures) loaded at run time from the player's disc
     through the milestone-1 resource loader and texture decoder (`res::System`, `tex::Decode`); a neutral
     placeholder plus a "select your disc" flow when none is configured.
-  - Dump verification reuses `CheckDump` (host/src/dumpcheck.cpp, SHA-1 of main.dol vs config/REXE01/build.sha1);
+  - Dump verification reuses `CheckDump` (lib/dumpcheck.cpp, SHA-1 of main.dol vs config/REXE01/build.sha1);
     unknown builds are refused with a clear message.
-  - Name: never "Excite Truck"; the project name lives only in `PROJECT_NAME` (host/src/project.h) until the user
+  - Name: never "Excite Truck"; the project name, **Nice Crash** (user, 2026-11-15), lives only in `PROJECT_NAME` (lib/project.h); before the user
     picks one. The game's title appears only when describing the player's dump.
   - Until then the disc path and hash check live in `et_host.ini` (`disc=`, `dol=`) and the host's console output.
   - Host design for reuse: loader, decoder and dump check are free of window/GL code, so the launcher links them

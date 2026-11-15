@@ -47,3 +47,8 @@
   - Tooling note: run zig with a working directory outside %LOCALAPPDATA%'s parent. From C:\Users\theop\AppData it
     writes relative cache paths ("Local\zig\...") and fails with "failed to rename ... FileNotFound" (30 s/unit);
     from port/ a unit takes 0.1-0.5 s.
+
+## 2026-11-15: named **Nice Crash** (user)
+- PROJECT_NAME = "Nice Crash", PROJECT_DIRNAME = "NiceCrash" (lib/project.h). Host exe is now build/NiceCrash.exe,
+  its optional ini NiceCrash.ini; the importer config moved to %LOCALAPPDATA%\NiceCrash (re-imported, old
+  ProjectPlaceholder folder removed).

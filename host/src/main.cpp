@@ -2,11 +2,11 @@
 // player's own Wii (USA) disc files through the ported resource loader and shows one decoded texture
 // (default: race.res/MGI_logo.tm0 with MGI_logo.tex beside it).
 //
-//   et_host [--disc <dir>] [--dol <main.dol>] [--tex <set/name.tex>] [--screenshot <out.bmp>] [--scan]
+//   NiceCrash [--disc <dir>] [--dol <main.dol>] [--tex <set/name.tex>] [--screenshot <out.bmp>] [--scan]
 //           [--allow-unverified]
 //
 // The disc folder is the extracted DATA partition's files/ directory (race.res, tocres.res ...). It
-// comes from --disc, else the EXCITE_TRUCK_DISC environment variable, else "disc=" in et_host.ini next
+// comes from --disc, else the EXCITE_TRUCK_DISC environment variable, else "disc=" in NiceCrash.ini next
 // to the executable ("dol=" there overrides <disc>/../sys/main.dol), else the dump importer's config
 // (%LOCALAPPDATA%\<PROJECT_DIRNAME>\dump.ini). The dump is verified by the SHA-1
 // of main.dol (dumpcheck.cpp) and refused if unknown. Nothing from the disc is copied anywhere.
@@ -47,7 +47,7 @@ static std::string ExeDir() {
 }
 
 static std::string IniValue(const char* key) {
-    FILE* f = fopen((ExeDir() + "et_host.ini").c_str(), "r");
+    FILE* f = fopen((ExeDir() + "NiceCrash.ini").c_str(), "r");
     if (!f) return "";
     char line[1024];
     std::string r;
@@ -218,7 +218,7 @@ int main(int argc, char** argv) {
         else if (a == "--dol" && i + 1 < argc) dol = argv[++i];
         else if (a == "--scan") scan = true;
         else if (a == "--allow-unverified") allowUnverified = true;
-        else { fprintf(stderr, "usage: et_host [--disc dir] [--tex set/name.tex] [--screenshot out.bmp] [--scan]\n"); return 2; }
+        else { fprintf(stderr, "usage: NiceCrash [--disc dir] [--tex set/name.tex] [--screenshot out.bmp] [--scan]\n"); return 2; }
     }
     if (disc.empty()) {
         const char* e = getenv("EXCITE_TRUCK_DISC");
