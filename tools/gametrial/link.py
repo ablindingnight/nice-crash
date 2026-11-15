@@ -238,7 +238,7 @@ def main():
     # zig's driver will not pass /force:multiple (MWCC weak inline copies are plain duplicate definitions in the
     # decomp). Learn zig's lld-link line once from a probe link, then run lld-link ourselves with the flag.
     probe = zig('build-exe', '-target', 'x86-windows-gnu', '-O', 'ReleaseFast', '-lc', '-lc++', '-lopengl32',
-                '-lgdi32', '-luser32', '-lbcrypt', '-ldbghelp', rt[1], '--name', 'probe', '--verbose-link')
+                '-lgdi32', '-luser32', '-lbcrypt', '-ldbghelp', '-lwinmm', rt[1], '--name', 'probe', '--verbose-link')
     line = next((l for l in (probe.stdout + probe.stderr).splitlines() if l.startswith('lld-link ')), None)
     if not line:
         print(probe.stderr[:3000])

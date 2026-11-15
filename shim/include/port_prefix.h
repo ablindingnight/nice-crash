@@ -31,6 +31,18 @@ static inline unsigned int port_srw(unsigned int v, unsigned int n) { return (n 
 static inline unsigned short port_be16(unsigned int v) { return __builtin_bswap16((unsigned short)v); }
 static inline unsigned int port_be32(unsigned int v) { return __builtin_bswap32(v); }
 
+// A Nintendo DSP-ADPCM header (0x60 bytes: three u32, two u16, three u32, then u16s) from big-endian file data to
+// host order, in place (patches/dsp-adpcm-header).
+static inline void port_swap_dspadpcm(void* h) {
+    unsigned int* w = (unsigned int*)h;
+    unsigned short* s = (unsigned short*)h;
+    for (int i = 0; i < 3; i++) w[i] = __builtin_bswap32(w[i]);
+    s[6] = __builtin_bswap16(s[6]);
+    s[7] = __builtin_bswap16(s[7]);
+    for (int i = 4; i < 7; i++) w[i] = __builtin_bswap32(w[i]);
+    for (int i = 14; i < 48; i++) s[i] = __builtin_bswap16(s[i]);
+}
+
 // The game's main (kernel.cpp) becomes GameMain; the host's runtime/port_main.cpp calls it.
 #define main GameMain
 
