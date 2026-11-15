@@ -17,12 +17,22 @@ void sdk_log(const char* fmt, ...) {
     va_end(ap);
 }
 
+bool sdk_widescreen() {
+    static int w = -1;
+    if (w < 0) {
+        const char* a = getenv("NICECRASH_ASPECT");
+        w = !(a && a[0] == '4');
+    }
+    return w != 0;
+}
+
 extern "C" {
 
-// SC: the console's settings (sc.h). Values: a US console, 4:3, stereo, no progressive, rumble on.
+// SC: the console's settings (sc.h). Values: a US console, 16:9 (NICECRASH_ASPECT=4:3 for 4:3), stereo, no
+// progressive, rumble on.
 void SCInit(void) { sdk_log("SCInit"); }
 s32 SCCheckStatus(void) { return 0; }  // SC_STATUS_READY
-u8 SCGetAspectRatio(void) { return 0; }  // SC_ASPECT_RATIO_4x3
+u8 SCGetAspectRatio(void) { return sdk_widescreen() ? 1 : 0; }  // SC_ASPECT_RATIO_16x9 / 4x3
 u8 SCGetSoundMode(void) { return 1; }  // SC_SOUND_MODE_STEREO
 u8 SCGetProgressiveMode(void) { return 0; }
 u8 SCGetEuRgb60Mode(void) { return 0; }

@@ -16,3 +16,6 @@ typedef double f64;
 
 // One line per SDK call worth seeing during bring-up (NICECRASH_SDKLOG=1).
 void sdk_log(const char* fmt, ...);
+
+// 16:9 output (the console's widescreen setting, as in a widescreen Dolphin); NICECRASH_ASPECT=4:3 turns it off.
+bool sdk_widescreen();

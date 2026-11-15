@@ -47,6 +47,7 @@ static void CreateGameWindow() {
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
     wc.lpszClassName = "NiceCrashGame";
     RegisterClassA(&wc);
+    g_w = sdk_widescreen() ? 854 : 640;  // the 640-wide EFB is stretched to 16:9, as a widescreen TV does
     RECT r{0, 0, g_w, g_h};
     AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, FALSE);
     g_hwnd = CreateWindowA(wc.lpszClassName, PROJECT_NAME, WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT,

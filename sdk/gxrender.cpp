@@ -563,6 +563,12 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
 
 void gxr_copy(u32 bp52) {
     bool toXfb = (bp52 >> 14) & 1, clear = (bp52 >> 11) & 1;
+    if (toXfb && getenv("NICECRASH_COPYLOG")) {
+        static int n;
+        if (n++ < 3)
+            fprintf(stderr, "[copy] src %06x size %06x yscale %06x dst stride %06x bp52 %06x\n", g_gx.bp[0x49] & 0xFFFFFF,
+                    g_gx.bp[0x4A] & 0xFFFFFF, g_gx.bp[0x4E] & 0xFFFFFF, g_gx.bp[0x4D] & 0xFFFFFF, bp52 & 0xFFFFFF);
+    }
     if (toXfb) {
         sdk_vi_present_now();
         g_frameNo++;
