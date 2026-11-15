@@ -211,9 +211,10 @@ def main():
         subprocess.run([sys.executable, '-I', os.path.join(HERE, 'trial.py'), '--jobs', '12', '--obj'], check=True)
     objdir = os.path.join(HERE, 'out', 'obj')
     good = []
+    units = set(os.listdir(os.path.join(B, 'gamesrc', 'game')))  # objects of removed units stay out of the link
     for f in sorted(os.listdir(objdir)):
         log = os.path.join(HERE, 'out', f[:-2] + '.log')
-        if f.endswith('.o') and os.path.getsize(os.path.join(objdir, f)) and \
+        if f.endswith('.o') and f[:-2] in units and os.path.getsize(os.path.join(objdir, f)) and \
                 not re.search(r' error: ', open(log, encoding='utf-8', errors='replace').read()):
             good.append(os.path.join(objdir, f))
     # The decomp's SDK compiled for the host (tools/gametrial/sdkbuild.py): GX today.

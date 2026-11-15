@@ -288,6 +288,15 @@ def main():
         old = open(dst, encoding='utf-8', errors='surrogateescape').read() if os.path.exists(dst) else None
         if old != t:
             open(dst, 'w', encoding='utf-8', errors='surrogateescape', newline='').write(t)
+    # Sources the decomp no longer has (merged or deleted units, e.g. unk_80243460.c into mroll): remove their
+    # stale copies, or the build keeps compiling them.
+    wanted = {os.path.normcase(os.path.abspath(d)) for d, _ in outputs}
+    stale = [f for f in glob.glob(os.path.join(OUT, '**', '*'), recursive=True)
+             if os.path.isfile(f) and f.endswith(('.c', '.cpp', '.h', '.hpp', '.inc'))
+             and os.path.normcase(os.path.abspath(f)) not in wanted]
+    for f in stale:
+        os.remove(f)
+    counts['stale-removed'] = len(stale)
     if applied != len(patches):
         sys.exit('only %d of %d patches applied' % (applied, len(patches)))
     print('%-24s %d' % ('patches', applied))
