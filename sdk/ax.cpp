@@ -71,6 +71,13 @@ bool NextSample(u8* v, s16* out) {
             const u8* h = Mem(cur >> 1);
             if (!h) return false;
             F16(v, PB_ADPCM + 0x22) = *h;  // pred_scale
+            {
+                static unsigned hdrs, bad;
+                hdrs++;
+                if ((*h >> 4) > 7 || (*h & 15) > 12) bad++;
+                if (getenv("NICECRASH_AXLOG") && (hdrs & 0xFFFF) == 0)
+                    fprintf(stderr, "[ax] adpcm headers %u, out of range %u\n", hdrs, bad);
+            }
             cur += 2;
         }
         const u8* p = Mem(cur >> 1);
