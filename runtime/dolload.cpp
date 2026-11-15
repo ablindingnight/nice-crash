@@ -13,9 +13,9 @@
 #include "wiimem.h"
 
 struct DolFix {
-    u32 addr, size;
+    u32 addr, size, elem;  // swap each `elem`-byte element of [addr, addr + size)
 };
-extern "C" const DolFix port_dolfix_table[];  // build/stubs.s, terminated by {0, 0}
+extern "C" const DolFix port_dolfix_table[];  // build/stubs.s, terminated by {0, 0, 0}
 struct DolPtr {
     u32 addr, host;
 };
@@ -60,7 +60,7 @@ __attribute__((constructor(104))) static void LoadDolData() {
         if (p->host) *(u32*)(uintptr_t)p->addr = p->host;
         else Swap((unsigned char*)(uintptr_t)p->addr, 4);
     }
-    int n = 0;
-    for (const DolFix* d = port_dolfix_table; d->addr; d++, n++)
-        if (d->size == 2 || d->size == 4 || d->size == 8) Swap((unsigned char*)(uintptr_t)d->addr, (int)d->size);
+    for (const DolFix* d = port_dolfix_table; d->addr; d++)
+        if (d->elem == 2 || d->elem == 4 || d->elem == 8)
+            for (u32 k = 0; k + d->elem <= d->size; k += d->elem) Swap((unsigned char*)(uintptr_t)(d->addr + k), (int)d->elem);
 }

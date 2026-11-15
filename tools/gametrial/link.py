@@ -165,6 +165,34 @@ def read_dol_data():
     return word
 
 
+ELEM_SIZES = {'u8': 1, 's8': 1, 'char': 1, 'unsigned char': 1, 'signed char': 1, 'bool': 1,
+              'u16': 2, 's16': 2, 'short': 2, 'unsigned short': 2, 'wchar_t': 2,
+              'u32': 4, 's32': 4, 'int': 4, 'unsigned int': 4, 'unsigned': 4, 'f32': 4, 'float': 4, 'BOOL': 4,
+              'f64': 8, 'double': 8, 'u64': 8, 's64': 8, 'long long': 8, 'unsigned long long': 8}
+DECL = re.compile(r'\bextern\s+(?:"C"\s+)?((?:(?:const|volatile|unsigned|signed)\s+)*[A-Za-z_]\w*)\s+'
+                  r'(?:const\s+)?(\**)\s*(?:const\s+)?([A-Za-z_]\w*)\s*(\[[^\]]*\])?\s*;')
+
+
+def decl_elem_sizes():
+    """Element size of each extern data declaration in the prepared game source (1 = bytes, never swapped), so
+    DOL-backed labels are byte-swapped per element. Conflicting declarations or struct types give None."""
+    import glob
+    out = {}
+    for f in glob.glob(os.path.join(B, 'gamesrc', '**', '*.c*'), recursive=True) + \
+            glob.glob(os.path.join(B, 'gamesrc', '**', '*.h'), recursive=True):
+        if not os.path.isfile(f):  # e.g. the directory include/Runtime.PPCEABI.H
+            continue
+        t = open(f, encoding='utf-8', errors='replace').read()
+        for m in DECL.finditer(t):
+            ty = re.sub(r'\b(const|volatile)\s+', '', m.group(1)).strip()
+            name = m.group(3)
+            e = 4 if m.group(2) else ELEM_SIZES.get(ty)
+            if name in out and out[name] != e:
+                e = None
+            out[name] = e
+    return out
+
+
 def rsp(cmd):
     """lld-link with its arguments in a response file (the command line outgrew Windows' 32K limit)."""
     path = os.path.join(B, 'link.rsp')
@@ -257,6 +285,7 @@ def main():
         if m:
             text_names.setdefault(int(m.group(2), 16), m.group(1))
     dol = read_dol_data()
+    elems = decl_elem_sizes()
     nvt = 0
     ptrfix = []
     data_rw = ['\t.data']
@@ -335,8 +364,21 @@ def main():
                     elif 0x802ED060 <= w < 0x80565240 and w % 4 == 0:
                         ptrfix.append((a0 + k, None))
                         ptr_words.add(k)
-            if sz in (2, 4, 8) and not ptr_words and sec in ('.sdata2', '.sdata', '.data', '.rodata', '.bss', '.sbss'):
-                fixes.append((addr, sz))
+            elem = elems.get(name)
+            if sec not in ('.sdata2', '.sdata', '.data', '.rodata', '.bss', '.sbss'):
+                pass
+            elif elem in (2, 4, 8):  # typed in the source: swap every element, except the pointer words
+                run = None
+                for k in range(0, sz - sz % elem, elem):
+                    if elem == 4 and k in ptr_words:
+                        run = None
+                    elif run is not None and run[0] + run[1] == a0 + k:
+                        run[1] += elem
+                    else:
+                        run = [a0 + k, elem, elem]
+                        fixes.append(run)
+            elif elem is None and sz in (2, 4, 8) and not ptr_words:
+                fixes.append([a0, sz, sz])
             nd += 1
         elif kind == 'object':
             n = max(int(size), 4)
@@ -363,7 +405,9 @@ def main():
     print('dol data pointers: %d code, %d data' % (sum(1 for _, h in ptrfix if h), sum(1 for _, h in ptrfix if not h)))
     # Scalars among the DOL-backed labels: byte-swapped once at startup (runtime/dolload.cpp).
     rodata += ['\t.balign 4', '\t.globl _port_dolfix_table', '_port_dolfix_table:']
-    rodata += ['\t.long 0x%s, %d' % (a, n) for a, n in fixes] + ['\t.long 0, 0']
+    rodata += ['\t.long 0x%08X, %d, %d' % (a, n, e) for a, n, e in fixes] + ['\t.long 0, 0, 0']
+    print('dol scalars: %d swap runs (%d names typed by source declarations)' %
+          (len(fixes), sum(1 for x in elems.values() if x)))
     s = os.path.join(B, 'stubs.s')
     open(s, 'w').write('\n'.join(asm + data + rodata) + '\n')
     so = os.path.join(B, 'stubs.o')

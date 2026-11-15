@@ -1,0 +1,6 @@
+@@@ unk_80116BD4.c | ENDIAN: Swap32 is "load a little-endian word" (lwbrx on the Wii). The decomp's non-MWCC fallback byte-reverses, which is right on a big-endian host only; on the little-endian PC it is a plain load (Bink files are little-endian)
+<<<
+    v = (p[z] >> 24) | ((p[z] >> 8) & 0xFF00) | ((p[z] << 8) & 0xFF0000) | (p[z] << 24);
+===
+    v = p[z];  /* port: little-endian host, the file's LE word is already native */
+>>>

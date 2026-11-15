@@ -1,0 +1,8 @@
+@@@ drtex.cpp | ENDIAN: fn_802D78D4 builds the RGB565 and IA8 palettes GX reads (TLUTs) with u16 CPU stores; GX reads big-endian, so on the PC each entry is stored byte-swapped (the Wii's stores are big-endian already)
+<<<
+        rgb[i] = To565(c.b);
+        alpha[i] = c.b[3] << 8;
+===
+        rgb[i] = port_be16(To565(c.b));
+        alpha[i] = port_be16(c.b[3] << 8);
+>>>

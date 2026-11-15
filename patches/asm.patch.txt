@@ -5,10 +5,3 @@
     (void)v;  /* port: GQR6 setup (paired-single quantisation) not needed on the host */
 >>>
 
-@@@ unk_80116BD4.c | ASM/ENDIAN: lwbrx = load a little-endian word; on the x86 host that is a plain load
-<<<
-    asm { lwbrx v, z, p }
-===
-    v = *p;  /* port: lwbrx (byte-reversed load) = native load on a little-endian host */
-    (void)z;
->>>

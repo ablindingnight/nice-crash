@@ -23,6 +23,10 @@ RULES = [
     ('long32-signed', re.compile(r'\bsigned\s+long\b(?!\s+(?:long|double)\b)'), 'signed int'),
     ('long32-plain', re.compile(r'(?<!\blong\s)(?<![\w])long\b(?!\s+(?:long|double|int)\b)(?=\s*[\w\*&\)\(,;>])'), 'int'),
     # Templates declared inside an extern "C" block: MWCC gives them C++ linkage anyway; say so explicitly.
+    # PowerPC srw gives 0 for a shift count of 32; x86 masks the count, so `0xFFFFFFFF >> (32 - n)` with n == 0
+    # keeps all ones on the host. Bink's bit readers build masks this way with n == 0 for one-symbol trees.
+    ('ppc-srw-mask', re.compile(r'(0xFFFFFFFFU?|\bones)\s*>>\s*\(32\s*-\s*((?:[^()]|\([^()]*\))+)\)'),
+     r'port_srw(\1, 32 - (\2))'),
     ('template-cxx-linkage', re.compile(r'(?m)^template\s*<'), 'extern "C++" template <'),
 ]
 
@@ -80,6 +84,67 @@ def neutralise_swaps(t):
     return ''.join(out), n
 
 
+# `lbl_X + N` past the end of a byte array the unit defines (inputbind's string pool: "Joytick Up" + 0x126C...):
+# on the Wii it lands on later strings because the linker keeps retail .data order; a host compiler places each
+# array on its own. Redirect such accesses to the retail address, where runtime/dolload.cpp loads the DOL's data.
+_LABEL_SIZE = None
+
+
+def label_sizes():
+    global _LABEL_SIZE
+    if _LABEL_SIZE is None:
+        _LABEL_SIZE = {}
+        for l in open(os.path.join(ET, 'config', 'REXE01', 'symbols.txt'), encoding='utf-8'):
+            m = re.match(r'^(lbl_([0-9A-F]{8})) = \S+; // type:object size:0x([0-9A-F]+)', l)
+            if m:
+                _LABEL_SIZE[m.group(1)] = (int(m.group(2), 16), int(m.group(3), 16))
+    return _LABEL_SIZE
+
+
+BYTE_ARRAY_DEF = re.compile(r'(?m)^(?:static\s+)?(?:const\s+)?(char|u8|s8|unsigned char)\s+(lbl_[0-9A-F]{8})\s*\[[^\]]*\]\s*=')
+
+
+def past_label(t):
+    n = 0
+    for ty, lab in BYTE_ARRAY_DEF.findall(t):
+        if lab not in label_sizes():
+            continue
+        addr, size = label_sizes()[lab]
+
+        def rep(m):
+            nonlocal n
+            off = int(m.group(1), 0)
+            if off < size:
+                return m.group(0)
+            n += 1
+            return '((%s *)0x%08X + 0x%X)' % (ty, addr, off)
+        t = re.sub(r'\b%s\s*\+\s*(0x[0-9A-Fa-f]+|\d+)\b' % lab, rep, t)
+    return t, n
+
+
+# Byte tables the code reads as big-endian words (Bink's dequantisation tables: u8 initialisers, read as s32).
+# Their initialisers are rewritten with each group of `n` bytes reversed, so the words read right on x86.
+WORD_TABLES = {'unk_80116BD4.c': [('lbl_802F6A40', 4), ('lbl_802F7A40', 4)]}
+
+
+def word_tables(fn, t):
+    n = 0
+    for lab, w in WORD_TABLES.get(fn, []):
+        m = re.search(r'(?m)^(const\s+u8\s+%s\s*\[\d*\]\s*=\s*\{)([^}]*)\}' % lab, t)
+        if not m:
+            sys.exit('word table %s not found in %s' % (lab, fn))
+        vals = [v.strip() for v in m.group(2).split(',') if v.strip()]
+        if len(vals) % w:
+            sys.exit('word table %s: %d bytes, not a multiple of %d' % (lab, len(vals), w))
+        out = []
+        for i in range(0, len(vals), w):
+            out += vals[i:i + w][::-1]
+        body = ''.join(('\n    ' if i % 16 == 0 else ' ') + v + ',' for i, v in enumerate(out))
+        t = t[:m.start(2)] + '  /* port: words in host byte order */' + body + '\n' + t[m.end(2):]
+        n += 1
+    return t, n
+
+
 def load_patches():
     pats = []
     for pf in sorted(glob.glob(os.path.join(PORT, 'patches', '*.patch.txt'))):
@@ -114,6 +179,11 @@ def main():
         if src.replace(os.sep, '/').find('/src/game/') >= 0:
             t, n = mwcc_vtables(t)
             counts['mwcc-vtables'] = counts.get('mwcc-vtables', 0) + n
+        if src.replace(os.sep, '/').find('/src/game/') >= 0:
+            t, n = past_label(t)
+            counts['past-label-retail'] = counts.get('past-label-retail', 0) + n
+            t, n = word_tables(os.path.basename(src), t)
+            counts['word-tables'] = counts.get('word-tables', 0) + n
         t, n = neutralise_swaps(t)
         counts['le-swap-helpers'] = counts.get('le-swap-helpers', 0) + n
         for pf, fn, why, old, new in patches:

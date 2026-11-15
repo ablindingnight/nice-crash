@@ -42,6 +42,7 @@ static void LoadBP(u32 v) {
     }
     g_gx.bp[reg] = (g_gx.bp[reg] & ~mask) | (v & mask);
     mask = 0xFFFFFF;
+    if (reg >= 0xE0 && reg <= 0xE7) ((v >> 23) & 1 ? g_gx.tevKonst : g_gx.tevReg)[reg - 0xE0] = v & 0xFFFFFF;
     if (reg == 0x47 || reg == 0x48) {  // PE token (0x48 also raises the token interrupt)
         u16 token = (u16)(v & 0xFFFF);
         *(volatile u16*)(uintptr_t)(0xCC001000u + 7 * 2) = token;  // PE token register, read by GXReadDrawSync

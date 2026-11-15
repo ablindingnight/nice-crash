@@ -9,6 +9,8 @@ struct GXRegs {
     u32 cp[256];
     u32 bp[256];
     u32 xf[0x1100];  // XF memory (pos/tex matrices 0x000-, normals 0x400-, post 0x500-, lights 0x600-) + regs 0x1000-
+    // TEV registers BP 0xE0-0xE7 (RA/BG pairs for PREV, C0, C1, C2): bit 23 of a write selects the konst bank.
+    u32 tevReg[8], tevKonst[8];
 };
 extern GXRegs g_gx;
 

@@ -36,6 +36,18 @@ static LONG WINAPI OnCrash(EXCEPTION_POINTERS* ep) {
     fprintf(stderr, "\n");
 #ifdef _M_IX86
     {
+        const CONTEXT* c = ep->ContextRecord;
+        fprintf(stderr, "  eax %08lx ebx %08lx ecx %08lx edx %08lx esi %08lx edi %08lx ebp %08lx esp %08lx\n", c->Eax,
+                c->Ebx, c->Ecx, c->Edx, c->Esi, c->Edi, c->Ebp, c->Esp);
+        const unsigned char* ip = (const unsigned char*)c->Eip;
+        MEMORY_BASIC_INFORMATION mbi;
+        if (VirtualQuery(ip, &mbi, sizeof mbi) && mbi.State == MEM_COMMIT) {
+            fprintf(stderr, "  code at eip:");
+            for (int i = 0; i < 12; i++) fprintf(stderr, " %02x", ip[i]);
+            fprintf(stderr, "\n");
+        }
+    }
+    {
         // A jump through a bad pointer leaves EIP outside any code: list the stack's likely return addresses.
         HMODULE mod = GetModuleHandleA(nullptr);
         IMAGE_NT_HEADERS* nt = (IMAGE_NT_HEADERS*)((char*)mod + ((IMAGE_DOS_HEADER*)mod)->e_lfanew);
@@ -126,4 +138,68 @@ __attribute__((constructor(103))) static void InstallWatchdog() {
     DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &g_mainThread, 0, FALSE,
                     DUPLICATE_SAME_ACCESS);
     CreateThread(nullptr, 0, Watchdog, (void*)(uintptr_t)atoi(s), 0, nullptr);
+}
+
+// port_watch(addr): debugging aid. Puts a 4-byte hardware write watch (DR0) on addr in every thread of the process;
+// the first write prints the writer's stack and exits.
+#include <tlhelp32.h>
+static DWORD WINAPI SetWatch(void* addr) {
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+    THREADENTRY32 te{};
+    te.dwSize = sizeof te;
+    for (BOOL ok = Thread32First(snap, &te); ok; ok = Thread32Next(snap, &te)) {
+        if (te.th32OwnerProcessID != GetCurrentProcessId() || te.th32ThreadID == GetCurrentThreadId()) continue;
+        HANDLE t = OpenThread(THREAD_ALL_ACCESS, FALSE, te.th32ThreadID);
+        if (!t) continue;
+        SuspendThread(t);
+        CONTEXT c{};
+        c.ContextFlags = CONTEXT_DEBUG_REGISTERS;
+        GetThreadContext(t, &c);
+        c.Dr0 = (DWORD)(uintptr_t)addr;
+        c.Dr7 = (c.Dr7 & ~0xF0003u) | 1u | (1u << 16) | (3u << 18);  // L0, write, 4 bytes
+        SetThreadContext(t, &c);
+        ResumeThread(t);
+        CloseHandle(t);
+    }
+    CloseHandle(snap);
+    return 0;
+}
+
+static int g_watchAny = 1;
+static unsigned g_watchValue, g_watchLo, g_watchHi;
+static LONG WINAPI OnWatch(EXCEPTION_POINTERS* ep) {
+    if (ep->ExceptionRecord->ExceptionCode != EXCEPTION_SINGLE_STEP || !(ep->ContextRecord->Dr6 & 1))
+        return EXCEPTION_CONTINUE_SEARCH;
+    {
+        unsigned v = *(volatile unsigned*)(uintptr_t)ep->ContextRecord->Dr0;
+        if (g_watchAny == 0 && v != g_watchValue) return EXCEPTION_CONTINUE_EXECUTION;
+        if (g_watchAny == 2 && v >= g_watchLo && v < g_watchHi) return EXCEPTION_CONTINUE_EXECUTION;
+        fprintf(stderr, "\n[watch] write to %08lx, new value %08x\n", (unsigned long)ep->ContextRecord->Dr0, v);
+    }
+    OnCrash(ep);
+    ExitProcess(97);
+}
+
+extern "C" void port_watch(void* addr);
+// Like port_watch, but only stops when the watched word leaves [lo, hi).
+extern "C" void port_watch_range(void* addr, unsigned lo, unsigned hi) {
+    g_watchAny = 2;
+    g_watchLo = lo;
+    g_watchHi = hi;
+    port_watch(addr);
+}
+
+// Like port_watch, but only stops when the watched word becomes `value`.
+extern "C" void port_watch_value(void* addr, unsigned value) {
+    g_watchAny = 0;
+    g_watchValue = value;
+    port_watch(addr);
+}
+
+extern "C" void port_watch(void* addr) {
+    static bool installed;
+    if (!installed) AddVectoredExceptionHandler(1, OnWatch), installed = true;
+    HANDLE h = CreateThread(nullptr, 0, SetWatch, addr, 0, nullptr);
+    WaitForSingleObject(h, INFINITE);
+    CloseHandle(h);
 }

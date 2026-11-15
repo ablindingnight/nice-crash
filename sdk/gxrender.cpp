@@ -16,6 +16,7 @@
 #include <vector>
 #include "gxinterp.h"
 #include "texture.h"
+#include "gxtev.h"
 
 #ifndef GL_CLAMP_TO_EDGE
 #define GL_CLAMP_TO_EDGE 0x812F
@@ -215,7 +216,7 @@ bool BindTexMap(int m) {
         if (getenv("NICECRASH_TEXDUMP")) {  // each new/changed texture as build/tex/<addr>_<fmt>_<w>x<h>.bmp
             char path[128];
             CreateDirectoryA("build/tex", nullptr);
-            snprintf(path, sizeof path, "build/tex/%08x_f%d_%dx%d.bmp", addr, fmt, w, h);
+            snprintf(path, sizeof path, "build/tex/%08x_f%d_%dx%d_t%05x.bmp", addr, fmt, w, h, ci ? tlutOff : 0);
             if (FILE* fp = fopen(path, "wb")) {
                 BITMAPFILEHEADER fh{};
                 BITMAPINFOHEADER ih{};
@@ -450,12 +451,29 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
     bool colVtx = c0 & 1, alpVtx = a0 & 1;
     int numChans = g_gx.xf[0x1009] & 3;
 
-    // TEV stage 0 approximation: texture (if its order enables one) x rasterised colour.
+    // TEV: generated shader (sdk/gxtev.cpp) with every texture map the stages use bound on its own unit;
+    // fallback = stage 0 approximation (texture x rasterised colour).
     u32 order = g_gx.bp[0x28];
     int texMap = order & 7, texCoord = (order >> 3) & 7;
-    bool texOn = ((order >> 6) & 1) && BindTexMap(texMap);
+    int nStages = ((g_gx.bp[0x00] >> 10) & 15) + 1, nTexGens = g_gx.bp[0x00] & 15;
+    bool texOk[8] = {};
+    bool tried[8] = {};
+    for (int st = 0; st < nStages; st++) {
+        u32 o = g_gx.bp[0x28 + st / 2] >> ((st & 1) * 12);
+        int m = o & 7;
+        if (!((o >> 6) & 1) || tried[m]) continue;
+        tried[m] = true;
+        gxt_active_texture(m);
+        texOk[m] = BindTexMap(m);
+    }
+    gxt_active_texture(0);
     ApplyState();
-    if (texOn) {
+    bool tev = gxt_begin(texOk);
+    if (tev) glDisable(GL_ALPHA_TEST);
+    bool texOn = !tev && ((order >> 6) & 1) && BindTexMap(texMap);
+    if (tev) {
+        glDisable(GL_TEXTURE_2D);
+    } else if (texOn) {
         glEnable(GL_TEXTURE_2D);
         glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
     } else {
@@ -499,7 +517,25 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
             col[3] = alpVtx ? v.col[0][3] : (u8)mat;
         }
         glColor4ub(col[0], col[1], col[2], col[3]);
-        if (texOn) {
+        if (tev) {
+            u8 c1[4];
+            if (numChans < 2) {
+                c1[0] = c1[1] = c1[2] = c1[3] = 255;
+            } else {
+                bool cv = g_gx.xf[0x100F] & 1, av = g_gx.xf[0x1011] & 1;
+                u32 m1 = g_gx.xf[0x100D];
+                c1[0] = cv ? v.col[1][0] : (u8)(m1 >> 24);
+                c1[1] = cv ? v.col[1][1] : (u8)(m1 >> 16);
+                c1[2] = cv ? v.col[1][2] : (u8)(m1 >> 8);
+                c1[3] = av ? v.col[1][3] : (u8)m1;
+            }
+            gxt_color1(c1);
+            for (int g = 0; g < nTexGens && g < 8; g++) {
+                float st[2];
+                TexCoord(v, g, st);
+                gxt_texcoord(g, st[0], st[1]);
+            }
+        } else if (texOn) {
             float st[2];
             TexCoord(v, texCoord, st);
             glTexCoord2f(st[0], st[1]);
@@ -511,6 +547,7 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
         glVertex4f(o[0] * w, o[1] * w, o[2] * w, w);
     }
     glEnd();
+    if (tev) gxt_end();
 }
 
 void gxr_copy(u32 bp52) {

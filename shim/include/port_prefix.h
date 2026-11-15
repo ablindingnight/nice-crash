@@ -22,6 +22,15 @@ static inline int __abs(int x) { return x < 0 ? -x : x; }
 // PowerPC count-leading-zeros intrinsic (MWCC builtin).
 static inline unsigned int __cntlzw(unsigned int x) { return x ? (unsigned int)__builtin_clz(x) : 32u; }
 
+// PowerPC srw: shift counts 32-63 give 0 (x86 only uses the low 5 bits of the count, so `x >> 32` keeps x).
+// prep.py rule ppc-srw-mask routes the game's `0xFFFFFFFF >> (32 - n)` masks here, where n can be 0 (Bink).
+static inline unsigned int port_srw(unsigned int v, unsigned int n) { return (n & 32) ? 0u : v >> (n & 31); }
+
+// Stores of data the GX hardware reads (texture palettes, texels built by the CPU) must be big-endian, as the
+// Wii's stores are; on the little-endian host the port patches such stores through these (patches/gx-stores).
+static inline unsigned short port_be16(unsigned int v) { return __builtin_bswap16((unsigned short)v); }
+static inline unsigned int port_be32(unsigned int v) { return __builtin_bswap32(v); }
+
 // The game's main (kernel.cpp) becomes GameMain; the host's runtime/port_main.cpp calls it.
 #define main GameMain
 
