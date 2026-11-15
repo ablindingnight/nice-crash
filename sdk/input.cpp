@@ -1,7 +1,7 @@
 // Host SDK: Wii Remote (WPAD/KPAD) and GameCube pad (PAD). Remote 0 is a connected core remote driven by the
 // keyboard (first version of milestone 4, docs/porting.md section 7):
-//   Enter = 2 (confirm / accelerate: the remote is held sideways), Backspace = 1 (back / brake), A = A, B = B,
-//   = / + = Plus, - = Minus, Home = Home,
+//   2 = 2 (confirm / accelerate: the remote is held sideways), 1 = 1 (back / brake), A = A, B = B,
+//   = / + = Plus, - = Minus, Enter or Home = HOME (as in Dolphin's default keyboard mapping),
 //   arrow keys = D-pad (the remote is held sideways, so the pad is rotated: screen-up is the pad's Right).
 //   Tilt: Left/Right arrows also tilt while Shift is held (steering), for early testing.
 // NICECRASH_INPUT="<frame>:<button>[,...]" presses buttons on given retrace frames (held for 6 frames), for
@@ -87,8 +87,10 @@ static u32 CurrentHold(f32* tilt) {
     *tilt = 0;
     if (sdk_vi_has_focus()) {
         bool shift = Key(VK_SHIFT);
-        if (Key(VK_RETURN)) hold |= BTN_2;
-        if (Key(VK_BACK)) hold |= BTN_1;
+        // Dolphin-like keys: the number keys are the remote's 1 and 2; Enter brings up the HOME menu.
+        if (Key('2') || Key(VK_NUMPAD2)) hold |= BTN_2;
+        if (Key('1') || Key(VK_NUMPAD1)) hold |= BTN_1;
+        if (Key(VK_RETURN)) hold |= BTN_HOME;
         if (Key('A')) hold |= BTN_A;
         if (Key('B')) hold |= BTN_B;
         if (Key(VK_OEM_PLUS) || Key(VK_ADD)) hold |= BTN_PLUS;
