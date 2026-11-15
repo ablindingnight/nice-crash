@@ -82,6 +82,8 @@ static LONG WINAPI OnCrash(EXCEPTION_POINTERS* ep) {
 }
 
 __attribute__((constructor(101))) static void InstallCrashHandler() {
+    ULONG guarantee = 64 * 1024;  // stack reserved for the handler, so a stack overflow is reported too
+    SetThreadStackGuarantee(&guarantee);
     SetUnhandledExceptionFilter(OnCrash);
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
 }

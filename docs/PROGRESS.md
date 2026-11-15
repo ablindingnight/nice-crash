@@ -199,3 +199,17 @@
   call where HitTest lands in a Bounds function (widgets.cpp fn_80229AE4 -> fn_80222AFC): a class whose
   declarations disagree about the destructor slot. widgets.cpp has ~115 hand-written dispatch helpers: next step is
   a systematic slot audit (extend vslots.py to dispatch structs and translated tables) rather than crash-by-crash.
+
+## 2026-11-15: MILESTONE 3 (first pass): the title screen, through the game's own boot code
+- Hand-written MWCC vtables are rewritten to Itanium layout in every unit (11: uiapi 7, widgets 3, collisionsound
+  1). The decomp took the uiapi VfObj/Vf4Obj/Callback destructor fix (9ad9bdea8): that port patch is gone.
+- uiapi fn_80215828's local `Obj` and fn_8021583C's `Local` declared their destructor slot as a placeholder:
+  infinite recursion on the PC (port patch). docs/SLOT0_PLACEHOLDERS.md lists all 98 classes whose first virtual
+  is a positional placeholder, for a retail-checked pass by the decomp (known non-destructor slot 0: PathSet, sol
+  Phob, CollVolume).
+- Crash handler reserves stack (SetThreadStackGuarantee) so stack overflows are reported.
+- **Run (scripted presses 200/420/640: 2):** both memory-card dialogs (layout-driven), "demo profile", then the
+  **title screen**: "Press [2] to Start" banner and "(c)2006 Nintendo/Developed by Monster Games", rendered by the
+  game. Screenshot docs/screenshots/milestone3_title_screen.png (git-ignored).
+- Missing on it: the background video (Bink: video/uisingle.bik; DVDFastOpen is a stub), the button icon in the
+  banner, black boxes behind some text (TEV approximation), audio.

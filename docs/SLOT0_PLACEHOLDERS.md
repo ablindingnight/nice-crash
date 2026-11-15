@@ -1,0 +1,109 @@
+# Slot-0 placeholder virtuals (port finding, 2026-11-15)
+
+Classes whose FIRST virtual is a positional placeholder (v0/f0/vf0/vf08/v08/Slot08/Unk08). On MWCC slot 0 (vtable
+offset 0x8) is usually the destructor; then the placeholder must become `virtual ~X()` for the PC (Itanium gives a
+destructor two slots, so every later virtual call lands one slot early). Known exceptions where slot 0 is NOT the
+destructor: PathSet (GetLine first, destructor last), sol.cpp Phob (destructor at 0x2C), CollVolume (Init first).
+Please check each against the retail vtable of the class it stands for. Found so far: uiapi VfObj/Vf4Obj/Callback
+(fixed 9ad9bdea8) and uiapi fn_80215828 Obj / fn_8021583C Local (port patch: infinite recursion in fn_80215828).
+
+| unit | line | class | placeholder |
+|---|---|---|---|
+| achview.cpp | 37 | VA | v08 |
+| actseq.cpp | 41 | Racer | vf08 |
+| aicar.cpp | 30 | VIface | v08 |
+| aicar.cpp | 76 | VSelf | v08 |
+| aicar.cpp | 1019 | AIRacer | v08 |
+| aicar.cpp | 1031 | AISink | v08 |
+| aiobst.cpp | 89 | TrackPosOwner | vf08 |
+| aiskill.cpp | 75 | AICar | vf08 |
+| ball.cpp | 89 | BRacer | vf08 |
+| ball.cpp | 170 | BSound | vf08 |
+| betarace.cpp | 284 | StuntEvt | vf08 |
+| betarace.cpp | 420 | PlaceSource | vf08 |
+| betarace.cpp | 1044 | Racer | vf08 |
+| camfov.cpp | 118 | CamDriver | v08 |
+| cammgr.cpp | 394 | CamTrackOwner | vf08 |
+| cammgr.cpp | 403 | CamRacerObj | vf08 |
+| carbody.cpp | 97 | VG | v08 |
+| carbody.cpp | 126 | CbShapeV | v08 |
+| carbody.cpp | 886 | CarHost | v08 |
+| carbody.cpp | 1000 | CbDriver | v08 |
+| carbody.cpp | 1010 | CbBodyV | v08 |
+| carbody.cpp | 1035 | CbModel | v08 |
+| carbody.cpp | 1344 | CbFlagsV | v08 |
+| carbody.cpp | 1352 | CbStepV | v08 |
+| carbody.cpp | 1358 | CbTickV | v08 |
+| carbody.cpp | 3307 | CbShape | v08 |
+| carbody.cpp | 3971 | CarTrackPos | v08 |
+| cardmg.cpp | 771 | DmgModel | v08 |
+| carpick.cpp | 27 | CupChoice | v08 |
+| carpick.cpp | 39 | CarChoice | v08 |
+| carpick.cpp | 53 | CarChoiceList | v08 |
+| catchupval.cpp | 31 | AICar | vf08 |
+| chalpath.cpp | 15 | VPage | v08 |
+| chalpath.cpp | 89 | TrackTable | v08 |
+| controls.cpp | 165 | ControlsConfigCallView | Slot08 |
+| crushmaster.cpp | 252 | RaceCarRec | v08 |
+| crushmaster.cpp | 1818 | CarBrain | v08 |
+| deity.cpp | 77 | PathSet | v08 |
+| deity.cpp | 90 | DCar | v08 |
+| deity.cpp | 127 | DAI | v08 |
+| efxman.cpp | 157 | Viewer | v08 |
+| eventpath.cpp | 97 | Contest | v08 |
+| eventpath.cpp | 133 | Bracket | v08 |
+| evpath.cpp | 306 | EvCond | v08 |
+| evpath.cpp | 1381 | ExtraVehicles | v08 |
+| file.cpp | 20 | FileFinder | vf08 |
+| garage.cpp | 101 | VList | v08 |
+| garage.cpp | 382 | GarageList | v08 |
+| garage.cpp | 1382 | GarageSlotView | v08 |
+| ilresmgr.cpp | 27 | Racer | vf08 |
+| interlude.cpp | 1114 | CarObj | v08 |
+| modeinl.cpp | 90 | IHitListener | vf08 |
+| modeinl.cpp | 97 | IRaceListener | vf08 |
+| mroll.cpp | 23 | VU | v08 |
+| multievt.cpp | 62 | VN | v08 |
+| netcar.cpp | 85 | Link | vf08 |
+| obstacles.cpp | 14 | VO | v08 |
+| obstacles.cpp | 889 | ObSolid | v08 |
+| obstacles.cpp | 1510 | ObstacleSink | v08 |
+| orbit.cpp | 84 | OrbitCar | vf08 |
+| orbit.cpp | 94 | LineSet | vf08 |
+| physcam.cpp | 320 | CamCarCtl | v08 |
+| physcam.cpp | 1191 | CarCtl | v08 |
+| physreplay.cpp | 31 | ReplayObj | vf08 |
+| placecar.cpp | 35 | PathSet | vf08 |
+| placecar.cpp | 57 | Racer | vf08 |
+| playcar.cpp | 32 | VPx | v08 |
+| playcar.cpp | 179 | PcGameMode | v08 |
+| playcar.cpp | 377 | ReplaySrc | v08 |
+| playcar.cpp | 407 | CarCtl | v08 |
+| playcar.cpp | 574 | CarTrackPos | v08 |
+| playcar.cpp | 824 | VSwitch | v08 |
+| playcar.cpp | 1129 | DmgView | v08 |
+| popup.cpp | 54 | PopupDrawer | vf08 |
+| proxer.cpp | 76 | AICar | vf08 |
+| racerslot.cpp | 99 | Ctl | v08 |
+| rigid.cpp | 105 | RShape | vf08 |
+| ringchal.cpp | 181 | CarCtl | vf08 |
+| ringchal.cpp | 238 | PathSet | vf08 |
+| shadowvol.cpp | 37 | ShadowCaster | Unk08 |
+| soevent.cpp | 135 | SpawnPhob | vf08 |
+| sol.cpp | 59 | Phob | vf08 |
+| sphcoll.cpp | 113 | VGroup | v08 |
+| sphcoll.cpp | 173 | VMesh | v08 |
+| sphcoll.cpp | 271 | VEx | v08 |
+| sphcoll.cpp | 585 | HitRules | vf08 |
+| sphcoll.cpp | 628 | PlayerCtx | vf08 |
+| springcar.cpp | 101 | StatsSrc | vf08 |
+| springcar.cpp | 111 | Course | vf08 |
+| trackmap.cpp | 131 | PathSet | vf08 |
+| tutorial.cpp | 1840 | PathSet | vf08 |
+| uiapi.cpp | 2135 | Obj | v0 |
+| uiapi.cpp | 2144 | Local | f0 |
+| unk_8020CF68.cpp | 194 | SoundMenuLayout | vf08 |
+| world.cpp | 211 | PlayerObj | vf08 |
+| zone.cpp | 155 | TruckPath | vf08 |
+| zone.cpp | 975 | PathSet | vf08 |
+| zone.cpp | 1342 | Racer | vf08 |

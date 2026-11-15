@@ -29,24 +29,27 @@ RULES = [
 
 NL = chr(10)
 
-# Hand-written MWCC-layout vtables (uiapi.cpp): {0, 0 (rtti, offset), dtor(this, flag), virt1, ...}. Clang code calls
-# them with the Itanium layout: the vptr points at slot 0 and a destructor has two slots (complete, deleting).
-# Rewrite each table to {0, 0, D1, D0, virt1, ...} with D1/D0 thunks calling the MWCC destructor with flag 0/1,
-# and make every `= lbl_X;` vptr store point at slot 0 (lbl_X + 2). Entries are free functions taking `this` first,
-# which works because game methods are cdecl on the host (shim/include/port_prefix.h).
-MWCC_VTABLE = re.compile(r'(?m)^void\* (lbl_[0-9A-F]{8})\[(\d+)\] = \{0, 0, \(void\*\)(\w+), (.*)\};$')
+# Hand-written MWCC-layout vtables (uiapi, widgets, collisionsound): {0, 0 (rtti, offset), dtor(this, flag), virt1,
+# ...} as `void*` or `u32` arrays. Clang code calls them with the Itanium layout: the vptr points at slot 0 and a
+# destructor has two slots (complete, deleting). Rewrite each table to {0, 0, D1, D0, virt1, ...} with D1/D0 thunks
+# calling the MWCC destructor with flag 0/1, and make every `= lbl_X;` vptr store point at slot 0 (lbl_X + 2).
+# Entries are free functions taking `this` first, which works because game methods are cdecl on the host (the
+# Cygwin triple in trial.py). Every table found so far starts with a destructor (this, flag); checked by hand.
+MWCC_VTABLE = re.compile(r'(?m)^(void\*|u32)\s+(lbl_[0-9A-F]{8})\[(\d+)\]\s*=\s*\{\s*0\s*,\s*0\s*,\s*'
+                         r'\((?:void\*|u32)\)\s*(\w+)\s*(,.*)?\};')
 
 
 def mwcc_vtables(t):
     names = []
 
     def rep(m):
-        name, n, dtor, rest = m.groups()
+        ty, name, n, dtor, rest = m.groups()
         names.append(name)
+        cast = '(%s)' % ty
         return ('static void %s_D1(void* t) { ((void* (*)(void*, int))%s)(t, 0); }\n'
                 'static void %s_D0(void* t) { ((void* (*)(void*, int))%s)(t, 1); }\n'
-                'void* %s[%d] = {0, 0, (void*)%s_D1, (void*)%s_D0, %s};' % (
-                    name, dtor, name, dtor, name, int(n) + 1, name, name, rest))
+                '%s %s[%d] = {0, 0, %s%s_D1, %s%s_D0%s};' % (
+                    name, dtor, name, dtor, ty, name, int(n) + 1, cast, name, cast, name, rest or ''))
     t = MWCC_VTABLE.sub(rep, t)
     for name in names:
         t = re.sub(r'=\s*%s\s*;' % name, '= %s + 2;' % name, t)
@@ -108,7 +111,7 @@ def main():
         for name, rx, rep in RULES:
             t, n = rx.subn(rep, t)
             counts[name] += n
-        if src.endswith('uiapi.cpp'):
+        if src.replace(os.sep, '/').find('/src/game/') >= 0:
             t, n = mwcc_vtables(t)
             counts['mwcc-vtables'] = counts.get('mwcc-vtables', 0) + n
         t, n = neutralise_swaps(t)
