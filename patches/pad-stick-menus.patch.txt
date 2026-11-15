@@ -1,0 +1,20 @@
+@@@ joy.cpp | PORT-ONLY (not for the decomp): the Wii remote has no stick, so retail turns stick arrows off for the UI key map (its x/y are remote tilt). On PC the pad's left stick arrives as that tilt: let it move menu cursors like the D-pad
+<<<
+    lbl_804223A0.stickDirs = 0;
+===
+    lbl_804223A0.stickDirs = 1;
+>>>
+@@@ joy.cpp | PORT-ONLY: stick up arrives as positive lean (y > 0); make it the up arrow
+<<<
+            if (p->status.y < -0.5f) {
+                dir |= 1;
+            } else if (p->status.y > 0.5f) {
+                dir |= 4;
+            }
+===
+            if (p->status.y > 0.5f) {
+                dir |= 1;
+            } else if (p->status.y < -0.5f) {
+                dir |= 4;
+            }
+>>>

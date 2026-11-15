@@ -25,6 +25,8 @@ typedef void (*WPADInfoCallback)(s32 chan, s32 result);
 enum : u32 {
     BTN_LEFT = 0x0001, BTN_RIGHT = 0x0002, BTN_DOWN = 0x0004, BTN_UP = 0x0008, BTN_PLUS = 0x0010,
     BTN_2 = 0x0100, BTN_1 = 0x0200, BTN_B = 0x0400, BTN_A = 0x0800, BTN_MINUS = 0x1000, BTN_HOME = 0x8000,
+    // Script-only stick bits (never reach the game).
+    STICK_UP = 0x10000000, STICK_DOWN = 0x20000000, STICK_LEFT = 0x40000000, STICK_RIGHT = 0x80000000,
 };
 
 // The game's view of KPADStatus (rjoy.cpp KStatus, 0x88 bytes).
@@ -55,7 +57,8 @@ static int g_nscript = -1;
 static u32 ButtonBits(const char* name) {
     struct { const char* n; u32 b; } map[] = {
         {"A", BTN_A}, {"B", BTN_B}, {"1", BTN_1}, {"2", BTN_2}, {"PLUS", BTN_PLUS}, {"MINUS", BTN_MINUS},
-        {"HOME", BTN_HOME}, {"UP", BTN_RIGHT}, {"DOWN", BTN_LEFT}, {"LEFT", BTN_UP}, {"RIGHT", BTN_DOWN}};
+        {"HOME", BTN_HOME}, {"STICKUP", STICK_UP}, {"STICKDOWN", STICK_DOWN}, {"STICKLEFT", STICK_LEFT},
+        {"STICKRIGHT", STICK_RIGHT}, {"UP", BTN_RIGHT}, {"DOWN", BTN_LEFT}, {"LEFT", BTN_UP}, {"RIGHT", BTN_DOWN}};
     for (auto& m : map)
         if (!_stricmp(m.n, name)) return m.b;
     return 0;
@@ -230,6 +233,12 @@ s32 KPADRead(s32 chan, void* buf, u32 n) {
     else ps = pl = 0;
     if (ps != 0) steer = ps;
     lean = pl;
+    // Scripted stick (NICECRASH_INPUT STICKUP/STICKDOWN/STICKLEFT/STICKRIGHT): full deflection, for tests.
+    if (hold & STICK_UP) lean = 1;
+    if (hold & STICK_DOWN) lean = -1;
+    if (hold & STICK_LEFT) steer = -1;
+    if (hold & STICK_RIGHT) steer = 1;
+    hold &= ~(u32)(STICK_UP | STICK_DOWN | STICK_LEFT | STICK_RIGHT);
     XState probe;
     if (chan != 0 && !PadState(chan, &probe)) return 0;  // no pad: no remote
     static u32 prev[4];
@@ -243,8 +252,8 @@ s32 KPADRead(s32 chan, void* buf, u32 n) {
     if (chan == 0) g_prevHold = hold;
     // The remote held sideways and level reads gravity on -Y (the game: steer = -2 * accZ, lean from atan2(accX,
     // -accY), 0 when level). Steering rolls gravity into Z (full lock at accZ = -/+0.5), leaning pitches it into X
-    // (up to 45 degrees).
-    f32 roll = 0.5f * steer, pitch = 0.785398f * lean;
+    // (up to 67.5 degrees: full stick = full lean).
+    f32 roll = 0.5f * steer, pitch = 1.178097f * lean;  // full lean = 67.5 degrees, where rjoy.cpp clamps throttle to 1
     k->accZ = -roll;
     k->accX = sinf(pitch);
     k->accY = -sqrtf(fmaxf(0.0f, 1.0f - roll * roll)) * cosf(pitch);
