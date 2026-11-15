@@ -52,3 +52,25 @@
 - PROJECT_NAME = "Nice Crash", PROJECT_DIRNAME = "NiceCrash" (lib/project.h). Host exe is now build/NiceCrash.exe,
   its optional ini NiceCrash.ini; the importer config moved to %LOCALAPPDATA%\NiceCrash (re-imported, old
   ProjectPlaceholder folder removed).
+
+## 2026-11-15: first link and first run of the game's own code
+- `python tools/gametrial/link.py` compiles every game unit (-O1, no UBSan/exceptions), links the 310 that compile
+  with the port runtime and host SDK into build/NiceCrashGame.exe (32-bit, /LARGEADDRESSAWARE, /DYNAMICBASE:NO).
+  - Two-pass link: pass 1 without stubs asks lld which symbols nothing defines; build/stubs.s then defines exactly
+    those (972 functions -> `port_unimpl("name (unit, address)")`, 73 asm-only data labels -> zeroed storage of
+    their symbols.txt size). `/force:multiple` because the decomp spells MWCC's weak inline copies as plain
+    duplicate definitions (lld-link run directly with zig's own CRT libs, learned from a `--verbose-link` probe).
+- runtime/: port_main (calls the game's `main`, renamed GameMain), unimpl (NICECRASH_UNIMPL=continue returns 0 and
+  lists each stub once), crash (symbolised x86 stack via Windows dbghelp + the PDB), **wiimem: MEM1 mapped at
+  0x80000000 and MEM2 at 0x90000000**, the real Wii addresses (a 32-bit LAA process owns the top 2 GB on 64-bit
+  Windows), with the OS globals the game reads (bus clock at 0x800000F8 ...).
+- sdk/: first host SDK pieces: OS (init, arenas into the mapped MEM1/MEM2, OSReport/OSPanic, OSGetTime from the
+  performance counter, caches/interrupts as no-ops), SC (US console defaults), NAND/VI/DVD init, WPAD/PAD/KPAD
+  (stack "set up", no remotes).
+- **Run:** static constructors run; the game's main runs kernel init through OS/VI/DVD/arenas/SC/NAND, the game's own
+  heaps (mem.cpp) work in the mapped arenas, "filecd: started DVD services" prints, input init, VF (virtual FS)
+  attach, then stops at OSCreateThread (sdmp3's decoder thread; a failed create is fatal by design).
+- Lessons: the game's global operator new/new[] replace the host's (runtime code must not allocate with C++
+  new before the game heap exists); unk_802E4D84.cpp (file layer on the boot path) still needs its compile fixes.
+- Next: OSThread/OSMutex/OSMessageQueue on Windows threads (Wii scheduling: priority, run until block), then the
+  DVD layer on lib/res, then VI/GX.

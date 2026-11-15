@@ -21,3 +21,6 @@ static inline int __abs(int x) { return x < 0 ? -x : x; }
 
 // PowerPC count-leading-zeros intrinsic (MWCC builtin).
 static inline unsigned int __cntlzw(unsigned int x) { return x ? (unsigned int)__builtin_clz(x) : 32u; }
+
+// The game's main (kernel.cpp) becomes GameMain; the host's runtime/port_main.cpp calls it.
+#define main GameMain
