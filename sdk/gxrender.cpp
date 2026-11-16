@@ -155,6 +155,7 @@ struct GLTex {
     GLuint id;
     u32 sum;
     int w, h;
+    int frame = -1;  // display frame of the last checksum (memory is checked once per frame)
 };
 std::unordered_map<unsigned long long, GLTex> g_texCache;
 
@@ -217,6 +218,7 @@ struct EfbCopy {
     GLuint id;
     u32 ramSum;
     size_t bytes;
+    int frame = -1;  // display frame the RAM was last found unchanged
 };
 std::unordered_map<u32, EfbCopy> g_efbCopies;
 
@@ -272,11 +274,12 @@ void EncodeCopy(u8* dst, int real, const std::vector<u8>& rgba, int w, int h, u3
 bool BindEfbCopy(u32 addr, const u8* src) {
     auto it = g_efbCopies.find(addr);
     if (it == g_efbCopies.end()) return false;
-    if (Checksum(src, it->second.bytes) != it->second.ramSum) {  // RAM rewritten since: a real texture now
+    if (it->second.frame != g_frameNo && Checksum(src, it->second.bytes) != it->second.ramSum) {  // RAM rewritten
         glDeleteTextures(1, &it->second.id);
         g_efbCopies.erase(it);
         return false;
     }
+    it->second.frame = g_frameNo;
     glBindTexture(GL_TEXTURE_2D, it->second.id);
     return true;
 }
@@ -310,8 +313,12 @@ bool BindTexMap(int m) {
     u32 tlutOff = (tlut & 0x3FF) << 9, tlutFmt = (tlut >> 10) & 3;
     unsigned long long key = (unsigned long long)addr << 32 ^ (u32)(fmt << 28 | w << 14 | h) ^
                              (ci ? (unsigned long long)tlutOff << 4 : 0);
-    u32 sum = Checksum(src, bytes) ^ (ci ? Checksum(g_tmem + tlutOff, fmt == 8 ? 32 : 512) : 0);
     GLTex& t = g_texCache[key];
+    u32 sum = t.sum;
+    if (!t.id || t.frame != g_frameNo) {
+        sum = Checksum(src, bytes) ^ (ci ? Checksum(g_tmem + tlutOff, fmt == 8 ? 32 : 512) : 0);
+        t.frame = g_frameNo;
+    }
     if (!t.id || t.sum != sum) {
         std::vector<u8> rgba;
         if (ci) DecodeCI(fmt, src, w, h, g_tmem + tlutOff, (int)tlutFmt, rgba);
@@ -526,6 +533,32 @@ static bool ArraysHostOrder(u32 lo, const VtxFmt& f, int count, const u8* data, 
     return hostOrder;
 }
 
+// The draw batch: vertices of consecutive draws with the same GL state, drawn with one call.
+struct BV {
+    float pos[4];
+    u8 c0[4], c1[4];
+    float tc[8][2];
+};
+static std::vector<BV> g_batch;
+static bool g_stateDirty = true, g_batchValid, g_bTev, g_bTexOn;
+static int g_bNTex;
+
+void gxr_state_dirty() { g_stateDirty = true; }
+
+void gxr_flush_batch() {
+    if (g_batch.empty()) return;
+    gxt_draw_arrays(GL_TRIANGLES, g_batch.data(), sizeof(BV), (int)g_batch.size(), g_bNTex);
+    g_batch.clear();
+}
+
+// Draws what is batched and releases the GL state (other code draws next: copies, presentation, the HOME menu).
+void gxr_end_batch() {
+    gxr_flush_batch();
+    if (g_batchValid && g_bTev) gxt_end();
+    g_batchValid = false;
+    g_stateDirty = true;
+}
+
 static u32 g_drawsSinceCopy;  // draws since the last display copy (an empty copy is not shown, see gxr_copy)
 
 void gxr_draw(int prim, int vat, int count, const u8* data) {
@@ -560,7 +593,8 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
                      (int)(mib & 63), (int)((mib >> 6) & 63), (int)((mib >> 12) & 63), (int)((mib >> 18) & 63)};
 
     // Decode all vertices.
-    std::vector<Vtx> vs(count);
+    static std::vector<Vtx> vs;
+    if ((int)vs.size() < count) vs.resize(count);
     const u8* p = data;
     bool arraysLE = ArraysHostOrder(lo, f, count, data, vat);
     bool le = false;  // set by attrPtr: the attribute came from a host-order array
@@ -620,40 +654,49 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
     int numChans = g_gx.xf[0x1009] & 3;
 
     // TEV: generated shader (sdk/gxtev.cpp) with every texture map the stages use bound on its own unit;
-    // fallback = stage 0 approximation (texture x rasterised colour).
+    // fallback = stage 0 approximation (texture x rasterised colour). The GL state is set up again only when a
+    // BP register changed since the last draw (gxr_state_dirty); until then draws are batched.
     u32 order = g_gx.bp[0x28];
     int texMap = order & 7, texCoord = (order >> 3) & 7;
     int nStages = ((g_gx.bp[0x00] >> 10) & 15) + 1, nTexGens = g_gx.bp[0x00] & 15;
-    bool texOk[8] = {};
-    bool tried[8] = {};
-    for (int st = 0; st < nStages; st++) {
-        u32 o = g_gx.bp[0x28 + st / 2] >> ((st & 1) * 12);
-        int m = o & 7;
-        if (!((o >> 6) & 1) || tried[m]) continue;
-        tried[m] = true;
-        gxt_active_texture(m);
-        texOk[m] = BindTexMap(m);
+    if (g_stateDirty || !g_batchValid) {
+        gxr_flush_batch();
+        if (g_bTev) gxt_end();
+        bool texOk[8] = {};
+        bool tried[8] = {};
+        for (int st = 0; st < nStages; st++) {
+            u32 o = g_gx.bp[0x28 + st / 2] >> ((st & 1) * 12);
+            int m = o & 7;
+            if (!((o >> 6) & 1) || tried[m]) continue;
+            tried[m] = true;
+            gxt_active_texture(m);
+            texOk[m] = BindTexMap(m);
+        }
+        for (int i = 0, nInd = (g_gx.bp[0x00] >> 16) & 7; i < nInd && i < 4; i++) {  // indirect stages' maps
+            int m = (g_gx.bp[0x27] >> (6 * i)) & 7;
+            if (tried[m]) continue;
+            tried[m] = true;
+            gxt_active_texture(m);
+            texOk[m] = BindTexMap(m);
+        }
+        gxt_active_texture(0);
+        ApplyState();
+        g_bTev = gxt_begin(texOk);
+        if (g_bTev) glDisable(GL_ALPHA_TEST);
+        g_bTexOn = !g_bTev && ((order >> 6) & 1) && BindTexMap(texMap);
+        if (g_bTev) {
+            glDisable(GL_TEXTURE_2D);
+        } else if (g_bTexOn) {
+            glEnable(GL_TEXTURE_2D);
+            glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+        } else {
+            glDisable(GL_TEXTURE_2D);
+        }
+        g_bNTex = g_bTev ? (nTexGens < 8 ? nTexGens : 8) : g_bTexOn ? 1 : 0;
+        g_stateDirty = false;
+        g_batchValid = true;
     }
-    for (int i = 0, nInd = (g_gx.bp[0x00] >> 16) & 7; i < nInd && i < 4; i++) {  // indirect stages' maps
-        int m = (g_gx.bp[0x27] >> (6 * i)) & 7;
-        if (tried[m]) continue;
-        tried[m] = true;
-        gxt_active_texture(m);
-        texOk[m] = BindTexMap(m);
-    }
-    gxt_active_texture(0);
-    ApplyState();
-    bool tev = gxt_begin(texOk);
-    if (tev) glDisable(GL_ALPHA_TEST);
-    bool texOn = !tev && ((order >> 6) & 1) && BindTexMap(texMap);
-    if (tev) {
-        glDisable(GL_TEXTURE_2D);
-    } else if (texOn) {
-        glEnable(GL_TEXTURE_2D);
-        glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-    } else {
-        glDisable(GL_TEXTURE_2D);
-    }
+    bool tev = g_bTev, texOn = g_bTexOn;
 
     if (LogThisFrame()) {
         float o[4];
@@ -714,55 +757,90 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
                     g_gx.cp[0x50], g_gx.cp[0x60], g_gx.cp[0x70 + vat]);
         }
     }
-    static const GLenum kPrim[8] = {GL_QUADS, GL_QUADS, GL_TRIANGLES, GL_TRIANGLE_STRIP,
-                                    GL_TRIANGLE_FAN, GL_LINES, GL_LINE_STRIP, GL_POINTS};
-    glBegin(kPrim[(prim >> 3) & 7]);
+    // Vertices for the batch: transformed, coloured and texture-mapped on the CPU (as the GX transform unit does).
+    static std::vector<BV> bv;
+    if ((int)bv.size() < count) bv.resize(count);
+    bool cv1 = g_gx.xf[0x100F] & 1, av1 = g_gx.xf[0x1011] & 1;
+    u32 m1 = g_gx.xf[0x100D];
     for (int n = 0; n < count; n++) {
         Vtx& v = vs[n];
-        u8 col[4];
+        BV& o = bv[n];
         if (numChans == 0) {
-            col[0] = col[1] = col[2] = col[3] = 255;
+            o.c0[0] = o.c0[1] = o.c0[2] = o.c0[3] = 255;
         } else {
-            col[0] = colVtx ? v.col[0][0] : (u8)(mat >> 24);
-            col[1] = colVtx ? v.col[0][1] : (u8)(mat >> 16);
-            col[2] = colVtx ? v.col[0][2] : (u8)(mat >> 8);
-            col[3] = alpVtx ? v.col[0][3] : (u8)mat;
+            o.c0[0] = colVtx ? v.col[0][0] : (u8)(mat >> 24);
+            o.c0[1] = colVtx ? v.col[0][1] : (u8)(mat >> 16);
+            o.c0[2] = colVtx ? v.col[0][2] : (u8)(mat >> 8);
+            o.c0[3] = alpVtx ? v.col[0][3] : (u8)mat;
         }
-        glColor4ub(col[0], col[1], col[2], col[3]);
+        if (numChans < 2) {
+            o.c1[0] = o.c1[1] = o.c1[2] = o.c1[3] = 255;
+        } else {
+            o.c1[0] = cv1 ? v.col[1][0] : (u8)(m1 >> 24);
+            o.c1[1] = cv1 ? v.col[1][1] : (u8)(m1 >> 16);
+            o.c1[2] = cv1 ? v.col[1][2] : (u8)(m1 >> 8);
+            o.c1[3] = av1 ? v.col[1][3] : (u8)m1;
+        }
         if (tev) {
-            u8 c1[4];
-            if (numChans < 2) {
-                c1[0] = c1[1] = c1[2] = c1[3] = 255;
-            } else {
-                bool cv = g_gx.xf[0x100F] & 1, av = g_gx.xf[0x1011] & 1;
-                u32 m1 = g_gx.xf[0x100D];
-                c1[0] = cv ? v.col[1][0] : (u8)(m1 >> 24);
-                c1[1] = cv ? v.col[1][1] : (u8)(m1 >> 16);
-                c1[2] = cv ? v.col[1][2] : (u8)(m1 >> 8);
-                c1[3] = av ? v.col[1][3] : (u8)m1;
-            }
-            gxt_color1(c1);
-            for (int g = 0; g < nTexGens && g < 8; g++) {
-                float st[2];
-                TexCoord(v, g, st);
-                gxt_texcoord(g, st[0], st[1]);
-            }
+            for (int g = 0; g < g_bNTex; g++) TexCoord(v, g, o.tc[g]);
         } else if (texOn) {
-            float st[2];
-            TexCoord(v, texCoord, st);
-            glTexCoord2f(st[0], st[1]);
+            TexCoord(v, texCoord, o.tc[0]);
         }
-        float o[4];
-        Transform(v.pos, v.pnmtx, o);
-        float w = o[3] > 0 ? o[3] : -o[3];
+        float x[4];
+        Transform(v.pos, v.pnmtx, x);
+        float w = x[3] > 0 ? x[3] : -x[3];
         if (w < 1e-6f) w = 1e-6f;
-        glVertex4f(o[0] * w, o[1] * w, o[2] * w, w);
+        o.pos[0] = x[0] * w; o.pos[1] = x[1] * w; o.pos[2] = x[2] * w; o.pos[3] = w;
     }
-    glEnd();
-    if (tev) gxt_end();
+    {  // NICECRASH_BIGLOG=<n>: log the first n draws with a vertex far outside the screen (bad positions/matrices)
+        static int left = getenv("NICECRASH_BIGLOG") ? atoi(getenv("NICECRASH_BIGLOG")) : 0;
+        if (left > 0) {
+            for (int n = 0; n < count; n++) {
+                float ex = bv[n].pos[0] / bv[n].pos[3], ey = bv[n].pos[1] / bv[n].pos[3];
+                if (ex > -3000 && ex < 3000 && ey > -3000 && ey < 3000) continue;
+                left--;
+                Vtx& v = vs[n];
+                fprintf(stderr, "[big] tex %08x v%d/%d efb (%.0f %.0f) pos (%g %g %g) pnmtx %d vcd %08x/%08x vat %d %08x/%08x/%08x base %08x stride %u le %d mtx [%g %g %g %g / %g %g %g %g / %g %g %g %g]\n",
+                        (g_gx.bp[0x94 + (g_gx.bp[0x28] & 3)] & 0xFFFFFF) << 5, n, count, ex, ey, v.pos[0], v.pos[1], v.pos[2], v.pnmtx, lo, hi, vat, g_gx.cp[0x70 + vat],
+                        g_gx.cp[0x80 + vat], g_gx.cp[0x90 + vat], g_gx.cp[0xA0], g_gx.cp[0xB0] & 0xFF, (int)arraysLE,
+                        xff(v.pnmtx * 4), xff(v.pnmtx * 4 + 1), xff(v.pnmtx * 4 + 2), xff(v.pnmtx * 4 + 3), xff(v.pnmtx * 4 + 4),
+                        xff(v.pnmtx * 4 + 5), xff(v.pnmtx * 4 + 6), xff(v.pnmtx * 4 + 7), xff(v.pnmtx * 4 + 8),
+                        xff(v.pnmtx * 4 + 9), xff(v.pnmtx * 4 + 10), xff(v.pnmtx * 4 + 11));
+                break;
+            }
+        }
+    }
+    // Triangles join the batch; lines and points are drawn on their own.
+    int kind = (prim >> 3) & 7;
+    auto add = [&](int i) { g_batch.push_back(bv[i]); };
+    switch (kind) {
+    case 0: case 1:  // quads
+        for (int i = 0; i + 3 < count; i += 4) { add(i); add(i + 1); add(i + 2); add(i); add(i + 2); add(i + 3); }
+        break;
+    case 2:  // triangles
+        for (int i = 0; i + 2 < count; i += 3) { add(i); add(i + 1); add(i + 2); }
+        break;
+    case 3:  // strip (alternate winding; culling is off)
+        for (int i = 0; i + 2 < count; i++) {
+            if (i & 1) { add(i + 1); add(i); add(i + 2); }
+            else { add(i); add(i + 1); add(i + 2); }
+        }
+        break;
+    case 4:  // fan
+        for (int i = 1; i + 1 < count; i++) { add(0); add(i); add(i + 1); }
+        break;
+    default: {
+        gxr_flush_batch();
+        static const GLenum kLine[3] = {GL_LINES, GL_LINE_STRIP, GL_POINTS};
+        gxt_draw_arrays(kLine[kind - 5], bv.data(), sizeof(BV), count, g_bNTex);
+        break;
+    }
+    }
+    if (g_batch.size() > 60000) gxr_flush_batch();
 }
 
 void gxr_copy(u32 bp52) {
+    gxr_end_batch();
     bool toXfb = (bp52 >> 14) & 1, clear = (bp52 >> 11) & 1;
     if (toXfb && getenv("NICECRASH_COPYLOG")) {
         static int n;
@@ -779,7 +857,8 @@ void gxr_copy(u32 bp52) {
     if (px1 > ww) px1 = ww;
     if (py1 > wh) py1 = wh;
     int pw = px1 - px0, ph = py1 - py0;
-    if (!toXfb && xfb_active() && pw > 0 && ph > 0) {
+    static const bool noEfbCopy = getenv("NICECRASH_NOEFBCOPY") != nullptr;
+    if (!toXfb && !noEfbCopy && xfb_active() && pw > 0 && ph > 0) {
         xfb_bind_efb(ww, wh);
         int tpf = (bp52 >> 3) & 15, real = (tpf >> 1) | ((tpf & 1) << 3);
         bool inten = (bp52 >> 15) & 1, half = (bp52 >> 9) & 1;

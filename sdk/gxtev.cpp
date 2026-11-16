@@ -43,7 +43,7 @@ typedef char GLchar_;
     X(void, glUniform4fv, (GLint, GLsizei, const GLfloat*))                                    X(void, glUniform3fv, (GLint, GLsizei, const GLfloat*))                                    X(void, glUniform2fv, (GLint, GLsizei, const GLfloat*))                                    X(void, glUniform1fv, (GLint, GLsizei, const GLfloat*))                                \
     X(void, glVertexAttrib4f, (GLuint, GLfloat, GLfloat, GLfloat, GLfloat))               \
     X(void, glActiveTexture, (GLenum))                                                     \
-    X(void, glMultiTexCoord2f, (GLenum, GLfloat, GLfloat))
+    X(void, glMultiTexCoord2f, (GLenum, GLfloat, GLfloat))                                     X(void, glClientActiveTexture, (GLenum))                                                   X(void, glVertexAttribPointer, (GLuint, GLint, GLenum, GLboolean, GLsizei, const void*))     X(void, glEnableVertexAttribArray, (GLuint))                                               X(void, glDisableVertexAttribArray, (GLuint))
 
 #define DECL(ret, name, args) typedef ret(APIENTRY* name##_t) args; name##_t p_##name;
 GLFUNCS(DECL)
@@ -366,6 +366,34 @@ float S11(u32 v) {  // 11-bit signed TEV register component -> float (255 = 1.0)
 bool gxt_begin(const bool texOk[8]) {
     if (!Load()) return false;
     int nStages = ((g_gx.bp[0x00] >> 10) & 15) + 1;
+    // Fast path: a numeric hash of the same register fields the string key below is made of (the string is built
+    // only for a new combination; tens of thousands of draws per frame look programs up).
+    u64 h = 1469598103934665603ull;
+    auto mix = [&](u32 v) { h = (h ^ v) * 1099511628211ull; };
+    mix((u32)nStages);
+    mix(g_gx.bp[0xF3] & 0xFFFFFF);
+    for (int i = 0; i < 8; i++) mix(texOk[i]);
+    for (int st = 0; st < nStages; st++) {
+        mix(g_gx.bp[0xC0 + st * 2] & 0xFFFFFF);
+        mix(g_gx.bp[0xC1 + st * 2] & 0xFFFFFF);
+        mix(g_gx.bp[0x10 + st] & 0x1FFFFF);
+    }
+    mix(g_gx.bp[0x00] & 0x7FFFFF);
+    mix(g_gx.bp[0x25] & 0xFFFFFF);
+    mix(g_gx.bp[0x26] & 0xFFFFFF);
+    mix(g_gx.bp[0x27] & 0xFFFFFF);
+    for (int m = 0; m < 8; m++) mix(g_gx.bp[(m < 4 ? 0x80 : 0xA0) + (m & 3)] & 0x1F);
+    for (int i = 0; i < 8; i++) {
+        mix(g_gx.bp[0x28 + i] & 0xFFFFFF);
+        mix(g_gx.bp[0xF6 + i] & 0xFFFFFF);
+    }
+    static std::unordered_map<u64, Prog*> fast;
+    static const bool tevlog = getenv("NICECRASH_TEVLOG") != nullptr;
+    auto fit = fast.find(h);
+    if (fit != fast.end() && !tevlog) {
+        if (!fit->second->id) return false;
+        g_cur = fit->second;
+    } else {
     // Key: everything the generated code depends on.
     std::string key;
     char b[64];
@@ -426,11 +454,13 @@ bool gxt_begin(const bool texOk[8]) {
         if (getenv("NICECRASH_TEVLOG")) fprintf(stderr, "[tev] program %zu (%s):\n%s\n", g_progs.size(), key.c_str(), fsrc.c_str());
         it = g_progs.emplace(key, pr).first;
     }
+    fast[h] = &it->second;
     if (!it->second.id) return false;
     g_cur = &it->second;
     if (getenv("NICECRASH_TEVLOG") && atoi(getenv("NICECRASH_TEVLOG")) > 1)
         fprintf(stderr, "[tev] use %.40s gen %06x F3 %06x reg %06x %06x konst %06x %06x map0 %06x/%06x map1 %06x/%06x tlut %06x %06x\n", it->first.c_str(), g_gx.bp[0] & 0xFFFFFF,
                 g_gx.bp[0xF3] & 0xFFFFFF, g_gx.tevReg[2], g_gx.tevReg[3], g_gx.tevKonst[0], g_gx.tevKonst[1], g_gx.bp[0x88] & 0xFFFFFF, g_gx.bp[0x94] & 0xFFFFFF, g_gx.bp[0x89] & 0xFFFFFF, g_gx.bp[0x95] & 0xFFFFFF, g_gx.bp[0x98] & 0xFFFFFF, g_gx.bp[0x99] & 0xFFFFFF);
+    }
     p_glUseProgram(g_cur->id);
     float reg[16], kon[16];
     for (int i = 0; i < 4; i++) {
@@ -487,3 +517,35 @@ void gxt_active_texture(int unit) {
 void gxt_texcoord(int unit, float s, float t) { p_glMultiTexCoord2f(GL_TEXTURE0_ + unit, s, t); }
 
 void gxt_color1(const u8 c[4]) { p_glVertexAttrib4f(6, c[0] / 255.0f, c[1] / 255.0f, c[2] / 255.0f, c[3] / 255.0f); }
+
+// One draw of batched vertices (sdk/gxrender.cpp): per vertex, float4 clip position at 0, colour 0 (u8x4) at 16,
+// colour 1 (u8x4, the TEV programs' col1in) at 20 and nTex float2 texture coordinates from 24.
+void gxt_draw_arrays(unsigned mode, const void* base, int stride, int n, int nTex) {
+    const unsigned char* b = (const unsigned char*)base;
+    bool ext = Load();
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glVertexPointer(4, GL_FLOAT, stride, b);
+    glEnableClientState(GL_COLOR_ARRAY);
+    glColorPointer(4, GL_UNSIGNED_BYTE, stride, b + 16);
+    if (ext) {
+        p_glEnableVertexAttribArray(6);
+        p_glVertexAttribPointer(6, 4, GL_UNSIGNED_BYTE, GL_TRUE, stride, b + 20);
+    }
+    if (!ext && nTex > 1) nTex = 1;
+    for (int i = 0; i < nTex; i++) {
+        if (ext) p_glClientActiveTexture(GL_TEXTURE0_ + i);
+        glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+        glTexCoordPointer(2, GL_FLOAT, stride, b + 24 + i * 8);
+    }
+    glDrawArrays(mode, 0, n);
+    for (int i = 0; i < nTex; i++) {
+        if (ext) p_glClientActiveTexture(GL_TEXTURE0_ + i);
+        glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+    }
+    if (ext) {
+        p_glClientActiveTexture(GL_TEXTURE0_);
+        p_glDisableVertexAttribArray(6);
+    }
+    glDisableClientState(GL_COLOR_ARRAY);
+    glDisableClientState(GL_VERTEX_ARRAY);
+}

@@ -10,3 +10,5 @@ void gxt_active_texture(int unit);
 // Per-vertex inputs while a program is bound: texture coordinate set `unit`, colour channel 1.
 void gxt_texcoord(int unit, float s, float t);
 void gxt_color1(const u8 c[4]);
+// Draws batched vertices (layout in gxtev.cpp) with the current program/fixed-function state.
+void gxt_draw_arrays(unsigned mode, const void* base, int stride, int n, int nTex);
