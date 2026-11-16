@@ -351,6 +351,9 @@
   `___ct__12LineFollowerFv -> __ZN12LineFollowerC1Ev`; aicar LineFollower dtors resolve by name (d2da99142);
   collvol.h is the single CollVolume declaration (08ce66df3); BINK_BORROW takes the C branch (no __MWERKS__).
   Read handoff/PORT_ALIASES_2026-11-16.md: drop aliases for everything converted at source, keep the listed ones.
+- Drop patches/arity-loading: fn_80011280 has its 6-argument prototype in the decomp (5e98b372c), art handles are
+  `gArtSet*` (include/game/gart.h, dashhelper.h). Verify loading / DashHelper / overlay layout build and draw.
+- Narrow returns: the decomp fixed most from the definition side (retwidth now lists ~18); keep the prep pass.
 - Drop patches/data-pools (uistyle) and the UICustom::Slot64 arity patch: fixed in the decomp (1c6951de4, e5e14139c).
 - Expect renames (widget/collision vtables, Bink RAD names, CarSound): bridges are re-derived from symbols.txt.
 - ARC: the decomp's matched SDK arc.c (libs/msc/src/RVL_SDK/arc) is complete (the partial copies are an unlinked
