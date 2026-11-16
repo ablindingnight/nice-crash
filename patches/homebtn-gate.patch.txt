@@ -1,0 +1,19 @@
+@@@ homebtn.cpp | PORT-ONLY (not for the decomp), temporary: the HOME menu library is being ported (its layout/animation/font files are still big-endian); until it works, it is only created when NICECRASH_HBM=1, and the HOME button is ignored otherwise (as the stub did)
+<<<
+    HBMCreate(&lbl_80558860);
+    lbl_805600EC = 1;
+===
+    extern int port_hbm_enabled(void);
+    if (port_hbm_enabled()) {
+        HBMCreate(&lbl_80558860);
+        lbl_805600EC = 1;
+    }
+>>>
+@@@ homebtn.cpp | (same): only delete what was created
+<<<
+    lbl_805600EC = 0;
+    HBMDelete();
+===
+    if (lbl_805600EC) HBMDelete();
+    lbl_805600EC = 0;
+>>>

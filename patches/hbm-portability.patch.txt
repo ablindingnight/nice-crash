@@ -1,0 +1,26 @@
+@@@ tp:HBMBase.cpp | C++: a case label may not jump past an initialised declaration (MWCC allows it): declare, then assign
+<<<
+        case 16:
+            GroupAnmController* anim = mpGroupAnmController[mSelectAnmNum];
+===
+        case 16:
+            GroupAnmController* anim;
+            anim = mpGroupAnmController[mSelectAnmNum];
+>>>
+@@@ tp:HBMBase.cpp | same: declare, then assign
+<<<
+#ifdef GAME_REXE01
+            BOOL result = WPADSaveConfig(NULL);
+#else
+===
+#ifdef GAME_REXE01
+            BOOL result;
+            result = WPADSaveConfig(NULL);
+#else
+>>>
+@@@ tp:HBMBase.cpp | the hooks take u32 = unsigned int in axfx.h, unsigned long in the HBM's types: same 32 bits
+<<<
+        AXFXSetHooks(&HBMAllocMem, &HBMFreeMem);
+===
+        AXFXSetHooks((AXFXAllocHook)&HBMAllocMem, &HBMFreeMem);
+>>>

@@ -1,0 +1,36 @@
+@@@ unk_80116BD4.c | the ARC functions in this unit are an incomplete reconstruction (ARCReadDir fills no name and never advances; the path compare reaches its case map through retail data pointers): the port uses its complete host ARC library (sdk/arc.cpp) and keeps these under other names
+<<<
+BOOL ARCFastOpen(ARCHandle *handle
+===
+BOOL port_decomp_ARCFastOpen(ARCHandle *handle
+>>>
+@@@ unk_80116BD4.c | (same)
+<<<
+s32 ARCConvertPathToEntrynum(ARCHandle *handle
+===
+s32 port_decomp_ARCConvertPathToEntrynum(ARCHandle *handle
+>>>
+@@@ unk_80116BD4.c | (same)
+<<<
+void* ARCGetStartAddrInMem(ARCFileInfo* info) {
+===
+void* port_decomp_ARCGetStartAddrInMem(ARCFileInfo* info) {
+>>>
+@@@ unk_80116BD4.c | (same)
+<<<
+BOOL ARCChangeDir(ARCHandle* handle, const char* path) {
+===
+BOOL port_decomp_ARCChangeDir(ARCHandle* handle, const char* path) {
+>>>
+@@@ unk_80116BD4.c | (same)
+<<<
+BOOL ARCOpenDir(ARCHandle* handle, const char* path, ARCDir* dir) {
+===
+BOOL port_decomp_ARCOpenDir(ARCHandle* handle, const char* path, ARCDir* dir) {
+>>>
+@@@ unk_80116BD4.c | (same)
+<<<
+BOOL ARCReadDir(ARCDir* dir, ARCDirEntry* entry) {
+===
+BOOL port_decomp_ARCReadDir(ARCDir* dir, ARCDirEntry* entry) {
+>>>

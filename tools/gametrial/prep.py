@@ -213,7 +213,8 @@ def regorder_adapters(texts):
 
 def load_patches():
     pats = []
-    for pf in sorted(glob.glob(os.path.join(PORT, 'patches', '*.patch.txt'))):
+    for pf in sorted(p for p in glob.glob(os.path.join(PORT, 'patches', '*.patch.txt'))
+                     if not os.path.basename(p).startswith('hbm-')):  # hbm-*: tools/gametrial/hbmbuild.py
         t = open(pf, encoding='utf-8').read()
         for blk in t.split('@@@ ')[1:]:
             head, body = blk.split(NL, 1)

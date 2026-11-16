@@ -18,7 +18,9 @@ OBJ = os.path.join(PORT, 'build', 'sdkobj')
 sys.path.insert(0, HERE)
 import trial  # noqa: E402
 
-SOURCES = sorted(glob.glob(os.path.join(MSC, 'src', 'RVL_SDK', 'gx', '*.c')))
+# GX, plus MEM (the heaps: the HOME button library allocates from expanded/frame/unit heaps in memory it is given).
+LIBS = ['gx', 'mem']
+SOURCES = sorted(p for lib in LIBS for p in glob.glob(os.path.join(MSC, 'src', 'RVL_SDK', lib, '*.c')))
 
 MEMBER = {'uc': 'u8', 'c': 'u8', 'us': 'u16', 's': 'u16', 'ui': 'u32', 'i': 'u32', 'u': 'u32', 'p': 'u32',
           'f': 'f32'}
@@ -154,7 +156,7 @@ def main():
     os.makedirs(OBJ, exist_ok=True)
     print('sdk prep: %d files rewritten' % prep())
     zig = trial.find_zig()
-    srcs = sorted(glob.glob(os.path.join(OUT, 'src', 'RVL_SDK', 'gx', '*.c')))
+    srcs = sorted(p for lib in LIBS for p in glob.glob(os.path.join(OUT, 'src', 'RVL_SDK', lib, '*.c')))
     with concurrent.futures.ThreadPoolExecutor(8) as ex:
         res = list(ex.map(lambda s: compile_one(zig, s), srcs))
     for b, n, e in res:

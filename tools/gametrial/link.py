@@ -222,6 +222,13 @@ def main():
         subprocess.run([sys.executable, '-I', os.path.join(HERE, 'sdkbuild.py')], check=True, capture_output=True)
     sdkdir = os.path.join(B, 'sdkobj')
     good += sorted(os.path.join(sdkdir, f) for f in os.listdir(sdkdir) if f.endswith('.o')) if os.path.isdir(sdkdir) else []
+    # The HOME button library (tools/gametrial/hbmbuild.py): the real HOME menu, laid out from the disc's homeBtn*.arc.
+    if '--nocompile' not in sys.argv:
+        r = subprocess.run([sys.executable, '-I', os.path.join(HERE, 'hbmbuild.py')], capture_output=True, text=True)
+        if r.returncode:
+            sys.exit('link: hbmbuild failed:\n' + r.stdout[-3000:])
+    import hbmbuild
+    good += [o for o in hbmbuild.objects() if os.path.exists(o)]
     # Port runtime objects.
     rt = []
     import glob as _g

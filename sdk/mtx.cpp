@@ -103,4 +103,58 @@ void PSVECNormalize(const Vec* src, Vec* dst) {
     dst->z = src->z * k;
 }
 
+// Used by the HOME button library's layout engine.
+void PSMTXIdentity(Mtx m) {
+    for (int r = 0; r < 3; r++)
+        for (int c = 0; c < 4; c++) m[r][c] = r == c ? 1.0f : 0.0f;
+}
+
+void PSMTXCopy(const Mtx src, Mtx dst) {
+    if (src == dst) return;
+    for (int r = 0; r < 3; r++)
+        for (int c = 0; c < 4; c++) dst[r][c] = src[r][c];
+}
+
+// As C_MTXInverse: general 3x4 inverse; returns 0 (and leaves dst alone) when singular.
+u32 PSMTXInverse(const Mtx src, Mtx inv) {
+    f32 det = src[0][0] * src[1][1] * src[2][2] + src[0][1] * src[1][2] * src[2][0] +
+              src[0][2] * src[1][0] * src[2][1] - src[2][0] * src[1][1] * src[0][2] -
+              src[1][0] * src[0][1] * src[2][2] - src[0][0] * src[2][1] * src[1][2];
+    if (det == 0.0f) return 0;
+    det = 1.0f / det;
+    Mtx m;
+    m[0][0] = (src[1][1] * src[2][2] - src[2][1] * src[1][2]) * det;
+    m[0][1] = -(src[0][1] * src[2][2] - src[2][1] * src[0][2]) * det;
+    m[0][2] = (src[0][1] * src[1][2] - src[1][1] * src[0][2]) * det;
+    m[1][0] = -(src[1][0] * src[2][2] - src[2][0] * src[1][2]) * det;
+    m[1][1] = (src[0][0] * src[2][2] - src[2][0] * src[0][2]) * det;
+    m[1][2] = -(src[0][0] * src[1][2] - src[1][0] * src[0][2]) * det;
+    m[2][0] = (src[1][0] * src[2][1] - src[2][0] * src[1][1]) * det;
+    m[2][1] = -(src[0][0] * src[2][1] - src[2][0] * src[0][1]) * det;
+    m[2][2] = (src[0][0] * src[1][1] - src[1][0] * src[0][1]) * det;
+    for (int r = 0; r < 3; r++)
+        m[r][3] = -(m[r][0] * src[0][3] + m[r][1] * src[1][3] + m[r][2] * src[2][3]);
+    PSMTXCopy(m, inv);
+    return 1;
+}
+
+// As C_MTXRotRad: rotation about axis 'x', 'y' or 'z' (either case).
+void PSMTXRotRad(Mtx m, char axis, f32 rad) {
+    f32 s = sinf(rad), c = cosf(rad);
+    PSMTXIdentity(m);
+    switch (axis) {
+    case 'x': case 'X': m[1][1] = c; m[1][2] = -s; m[2][1] = s; m[2][2] = c; break;
+    case 'y': case 'Y': m[0][0] = c; m[0][2] = s; m[2][0] = -s; m[2][2] = c; break;
+    case 'z': case 'Z': m[0][0] = c; m[0][1] = -s; m[1][0] = s; m[1][1] = c; break;
+    }
+}
+
+void PSMTXMultVec(const Mtx m, const Vec* src, Vec* dst) {
+    Vec t;
+    t.x = m[0][0] * src->x + m[0][1] * src->y + m[0][2] * src->z + m[0][3];
+    t.y = m[1][0] * src->x + m[1][1] * src->y + m[1][2] * src->z + m[1][3];
+    t.z = m[2][0] * src->x + m[2][1] * src->y + m[2][2] * src->z + m[2][3];
+    *dst = t;
+}
+
 }  // extern "C"
