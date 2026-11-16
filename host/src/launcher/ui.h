@@ -146,5 +146,7 @@ void Backdrop();
 // The emblem: tilt ring, star, truck (our own art, theme_sheet.html shapes). Box size s at (x, y).
 void Emblem(float x, float y, float s, float spinDeg);
 void Truck(float x, float y, float w, float h);  // the truck symbol fitted in a box
+// The NICE CRASH wordmark, "C · Speed stack" (design section 2): its 440x120 box drawn w wide at (x, y).
+void Wordmark(float x, float y, float w);
 
 }  // namespace ui

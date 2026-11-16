@@ -235,10 +235,13 @@ void HomeScreen() {
 
     // Hero: emblem, wordmark, tagline.
     float spin = fmodf((float)Now() * 9.f, 360.f);
-    Emblem(1280 - 56 - 440 + 10, 70, 420, spin);
-    TextGradient(L"NICE CRASH", F_DISPLAY, 52, 1280 - 56 - 220, 484, Color(255, 255, 255, 255), col::gold, 0.08f);
+    // Design v8: emblem 360 px from y 58, the Speed stack wordmark 350 px wide 22 px up into it, tagline below.
+    const float heroCx = 1280 - 56 - 220, emblemTop = 58, emblemSize = 360, wmW = 350;
+    Emblem(heroCx - emblemSize / 2, emblemTop, emblemSize, spin);
+    float wmY = emblemTop + emblemSize - 22;
+    Wordmark(heroCx - wmW / 2, wmY, wmW);
     {
-        float ty = 484 + 62 + 10, cx = 1280 - 56 - 220;
+        float ty = wmY + 120 * wmW / 440 + 12, cx = heroCx;
         std::wstring tag = L"YOUR DISC \u00B7 OUR ENGINE";
         float tw = TextWidth(tag, F_DISPLAY_CAPS, 12, 0.3f);
         Text(tag, F_DISPLAY_CAPS, 12, cx, ty, col::dim, CENTER, 0.3f);

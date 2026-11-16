@@ -869,6 +869,85 @@ void Truck(float x, float y, float w, float h) {
     g.g->Restore(st);
 }
 
+// Adds s to path with its baseline at y and `spacing` px between letters; returns the advance width.
+static float AddTextPath(GraphicsPath& path, const std::wstring& s, Font f, float size, float x, float baseline,
+                         float spacing) {
+    FontFamily* fam = s_fonts[f].fam;
+    int st = s_fonts[f].style;
+    float top = baseline - size * fam->GetCellAscent(st) / fam->GetEmHeight(st);
+    Gdiplus::Font* font = GetFont(f, size);
+    float x0 = x;
+    path.SetFillMode(FillModeWinding);  // overlapping glyph contours (synthesised bold) must not punch holes
+    for (wchar_t ch : s) {
+        path.AddString(&ch, 1, fam, st, size, PointF(x, top), Fmt());
+        RectF r;
+        g.g->MeasureString(&ch, 1, font, PointF(0, 0), Fmt(), &r);
+        x += r.Width + spacing;
+    }
+    return x - x0 - spacing;
+}
+
+void Wordmark(float x, float y, float w) {
+    // Design "C · Speed stack" (user's pick, 2026-11-15), drawn in a 440x120 box scaled to width w.
+    GraphicsState st = g.g->Save();
+    g.g->TranslateTransform(x, y);
+    g.g->ScaleTransform(w / 440, w / 440);
+    // 1. Speed bars.
+    const float bars[3][5] = {{64, 58, 60, 6, .9f}, {54, 72, 52, 6, .6f}, {68, 86, 44, 6, .35f}};
+    for (auto& b : bars) {
+        PushSkew(b[0] + b[2] / 2, b[1] + b[3] / 2, -14);
+        FillRect(b[0], b[1], b[2], b[3], Alpha(col::tilt, b[4]));
+        Pop();
+    }
+    // 2. NICE.
+    {
+        GraphicsPath p;
+        AddTextPath(p, L"NICE", F_DISPLAY, 26, 80, 36, 13);
+        SolidBrush b(col::gold);
+        g.g->FillPath(&b, &p);
+    }
+    // 3. CRASH: shadow, blue extrusion, outline, gradient face, shine.
+    {
+        GraphicsPath measure;
+        float cw = AddTextPath(measure, L"CRASH", F_DISPLAY, 84, 0, 96, 5);
+        GraphicsPath p;
+        AddTextPath(p, L"CRASH", F_DISPLAY, 84, 232 - cw / 2, 96, 5);
+        auto fillAt = [&](float dx, float dy, const Color& c) {
+            GraphicsState s2 = g.g->Save();
+            g.g->TranslateTransform(dx, dy);
+            SolidBrush b(c);
+            g.g->FillPath(&b, &p);
+            g.g->Restore(s2);
+        };
+        fillAt(6, 7, Alpha(col::hill, 0.55f));
+        fillAt(4, 4, Color(255, 0x2A, 0x10, 0x60));
+        fillAt(3, 3, Color(255, 0x35, 0x4C, 0x95));
+        fillAt(2, 2, Color(255, 0x41, 0x88, 0xCA));
+        fillAt(1, 1, col::tilt);
+        Pen outline(col::hill, 5);
+        outline.SetLineJoin(LineJoinRound);
+        g.g->DrawPath(&outline, &p);
+        LinearGradientBrush face(PointF(0, 36), PointF(0, 100), Color(255, 255, 255, 255), col::gold);
+        Color cols[3] = {Color(255, 255, 255, 255), Color(255, 0xFF, 0xE9, 0xA8), col::gold};
+        REAL pos[3] = {0, 0.55f, 1};
+        face.SetInterpolationColors(cols, pos, 3);
+        face.SetWrapMode(WrapModeTileFlipXY);
+        g.g->FillPath(&face, &p);
+        PushClip(0, 0, 440, 64);
+        SolidBrush shine(Color(77, 255, 255, 255));
+        g.g->FillPath(&shine, &p);
+        Pop();
+    }
+    // 4. Underbar and star.
+    {
+        PointF v[4] = {PointF(112, 108), PointF(352, 108), PointF(348, 116), PointF(108, 116)};
+        SolidBrush b(col::gold);
+        g.g->FillPolygon(&b, v, 4);
+        Star(352 + 11, 101 + 11, 11, col::gold);
+    }
+    g.g->Restore(st);
+}
+
 void Emblem(float x, float y, float s, float spin) {
     GraphicsState st = g.g->Save();
     g.g->TranslateTransform(x, y);

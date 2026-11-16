@@ -386,3 +386,7 @@
   (both on, offered only for shortcuts that don't exist yet, made on PLAY or Home; NICECRASH_SHORTCUT_DIR for tests).
   `graphics.enhanced_assets` is a restart setting, as in the design. The game build's datagen step needs nothing
   from the launcher: trial.py runs prep.py, which reads NICECRASH_DOL (the launcher passes it).
+- Wordmark: the user picked "C · Speed stack" (design section 2). ui.cpp Wordmark() draws it on Home as the
+  design session specified: tilt-blue speed bars, gold NICE, then CRASH with a shadow, a 4-step blue extrusion, a dark
+  outline, a white-to-gold face and a top shine, plus the gold underbar and star. The emblem is now 360 px from y 58,
+  with the wordmark 350 px wide below it. Text paths use winding fill so overlapping glyph contours don't leave holes.
