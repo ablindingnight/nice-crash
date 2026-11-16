@@ -66,8 +66,19 @@ struct Checklist {
     std::vector<Step> steps;
     std::vector<std::string> log;
     bool running = false, finished = false, failed = false, cancelled = false;
+    int kind = 0;              // 0 first run / rebuild, 1 "Enhance my game"
 };
 void StartChecklist(const std::string& dumpPath, bool rebuild);
+
+// "Enhance my game" (handoff ENHANCE_MY_GAME): the intro video's frames are read from the player's own movie by
+// the game (NICECRASH_VIDEODUMP), scaled (an AI upscaler when one is installed, else Windows' high-quality filter)
+// and written to EnhancedDir()\uisingle.mp4 by enhance.exe; the game plays it when graphics.enhanced_assets is on.
+// Runs as a checklist (kind 1) on the same screen as the first run.
+void StartEnhance();
+std::string EnhancedDir();          // %LOCALAPPDATA%\NiceCrash\cache\enhanced
+bool HaveEnhancedVideo();           // the enhanced intro exists
+long long EnhancedBytes();          // its size on disk, -1 if none
+bool RemoveEnhanced();              // deletes the enhanced files and turns the setting off
 void CancelChecklist();
 Checklist Snapshot();
 

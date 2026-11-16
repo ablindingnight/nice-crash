@@ -76,6 +76,17 @@ static size_t Run(const u8* p, size_t len, int depth) {
         hist[nh++ & 7] = p;
         u8 op = *p++;
         if (op == 0x00 || op == 0x48 || op == 0x44) continue;  // NOP, invalidate vertex cache, metrics
+        if (op == 0xC8) {  // port command (sdk/movie.cpp): draw host texture u32 over EFB rect x0 y0 x1 y1 (floats)
+            if (end - p < 20) return (size_t)(hist[(nh - 1) & 7] - start);
+            float r[4];
+            for (int i = 0; i < 4; i++) {
+                u32 b = be32(p + i * 4);
+                memcpy(&r[i], &b, 4);
+            }
+            gxr_host_quad(be32(p + 16), r[0], r[1], r[2], r[3]);
+            p += 20;
+            continue;
+        }
         if (op == 0x08) {  // CP register load
             if (end - p < 5) return (size_t)(hist[(nh - 1) & 7] - start);
             g_gx.cp[p[0]] = be32(p + 1);

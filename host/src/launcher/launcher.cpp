@@ -804,7 +804,8 @@ void FirstRunScreen() {
         int ti = g.focusCount;
         if (Button2(L"Try again", bx - bw, fy)) {
             bool rebuild = c.title.find(L"Rebuild") != std::wstring::npos;
-            if (c.steps[0].state == tasks::FAILED || c.steps[1].state == tasks::FAILED) Go(DISC);
+            if (c.kind == 1) tasks::StartEnhance();
+            else if (c.steps[0].state == tasks::FAILED || c.steps[1].state == tasks::FAILED) Go(DISC);
             else { A.checkRefreshed = false; tasks::StartChecklist(A.st.dump.path, rebuild); }
         }
         DefaultFocus(ti);
@@ -1123,21 +1124,31 @@ void PageGraphics() {
            {{"game", L"Game"}, {"bilinear", L"Bilinear"}, {"trilinear", L"Trilinear"}, {"aniso16", L"Aniso 16\u00D7"}},
            L"Game keeps the original. The others sharpen angled textures.");
     ToggleRow(L"Show FPS", "graphics.show_fps");
-    // Reserved for "Enhance my game" (ENHANCE_MY_GAME_2026-11-15.md): local AI upscaling of the player's own intro
-    // video and textures into the cache, never touching the originals. Model/scale picker, a checklist with Cancel,
-    // disk space and "Remove enhanced files" come with the feature (keys graphics.enhanced_assets,
-    // upscale_model, upscale_scale are already in settings.cpp).
+    // "Enhance my game" (ENHANCE_MY_GAME_2026-11-15.md): the player's own intro video is upscaled on this PC into
+    // the cache (tasks::StartEnhance; menus, HUD and truck textures come later), never touching the originals.
     SubHead(L"Enhance my game");
     {
+        bool have = tasks::HaveEnhancedVideo();
         float cy;
-        Row(L"AI upscaling", L"Sharpens your own intro video, menus, HUD and truck paint on this PC. Your files are "
-                            L"never changed. Smoother edges come from the settings above.",
-            nullptr, 34, &cy);
-        Badge(L"Later", kCtlX, cy + 7, col::tilt, false);
+        std::wstring help = have ? L"Enhanced on this PC (" + tasks::FormatBytes(tasks::EnhancedBytes()) +
+                                       L"). Menus, HUD and truck paint come later."
+                                 : L"Sharpens your own intro on this PC in about two minutes. Your files are never changed.";
+        Row(L"Intro video", help, nullptr, 48, &cy);
         g.focusCount--;  // the button shares the row's focus slot
-        Button2(L"Enhance…", kMainX + kMainW - (TextWidth(L"ENHANCE…", F_DISPLAY, 17, 0.12f) + 52), cy, nullptr,
-                false);
+        float bw = TextWidth(have ? L"ENHANCE AGAIN" : L"ENHANCE…", F_DISPLAY, 17, 0.12f) + 52;
+        if (Button2(have ? L"Enhance again" : L"Enhance…", kMainX + kMainW - bw, cy)) {
+            tasks::StartEnhance();
+            Go(FIRSTRUN);
+        }
+        if (have) {
+            float rw = TextWidth(L"REMOVE", F_DISPLAY, 17, 0.12f) + 52;
+            if (Button2(L"Remove", kMainX + kMainW - bw - 16 - rw, cy)) tasks::RemoveEnhanced();
+        }
     }
+    SegRow(L"Upscale", "graphics.upscale_scale", {{"2", L"2×"}, {"4", L"4×"}},
+           L"Applies the next time you enhance. 4× takes longer and uses more disk space.");
+    ToggleRow(L"Use enhanced files", "graphics.enhanced_assets",
+              L"Play the enhanced intro instead of the original. Takes effect the next time the game starts.");
     EndRows();
     AsideTitle(L"Graphics", kTop);
     TextWrap(L"These change how the picture is drawn, never how the game plays. Rows marked Next start apply when "
@@ -1990,6 +2001,32 @@ int LauncherLaunchTest(int seconds) {
         printf("recorded: %s, %d s, %ls, log %s\n", runs[0].when.c_str(), runs[0].seconds,
                tasks::DescribeExit(runs[0].code).c_str(), runs[0].logged ? "kept" : "off");
     return 0;
+}
+
+// --enhance: runs "Enhance my game" without the window and prints each step as it changes (testing).
+int LauncherEnhanceTest() {
+    tasks::StartEnhance();
+    std::vector<int> lastState, lastTenth;
+    for (;;) {
+        tasks::Checklist c = tasks::Snapshot();
+        lastState.resize(c.steps.size(), -1);
+        lastTenth.resize(c.steps.size(), -1);
+        for (size_t i = 0; i < c.steps.size(); i++) {
+            static const char* st[] = {"pending", "active", "done", "FAILED", "skipped"};
+            const tasks::Step& s = c.steps[i];
+            int tenth = s.progress >= 0 ? (int)(s.progress * 10) : -1;
+            if (s.state == lastState[i] && tenth == lastTenth[i]) continue;  // print state changes and each 10%
+            lastState[i] = s.state;
+            lastTenth[i] = tenth;
+            printf("%ls: %s %ls\n", s.title.c_str(), st[s.state], s.detail.c_str());
+            fflush(stdout);
+        }
+        if (!c.running) {
+            printf("finished %d failed %d cancelled %d\n", c.finished, c.failed, c.cancelled);
+            return c.failed ? 1 : 0;
+        }
+        Sleep(250);
+    }
 }
 
 int LauncherMain() {

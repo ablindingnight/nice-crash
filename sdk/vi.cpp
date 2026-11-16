@@ -123,6 +123,12 @@ static RECT MonitorRect() {
 
 static void ApplyWindowMode(bool windowed) {
     g_windowed = windowed;
+    // NICECRASH_HIDEWINDOW=1: never shown (the launcher's movie frame dump renders off screen).
+    static const bool hidden = getenv("NICECRASH_HIDEWINDOW") != nullptr;
+    if (hidden) {
+        SetWindowPos(g_hwnd, nullptr, 0, 0, host_cfg().windowW, host_cfg().windowH, SWP_NOZORDER | SWP_NOACTIVATE | SWP_HIDEWINDOW);
+        return;
+    }
     RECT mon = MonitorRect();
     if (windowed) {
         const HostCfg& c = host_cfg();

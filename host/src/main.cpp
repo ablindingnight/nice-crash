@@ -33,6 +33,11 @@ int main(int argc, char** argv) {
         int w = argc >= 6 ? atoi(argv[4]) : 1280, h = argc >= 6 ? atoi(argv[5]) : 720;
         return LauncherShot(argv[2], argv[3], w, h);
     }
+    if (argc >= 2 && std::string(argv[1]) == "--enhance") {
+        AttachParentConsole();
+        int LauncherEnhanceTest();
+        return LauncherEnhanceTest();
+    }
     if (argc >= 2 && std::string(argv[1]) == "--launch-game") {
         AttachParentConsole();
         return LauncherLaunchTest(argc >= 3 ? atoi(argv[2]) : 20);

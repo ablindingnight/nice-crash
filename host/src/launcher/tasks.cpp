@@ -648,6 +648,145 @@ void CancelChecklist() {
 
 Checklist Snapshot() { Lk lk; return s_check; }
 
+// ---------------------------------------------------------------- enhance my game
+
+std::string EnhancedDir() { return portcfg::Dir() + "\\cache\\enhanced"; }
+static std::string FramesDir() { return portcfg::Dir() + "\\cache\\frames"; }
+
+static long long FileBytes(const std::string& p) {
+    WIN32_FILE_ATTRIBUTE_DATA fa;
+    if (!GetFileAttributesExA(p.c_str(), GetFileExInfoStandard, &fa)) return -1;
+    return ((long long)fa.nFileSizeHigh << 32) | fa.nFileSizeLow;
+}
+bool HaveEnhancedVideo() { return FileBytes(EnhancedDir() + "\\uisingle.mp4") > 0; }
+long long EnhancedBytes() { return FileBytes(EnhancedDir() + "\\uisingle.mp4"); }
+
+static void DeleteFrames() {
+    WIN32_FIND_DATAA fd;
+    std::string dir = FramesDir();
+    for (const char* sub : {"\\up\\*", "\\*"}) {
+        std::string base = dir + (sub[1] == 'u' ? "\\up" : "");
+        HANDLE h = FindFirstFileA((dir + sub).c_str(), &fd);
+        if (h == INVALID_HANDLE_VALUE) continue;
+        do
+            if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) DeleteFileA((base + "\\" + fd.cFileName).c_str());
+        while (FindNextFileA(h, &fd));
+        FindClose(h);
+    }
+    RemoveDirectoryA((dir + "\\up").c_str());
+    RemoveDirectoryA(dir.c_str());
+}
+
+bool RemoveEnhanced() {
+    DeleteFrames();
+    bool ok = !HaveEnhancedVideo() || DeleteFileA((EnhancedDir() + "\\uisingle.mp4").c_str());
+    Settings_Set("graphics.enhanced_assets", "0");
+    return ok;
+}
+
+// The AI upscaler, when the player has one: tools\realesrgan\realesrgan-ncnn-vulkan.exe next to the launcher
+// (not bundled; see ENHANCE_MY_GAME on licences). Without it the frames are scaled with Windows' filter.
+static std::string Upscaler() {
+    std::string p = ExeDir() + "tools\\realesrgan\\realesrgan-ncnn-vulkan.exe";
+    return FileBytes(p) > 0 ? p : "";
+}
+
+static DWORD WINAPI EnhanceThread(void*) {
+    enum { SPACE, FRAMES, SCALE, SWITCH, CLEAN };
+    std::string frames = FramesDir(), out = EnhancedDir();
+    CreateDirectoryA((portcfg::Dir() + "\\cache").c_str(), nullptr);
+    CreateDirectoryA(out.c_str(), nullptr);
+    int scale = Settings_GetInt("graphics.upscale_scale");
+    if (scale != 4) scale = 2;
+    std::string up = Upscaler();
+    {
+        SetStep(SPACE, ACTIVE);
+        long long need = (long long)2200 << 20, have = FreeBytes(portcfg::Dir());  // ~1.7 GB of frames + the video
+        if (have >= 0 && have < need) {
+            Fail(SPACE, L"About " + FormatBytes(need) + L" free space is needed; " + FormatBytes(have) + L" is free.");
+            goto out;
+        }
+        SetStep(SPACE, DONE, have >= 0 ? FormatBytes(have) + L" free" : L"");
+    }
+    {
+        SetStep(FRAMES, ACTIVE, L"The game plays your intro video once, without sound (about a minute).", 0);
+        DeleteFrames();
+        std::string exe = GameExe();
+        if (!IsFile(exe)) { Fail(FRAMES, L"NiceCrashGame.exe isn't built yet."); goto out; }
+        int code = RunCapture(Quote(W(exe)), RepoRoot().empty() ? ExeDir() : RepoRoot(),
+                              {{"NICECRASH_VIDEODUMP", frames}, {"NICECRASH_VIDEODUMP_QUIT", "1"},
+                               {"NICECRASH_MUTE", "1"}, {"NICECRASH_HIDEWINDOW", "1"},
+                               {"NICECRASH_DISPLAY_WINDOW_MODE", "windowed"}, {"NICECRASH_LAUNCHED", ""}},
+                              [&](const std::string& l) {
+                                  AddLog(l);
+                                  unsigned a = 0, b = 0;
+                                  if (sscanf(l.c_str(), "[movie] dumped %u/%u", &a, &b) == 2 && b)
+                                      SetStep(FRAMES, ACTIVE, std::to_wstring(a) + L" of " + std::to_wstring(b) + L" frames",
+                                              (float)a / b);
+                              });
+        if (s_cancel) { Cancelled(FRAMES); goto out; }
+        if (code != 0) { Fail(FRAMES, L"The game stopped before the video finished (exit code " + std::to_wstring(code) + L")."); goto out; }
+        SetStep(FRAMES, DONE, L"", 1);
+    }
+    {
+        SetStep(SCALE, ACTIVE, up.empty() ? L"Scaling with Windows' high-quality filter (no AI upscaler installed)."
+                                          : L"AI upscaling with Real-ESRGAN.", 0);
+        std::wstring cmd = Quote(W(ExeDir() + "enhance.exe")) + L" --frames " + Quote(W(frames)) +
+                           L" --name uisingle --scale " + std::to_wstring(scale) + L" --out " +
+                           Quote(W(out + "\\uisingle.mp4"));
+        if (!up.empty()) cmd += L" --upscaler " + Quote(W(up));
+        int code = RunCapture(cmd, ExeDir(), {}, [&](const std::string& l) {
+            AddLog(l);
+            unsigned a = 0, b = 0;
+            char what[32] = {};
+            if (sscanf(l.c_str(), "progress %u %u %31s", &a, &b, what) == 3 && b)
+                SetStep(SCALE, ACTIVE, std::to_wstring(a) + L" of " + std::to_wstring(b) +
+                                           (strcmp(what, "upscale") ? L" frames encoded" : L" frames upscaled"),
+                        (float)a / b);
+        });
+        if (s_cancel) { Cancelled(SCALE); goto out; }
+        if (code != 0 || !HaveEnhancedVideo()) { Fail(SCALE, L"enhance.exe failed (exit code " + std::to_wstring(code) + L")."); goto out; }
+        SetStep(SCALE, DONE, FormatBytes(EnhancedBytes()), 1);
+    }
+    SetStep(SWITCH, ACTIVE);
+    Settings_Set("graphics.enhanced_assets", "1");
+    Settings_Flush();
+    SetStep(SWITCH, DONE, L"Settings > Graphics > Use enhanced files is on.");
+    SetStep(CLEAN, ACTIVE);
+    DeleteFrames();
+    SetStep(CLEAN, DONE);
+out:
+    if (s_cancel) DeleteFrames();
+    Lk lk;
+    s_check.running = false;
+    s_check.finished = !s_check.failed && !s_cancel;
+    s_check.cancelled = s_cancel != 0;
+    return 0;
+}
+
+void StartEnhance() {
+    {
+        Lk lk;
+        if (s_check.running) return;
+        s_check = Checklist();
+        s_check.kind = 1;
+        s_check.title = L"Enhancing your intro video";
+        s_check.sub = L"Your own intro video is upscaled on this PC and kept next to your settings. The disc dump "
+                      L"is only read.";
+        const wchar_t* titles[] = {L"Check free space", L"Read the intro video's frames", L"Upscale and encode",
+                                   L"Turn on enhanced files", L"Remove the temporary frames"};
+        for (auto t : titles) {
+            Step s;
+            s.title = t;
+            s_check.steps.push_back(s);
+        }
+        s_check.running = true;
+        s_cancel = 0;
+    }
+    HANDLE t = CreateThread(nullptr, 0, EnhanceThread, nullptr, 0, nullptr);
+    if (t) CloseHandle(t);
+}
+
 // ---------------------------------------------------------------- the game
 
 static HANDLE s_game = nullptr;

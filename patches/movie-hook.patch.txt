@@ -1,0 +1,14 @@
+@@@ tevbink.cpp | HOOK: movies on the host (sdk/movie.cpp): frame dumps for "Enhance my game" and an enhanced replacement video drawn instead of the Bink planes (the movie still decodes, so sound and timing are unchanged)
+<<<
+void fn_802E13D8(BinkMovie* r, f32 x, f32 y, f32 w, f32 h) {
+===
+extern "C" int port_movie_frame(const char* name, u32* bink, void* video, f32 x, f32 y, f32 w, f32 h);  // port
+void fn_802E13D8(BinkMovie* r, f32 x, f32 y, f32 w, f32 h) {
+>>>
+@@@ tevbink.cpp | (same)
+<<<
+    fn_802E1DA4(m->tex, m->bink[0], m->bink[1], x, y, sx, sy, 1.0f);
+===
+    if (!port_movie_frame(m->name, m->bink, m->tex, x, y, sx * m->bink[0], sy * m->bink[1]))  // port
+        fn_802E1DA4(m->tex, m->bink[0], m->bink[1], x, y, sx, sy, 1.0f);
+>>>

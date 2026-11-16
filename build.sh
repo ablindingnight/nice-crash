@@ -15,6 +15,9 @@ cxx() {
 }
 cxx -o "$B/import.exe" "$HERE/tools/import/import.cpp"
 echo "built $B/import.exe"
+# "Enhance my game" movie encoder (tools/enhance): Windows components only (WIC, Media Foundation).
+"$Z" c++ -target x86_64-windows-gnu -std=c++17 -O2 -o "$B/enhance.exe" "$HERE/tools/enhance/enhance.cpp"   -lmfplat -lmfreadwrite -lole32 -lwindowscodecs
+echo "built $B/enhance.exe"
 # The program icon (assets/icon): a resource object both executables embed.
 (cd "$HERE/assets/icon" && MSYS_NO_PATHCONV=1 "$Z" rc /fo ../../build/nicecrash.res nicecrash.rc)
 H="$HERE/host/src"

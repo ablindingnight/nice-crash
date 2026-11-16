@@ -962,6 +962,41 @@ void ResolveCopies(int before) {
     g_pendingCopies.resize(keep);
 }
 
+// A host texture drawn over an EFB rectangle (640x480 EFB pixels), opaque: the enhanced movie (sdk/movie.cpp).
+void gxr_host_quad(unsigned tex, float x0, float y0, float x1, float y1) {
+    gxr_end_batch();
+    int ww, wh;
+    sdk_vi_window_size(&ww, &wh);
+    xfb_bind_efb(ww, wh);
+    glViewport(0, 0, ww, wh);
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glOrtho(0, 640, 480, 0, -1, 1);
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+    glDisable(GL_BLEND);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_ALPHA_TEST);
+    glDisable(GL_COLOR_LOGIC_OP);
+    glDisable(GL_CULL_FACE);
+    glColorMask(1, 1, 1, 1);
+    gxt_active_texture(0);
+    glEnable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+    glColor4f(1, 1, 1, 1);
+    glBegin(GL_QUADS);
+    glTexCoord2f(0, 0); glVertex2f(x0, y0);
+    glTexCoord2f(1, 0); glVertex2f(x1, y0);
+    glTexCoord2f(1, 1); glVertex2f(x1, y1);
+    glTexCoord2f(0, 1); glVertex2f(x0, y1);
+    glEnd();
+    glDisable(GL_TEXTURE_2D);
+    g_drawsSinceCopy++;
+    g_stateDirty = true;
+}
+
 void gxr_resolve_copies() {
     if (!g_pendingCopies.empty()) ResolveCopies(-1);
 }
