@@ -376,6 +376,8 @@
 - Reserved for "Enhance my game" (TC/user, handoff/port_refs/ENHANCE_MY_GAME_2026-11-15.md, a later milestone):
   keys `graphics.enhanced_assets` (0), `graphics.upscale_model` (realesrgan), `graphics.upscale_scale` (2), and an
   "Enhance my game" section at the bottom of Settings > Graphics with a disabled "Enhance…" button tagged Later.
+  Its scope (spec "Menus and trucks"): intro video plus menu/HUD/font and truck paint/decal/tire textures by hash;
+  edge jaggies stay with the renderer settings, and the screen says so.
   Still to come: model/scale picker, checklist with Cancel, disk space, "Remove enhanced files", the game's
   replacement-video and texture-by-hash hooks. Check the Real-ESRGAN / Real-CUGAN / RIFE ncnn-vulkan licences
   before bundling anything.

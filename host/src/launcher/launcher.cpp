@@ -1038,8 +1038,9 @@ void PageGraphics() {
     SubHead(L"Enhance my game");
     {
         float cy;
-        Row(L"AI upscaling", L"Sharpens your own intro video and textures on this PC with a free upscaler. The results "
-                            L"go to a separate cache; your extracted files are never changed. Coming in a later version.",
+        Row(L"AI upscaling", L"Sharpens your own intro video, menus, HUD, fonts and truck paint on this PC with a free "
+                            L"upscaler. The results go to a separate cache; your extracted files are never changed. "
+                            L"Smoother truck edges come from the settings above. Coming in a later version.",
             nullptr, 44, &cy);
         Badge(L"Later", kCtlX, cy + 2, col::tilt, false);
         g.focusCount--;  // the button shares the row's focus slot
