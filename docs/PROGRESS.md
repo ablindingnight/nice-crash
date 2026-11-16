@@ -356,8 +356,14 @@
 ## Tutorial race bring-up (2026-11-15, decomp pin dc71f8797)
 - Reaches the first Tutorial instruction screen ("Drive: 2 Gas, 1 Brake/Reverse",
   docs/screenshots/tutorial_first_screen.png); the track behind it is still black.
-- After OK, car physics produce NaN positions ("CarPostUpdate: illegal mass position nan"), then a draw crashes:
-  next to chase (likely another vtable view / arity / layout issue in the physics path).
+- 85eb6e7 (pin 7712ddb18): the race runs: countdown, HUD, timer, "Try Again", restart, no crash in 400 s
+  (docs/screenshots/tutorial_countdown.png, tutorial_race_hud.png, tutorial_try_again.png). The NaN physics was
+  `f64 sqrt(f32)` (x86 passes float and double differently). The 3D scene renders wrong (stretched wood
+  textures): next.
+- New bug classes, each handled by a prep pass so the whole source is covered: libm prototypes with float
+  parameters (libm-double-params), bitfield order (msb-bitfields: MWCC packs from the MSB), structs passed by value
+  to pointer parameters (byvalref.py), inline members other units call (runtime/weak_inlines.cpp).
+- NICECRASH_FPTRAP=<retrace>: logs each instruction that produces a NaN, with its stack (log and continue).
 - Fix classes met so far (all in patches/ or tools/gametrial/aliases.txt; reported to the decomp):
   vtable views missing the destructor slot (two host slots), same-function-different-name aliases, struct-return
   ABI (callee pops a hidden pointer on i386), int/float parameter order incl. variadic (regorder), decomp structs
