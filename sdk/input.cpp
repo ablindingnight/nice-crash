@@ -260,6 +260,16 @@ s32 KPADRead(s32 chan, void* buf, u32 n) {
     bool havePad = (sdk_vi_has_focus() || chan != 0) && PadState(chan, &pad);
     if (havePad) {
         f32 rx = Axis(pad.rx, 8689), ry = Axis(pad.ry, 8689);
+        if (fn_802ECC10()) {  // in the HOME menu the left stick and the D-pad move the pointer too
+            if (rx == 0 && ry == 0) {
+                rx = Axis(pad.lx, 7849);
+                ry = Axis(pad.ly, 7849);
+            }
+            if (pad.buttons & 0x4) rx = -1;  // XINPUT_GAMEPAD_DPAD_LEFT
+            if (pad.buttons & 0x8) rx = 1;   // RIGHT
+            if (pad.buttons & 0x1) ry = 1;   // UP
+            if (pad.buttons & 0x2) ry = -1;  // DOWN
+        }
         if (rx != 0 || ry != 0) {
             const f32 speed = 0.035f;  // full deflection crosses the screen in about a second
             padX[chan] = fminf(1.0f, fmaxf(-1.0f, padX[chan] + rx * speed));
