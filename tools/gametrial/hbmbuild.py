@@ -172,6 +172,8 @@ def compile_one(zig, tree, unit, syntax):
     cmd = [zig, 'c++', '-target', 'x86-windows-gnu', *trial.HOST_TRIPLE, '-std=gnu++14', *out, '-w',
            '-ferror-limit=100', '-O1', '-g', '-fno-sanitize=all', '-fno-strict-aliasing', '-fwrapv',
            '-fno-omit-frame-pointer', '-fno-strict-return', '-fno-exceptions', *COMMON,
+           # Data tables the decomp generates from the player's DOL (prep.py runs datagen into build/dumpinc).
+           '-I', os.path.join(PORT, 'build', 'dumpinc'),
            '-include', os.path.join(PORT, 'shim', 'include', 'port_prefix.h'), *flags(tree), src]
     p = subprocess.run(cmd, cwd=PORT, capture_output=True, text=True, errors='replace', creationflags=0x08000000,
                        env=dict(os.environ, ZIG_LOCAL_CACHE_DIR=os.path.join(PORT, 'build', 'zigcache', 'hbm', b)))
