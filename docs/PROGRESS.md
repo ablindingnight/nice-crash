@@ -539,3 +539,16 @@
   repaints only what moves (truck and dust at 30 fps, the star ring at 10 fps). The still backdrop and the emblem's
   still layers are cached bitmaps, text widths are cached, and drawing outside the repainted area is skipped.
   NICECRASH_FRAMETIME=<file> logs the average partial-frame time.
+
+## Launcher linked to the game; "Enhance my game" for the intro video (2026-11-16)
+- Launcher merged into master (3307a53). PLAY works without NICECRASH_UNIMPL=continue (sdk/oslite.cpp: 25 host
+  definitions, f89a845); the game's stderr reaches logs/nicecrash_log.txt.
+- The game reads settings.ini (fef3de0): window mode (windowed / borderless; "fullscreen" = borderless; Alt+Enter),
+  size, monitor, vsync, aspect, show FPS (title bar), master volume, mute/pause when unfocused (launched runs),
+  rumble, deadzone, invert steering. Not wired yet: resolution, frame_rate, internal_scale, msaa, texture_filter,
+  bloom, music/sfx volumes, remote speaker, audio device, steer source/curve/tilt sensitivity, skip_intro,
+  language, screenshot key, menu_on_tab.
+- Enhance my game, intro video (fcba4c4): see the commit. Without an AI upscaler the frames are scaled with
+  Windows' high-quality cubic filter (smoother, not sharper); Real-ESRGAN ncnn-vulkan plugs in at
+  build/tools/realesrgan/realesrgan-ncnn-vulkan.exe (enhance.exe --upscaler) once the user approves the download
+  and its licence is checked. Credits (credits.bik) and textures by hash are next.
