@@ -478,3 +478,7 @@
   the game read a copy back with the CPU before the one-frame-late write, and the truck lost its paint.
 - Re-pinned to 3d609449a (64eabca): shape vtables and Spot from source, world/xlobj patches dropped; data labels
   read from the DOL 119 -> 44.
+- To do (port side, coordinator 2026-11-16): MSL's __float_max/__float_epsilon (libs/msc/src/MSL/float.c) and
+  _current_locale (locale.c, 0x48 bytes at 0x802FE850) still come from the DOL: compile those two MSL files into
+  the runtime or define host equivalents (MSL __Locale layout). The next pin should also drop carbody's 20,
+  chalpath's 7 and physcam's 7 DOL labels (7d065634a, afb4d5d32, ee8171f80).
