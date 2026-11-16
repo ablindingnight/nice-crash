@@ -805,7 +805,8 @@ int Row(const std::wstring& label, const std::wstring& help, const char* key, fl
     float helpH = help.empty() ? 0 : TextWrap(help, F_BODY, 13, kCtlX, 0, kMainW - 192, col::dim, 1.4f, false) + 6;
     const char* ov = key ? Settings_OverriddenBy(key) : nullptr;
     float labelExtra = (key && Settings_NeedsRestart(key) ? 24 : 0) + (ov ? 18 : 0);
-    float h = 14 + std::max(ctlH, 22 + labelExtra) + helpH + 14;
+    const float kPad = 11;  // above and below each row (tight enough that the Graphics page fits at rest)
+    float h = kPad + std::max(ctlH, 22 + labelExtra) + helpH + kPad;
     float y = g_rowY;
     int idx = TakeFocus(kMainX - 20, y, kMainW + 20, h);
     g_rowRects.push_back({idx, {y + A.scroll, h}});
@@ -815,8 +816,8 @@ int Row(const std::wstring& label, const std::wstring& help, const char* key, fl
         FillRect(kMainX - 18, y + 14, 4, h - 28, col::boost);
         Pop();
     }
-    Text(label, F_BODY_SEMI, 15, kMainX, y + 14 + std::max(0.f, (ctlH - 22) / 2) - (labelExtra > 0 ? 4 : 0), col::fg);
-    float ty = y + 14 + std::max(0.f, (ctlH - 22) / 2) + 20;
+    Text(label, F_BODY_SEMI, 15, kMainX, y + kPad + std::max(0.f, (ctlH - 22) / 2) - (labelExtra > 0 ? 4 : 0), col::fg);
+    float ty = y + kPad + std::max(0.f, (ctlH - 22) / 2) + 20;
     if (key && Settings_NeedsRestart(key)) {
         Badge(L"Next start", kMainX, ty, col::warn, false);
         ty += 24;
@@ -825,9 +826,9 @@ int Row(const std::wstring& label, const std::wstring& help, const char* key, fl
         float s = FitSize(L"set by " + ui::W(ov), F_MONO, 11, 170);
         Text(L"set by " + ui::W(ov), F_MONO, s, kMainX, ty, col::tilt);
     }
-    if (!help.empty()) TextWrap(help, F_BODY, 13, kCtlX, y + 14 + ctlH + 6, kMainW - 192, col::dim, 1.4f);
+    if (!help.empty()) TextWrap(help, F_BODY, 13, kCtlX, y + kPad + ctlH + 6, kMainW - 192, col::dim, 1.4f);
     Line(kMainX, y + h, kMainX + kMainW, y + h, col::rule, 1);
-    *ctlY = y + 14;
+    *ctlY = y + kPad;
     g_rowY += h;
     return idx;
 }
@@ -1065,12 +1066,12 @@ void PageDisplay() {
 void PageGraphics() {
     SegRow(L"Internal resolution", "graphics.internal_scale",
            {{"1", L"1\u00D7"}, {"2", L"2\u00D7"}, {"3", L"3\u00D7"}, {"4", L"4\u00D7"}, {"window", L"Window"}},
-           L"How sharp the 3D picture is drawn. 1\u00D7 is the Wii's own 640\u00D7480; Window matches your window.");
+           L"How sharp the 3D is drawn. 1× is the Wii's own 640×480.");
     SegRow(L"Anti-aliasing", "graphics.msaa", {{"0", L"Off"}, {"2", L"2\u00D7"}, {"4", L"4\u00D7"}, {"8", L"8\u00D7"}},
            L"Smooths jagged edges. Higher costs more GPU time.");
     SegRow(L"Texture filtering", "graphics.texture_filter",
            {{"game", L"Game"}, {"bilinear", L"Bilinear"}, {"trilinear", L"Trilinear"}, {"aniso16", L"Aniso 16\u00D7"}},
-           L"Game keeps each texture's own setting. The others sharpen textures seen at an angle.");
+           L"Game keeps the original. The others sharpen angled textures.");
     ToggleRow(L"Show FPS", "graphics.show_fps");
     // Reserved for "Enhance my game" (ENHANCE_MY_GAME_2026-11-15.md): local AI upscaling of the player's own intro
     // video and textures into the cache, never touching the originals. Model/scale picker, a checklist with Cancel,
@@ -1079,11 +1080,10 @@ void PageGraphics() {
     SubHead(L"Enhance my game");
     {
         float cy;
-        Row(L"AI upscaling", L"Sharpens your own intro video, menus, HUD, fonts and truck paint on this PC with a free "
-                            L"upscaler. The results go to a separate cache; your extracted files are never changed. "
-                            L"Smoother truck edges come from the settings above. Coming in a later version.",
-            nullptr, 44, &cy);
-        Badge(L"Later", kCtlX, cy + 2, col::tilt, false);
+        Row(L"AI upscaling", L"Sharpens your own intro video, menus, HUD and truck paint on this PC. Your files are "
+                            L"never changed. Smoother edges come from the settings above.",
+            nullptr, 34, &cy);
+        Badge(L"Later", kCtlX, cy + 7, col::tilt, false);
         g.focusCount--;  // the button shares the row's focus slot
         Button2(L"Enhance…", kMainX + kMainW - (TextWidth(L"ENHANCE…", F_DISPLAY, 17, 0.12f) + 52), cy, nullptr,
                 false);
