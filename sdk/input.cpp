@@ -413,21 +413,23 @@ static u32 CurrentHold(f32* tilt) {
     *tilt = 0;
     if (sdk_vi_has_focus()) {
         bool shift = Key(VK_SHIFT);
-        // Dolphin-like keys: the number keys are the remote's 1 and 2; Enter brings up the HOME menu.
-        if (Key('2') || Key(VK_NUMPAD2)) hold |= BTN_2;
-        if (Key('1') || Key(VK_NUMPAD1)) hold |= BTN_1;
+        // The remote's 1 and 2: the number keys (Dolphin-like), and . and / for the right hand while WASD steers.
+        // Enter brings up the HOME menu; Space is the remote's A, the B key its B.
+        if (Key('2') || Key(VK_NUMPAD2) || Key(VK_OEM_2 /* / */)) hold |= BTN_2;
+        if (Key('1') || Key(VK_NUMPAD1) || Key(VK_OEM_PERIOD)) hold |= BTN_1;
         if (Key(VK_RETURN)) hold |= BTN_HOME;
-        if (Key('A')) hold |= BTN_A;
+        if (Key(VK_SPACE)) hold |= BTN_A;
         if (Key('B')) hold |= BTN_B;
         if (Key(VK_OEM_PLUS) || Key(VK_ADD)) hold |= BTN_PLUS;
         if (Key(VK_OEM_MINUS) || Key(VK_SUBTRACT)) hold |= BTN_MINUS;
         if (Key(VK_HOME)) hold |= BTN_HOME;
-        if (Key(VK_UP)) hold |= BTN_RIGHT;  // sideways remote: screen up = pad right
-        if (Key(VK_DOWN)) hold |= BTN_LEFT;
+        // Directions: the arrows or WASD (screen directions; the remote is held sideways, so screen up = pad right).
+        if (Key(VK_UP) || Key('W')) hold |= BTN_RIGHT;  // up = turbo in a race
+        if (Key(VK_DOWN) || Key('S')) hold |= BTN_LEFT;
         // Left/Right steer (the remote's tilt; KPADRead doubles *tilt, so 0.5 = full lock) and are also the D-pad
         // for menus (the races don't use those D-pad directions). The steering ramps in over ~0.15 s and back out,
         // so a tap is a small correction; Shift halves it.
-        bool l = Key(VK_LEFT), r = Key(VK_RIGHT);
+        bool l = Key(VK_LEFT) || Key('A'), r = Key(VK_RIGHT) || Key('D');
         if (l) hold |= BTN_UP;
         if (r) hold |= BTN_DOWN;
         static f32 steer;

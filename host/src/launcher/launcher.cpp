@@ -1187,10 +1187,10 @@ void PageControls() {
     ToggleRow(L"Rumble", "controls.rumble");
     EndRows();
     AsideTitle(L"Default buttons", kTop);
-    const wchar_t* rows[][3] = {{L"Wii", L"Keyboard", L"Pad"},       {L"2", L"2", L"A"},
-                                {L"1", L"1", L"B"},                  {L"D-pad", L"Arrows", L"D-pad"},
-                                {L"Tilt", L"Shift + \u2190\u2192", L"Stick X"}, {L"+", L"", L"Start"},
-                                {L"\u2212", L"", L"LB"},             {L"HOME", L"Enter", L"Back"},
+    const wchar_t* rows[][3] = {{L"Wii", L"Keyboard", L"Pad"},       {L"2", L"2 or /", L"A"},
+                                {L"1", L"1 or .", L"B"},             {L"D-pad", L"WASD, arrows", L"D-pad"},
+                                {L"Tilt", L"A D, \u2190 \u2192", L"Stick X"}, {L"+", L"+", L"Start"},
+                                {L"\u2212", L"\u2212", L"LB"},       {L"HOME", L"Enter", L"Back"},
                                 {L"Menu", L"Esc, Tab", L"Hold Start"}};
     float y = kTop + 30;
     for (int i = 0; i < 9; i++) {
