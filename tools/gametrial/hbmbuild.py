@@ -106,6 +106,35 @@ def prep():
     os.rename(os.path.join(OUT, 'tp', 'src'), os.path.join(OUT, 'tp', 'src0'))
     os.rename(os.path.join(OUT, 'tp', 'src0', 'homebuttonLib'), os.path.join(OUT, 'tp', 'src'))
     apply_patches()
+    # The write-gather pipe (0xCC008000) -> the port FIFO (shim/hbm_include/hbm_wgpipe.h), in both header sets.
+    vert = os.path.join(OUT, 'tp', 'include', 'revolution', 'gx', 'GXVert.h')
+    t = open(vert, encoding='utf-8').read()
+    old = '#define GXWGFifo (*(volatile PPCWGPipe *)GXFIFO_ADDR)'
+    if t.count(old) != 1:
+        raise SystemExit('hbmbuild: GXVert.h pipe define not found')
+    open(vert, 'w', encoding='utf-8', newline='').write(t.replace(old, '#include <hbm_wgpipe.h>\n#define GXWGFifo port_hbm_wgpipe'))
+    hw = os.path.join(OUT, 'msc', 'include', 'revolution', 'gx', 'GXHardware.h')
+    t = open(hw, encoding='utf-8').read()
+    t2 = re.sub(r'extern volatile union \{.*?\} WGPIPE AT_ADDRESS\(0xCC008000\);',
+                '#include <hbm_wgpipe.h>\n#define WGPIPE port_hbm_wgpipe', t, flags=re.S)
+    if t2 == t:
+        raise SystemExit('hbmbuild: GXHardware.h WGPIPE union not found')
+    open(hw, 'w', encoding='utf-8', newline='').write(t2)
+    # ut::Color <-> u32 reinterprets the four bytes: a big-endian word on the Wii (r = bits 24-31). Make the
+    # conversions explicit so literals (Color::RED = 0xFF0000FF) and the resource files' colour words (swapped to
+    # native by sdk/hbmres.cpp) mean the same colours on the host.
+    for path in (os.path.join(OUT, 'tp', 'src', 'nw4hbm', 'ut', 'Color.h'),
+                 os.path.join(OUT, 'msc', 'include', 'revolution', 'hbm', 'nw4hbm', 'ut', 'Color.h')):
+        t = open(path, encoding='utf-8').read()
+        for old, new in (
+                ('ToU32ref() = color;', 'r = (u8)(color >> 24); g = (u8)(color >> 16); b = (u8)(color >> 8); a = (u8)color;'),
+                ('return *this = *reinterpret_cast<const u32*>(&color);', 'r = color.r; g = color.g; b = color.b; a = color.a; return *this;'),
+                ('u32 ToU32() const { return ToU32ref(); }', 'u32 ToU32() const { return (u32)r << 24 | (u32)g << 16 | (u32)b << 8 | a; }'),
+                ('operator u32() const { return ToU32ref(); }', 'operator u32() const { return ToU32(); }')):
+            if t.count(old) != 1:
+                raise SystemExit('hbmbuild: Color.h rewrite %r matches %d times in %s' % (old, t.count(old), path))
+            t = t.replace(old, new)
+        open(path, 'w', encoding='utf-8', newline='').write(t)
     # tp_include/global.h without its non-MWCC intrinsic declarations (they clash with the port prefix's).
     g = open(os.path.join(d, 'libs', 'tp_include', 'global.h'), encoding='utf-8').read()
     g = re.sub(r'#ifndef __MWERKS__\n// Silence clangd.*?#endif\n', '', g, flags=re.S)

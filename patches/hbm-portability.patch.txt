@@ -24,3 +24,40 @@
 ===
         AXFXSetHooks((AXFXAllocHook)&HBMAllocMem, &HBMFreeMem);
 >>>
+@@@ tp:nw4hbm/lyt/lyt_arcResourceAccessor.cpp | the archive's layout/animation/font files are big-endian: swap each in place the first time it is handed out (sdk/hbmres.cpp)
+<<<
+            if (pSize) {
+                *pSize = ARCGetLength(&arcFileInfo);
+            }
+===
+            port_hbm_res_fix(resPtr, ARCGetLength(&arcFileInfo));
+
+            if (pSize) {
+                *pSize = ARCGetLength(&arcFileInfo);
+            }
+>>>
+@@@ tp:nw4hbm/lyt/lyt_arcResourceAccessor.cpp | (same): the converter's declaration
+<<<
+    void* GetResourceSub(ARCHandle* pArcHandle, const char* resRootDir, u32 resType,
+===
+    extern "C" void port_hbm_res_fix(void* p, u32 size);
+
+    void* GetResourceSub(ARCHandle* pArcHandle, const char* resRootDir, u32 resType,
+>>>
+@@@ tp:HBMBase.cpp | home.csv is UTF-16 big-endian (BOM FE FF): swap it to native before the parser walks it as wchar_t (sdk/hbmres.cpp)
+<<<
+        wchar_t* message = static_cast<wchar_t*>(mpHBInfo->msgBuf);
+        for (; message[i]; i++) {
+===
+        wchar_t* message = static_cast<wchar_t*>(mpHBInfo->msgBuf);
+        port_hbm_text_fix(message);
+        for (; message[i]; i++) {
+>>>
+@@@ tp:HBMBase.cpp | (same): declaration
+<<<
+#include <new>
+===
+#include <new>
+
+extern "C" void port_hbm_text_fix(void* text);
+>>>
