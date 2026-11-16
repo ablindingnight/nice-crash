@@ -1,7 +1,0 @@
-@@@ world.cpp | LINKAGE: PlayerObj is in an unnamed namespace (it is world's view of carmodel's CarModel), so clang refuses an extern array of it (a type without linkage cannot name an object defined elsewhere; MWCC allowed it). Declare the array with a linked element type and view it as PlayerObj* here
-<<<
-extern PlayerObj* lbl_80488648[8];
-===
-extern void* port_world_lbl_80488648[8] __asm__("_lbl_80488648");  // port
-#define lbl_80488648 ((PlayerObj**)port_world_lbl_80488648)
->>>

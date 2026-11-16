@@ -1,5 +1,7 @@
-tedash.cpp	224	kWorldScale
-tedash.cpp	693	kWorldScale
-tedash.cpp	764	kWorldScale
-zone.cpp	359	lbl_8056149C
-zone.cpp	1186	lbl_8056149C
+tedash.cpp	218	kWorldScale
+tedash.cpp	687	kWorldScale
+tedash.cpp	758	kWorldScale
+texture.cpp	295	lbl_8055FCC0
+texture.cpp	1265	lbl_8055FCC0
+zone.cpp	294	lbl_8056149C
+zone.cpp	996	lbl_8056149C
