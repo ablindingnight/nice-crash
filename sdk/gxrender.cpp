@@ -91,27 +91,38 @@ VtxFmt Fmt(int vat) {
 const int kCompSize[8] = {1, 1, 2, 2, 4, 0, 0, 0};
 const int kColSize[8] = {2, 3, 4, 2, 3, 4, 0, 0};
 
-inline float ReadComp(const u8* p, int fmt, float scale) {
+inline u16 le16(const u8* p) { return (u16)(p[1] << 8 | p[0]); }
+inline u32 le32(const u8* p) { return (u32)p[3] << 24 | (u32)p[2] << 16 | (u32)p[1] << 8 | p[0]; }
+
+// Vertex arrays (indexed attributes) are in HOST byte order: the game's disc data is little-endian and the port
+// skips the Wii loader's byte swaps, and arrays the CPU builds are native too. Direct attributes come through the
+// FIFO, which the SDK writes big-endian. NICECRASH_ARRAYBE=1 reads arrays big-endian (as the Wii GPU does).
+inline float ReadComp(const u8* p, int fmt, float scale, bool le) {
     switch (fmt) {
     case 0: return p[0] * scale;
     case 1: return (s8)p[0] * scale;
-    case 2: return be16(p) * scale;
-    case 3: return (s16)be16(p) * scale;
-    default: return f32of(be32(p));
+    case 2: return (le ? le16(p) : be16(p)) * scale;
+    case 3: return (s16)(le ? le16(p) : be16(p)) * scale;
+    default: return f32of(le ? le32(p) : be32(p));
     }
 }
 
-inline void ReadColor(const u8* p, int fmt, u8 out[4]) {
+inline void ReadColor(const u8* p, int fmt, u8 out[4], bool le) {
     switch (fmt) {
     case 0: {  // RGB565
-        u16 v = be16(p);
+        u16 v = le ? le16(p) : be16(p);
         out[0] = (u8)(((v >> 11) & 31) * 255 / 31); out[1] = (u8)(((v >> 5) & 63) * 255 / 63);
         out[2] = (u8)((v & 31) * 255 / 31); out[3] = 255;
         break;
     }
-    case 1: case 2: out[0] = p[0]; out[1] = p[1]; out[2] = p[2]; out[3] = 255; break;  // RGB8, RGBX8
+    case 1: out[0] = p[0]; out[1] = p[1]; out[2] = p[2]; out[3] = 255; break;  // RGB8
+    case 2:  // RGBX8: a host-order array holds the colour as a native u32 word (bytes reversed)
+        if (le) { out[0] = p[3]; out[1] = p[2]; out[2] = p[1]; }
+        else { out[0] = p[0]; out[1] = p[1]; out[2] = p[2]; }
+        out[3] = 255;
+        break;
     case 3: {  // RGBA4
-        u16 v = be16(p);
+        u16 v = le ? le16(p) : be16(p);
         out[0] = (u8)((v >> 12) * 17); out[1] = (u8)(((v >> 8) & 15) * 17);
         out[2] = (u8)(((v >> 4) & 15) * 17); out[3] = (u8)((v & 15) * 17);
         break;
@@ -122,7 +133,10 @@ inline void ReadColor(const u8* p, int fmt, u8 out[4]) {
         out[2] = (u8)(((v >> 6) & 63) * 255 / 63); out[3] = (u8)((v & 63) * 255 / 63);
         break;
     }
-    default: out[0] = p[0]; out[1] = p[1]; out[2] = p[2]; out[3] = p[3]; break;  // RGBA8
+    default:  // RGBA8 (word-reversed in a host-order array, as RGBX8)
+        if (le) { out[0] = p[3]; out[1] = p[2]; out[2] = p[1]; out[3] = p[0]; }
+        else { out[0] = p[0]; out[1] = p[1]; out[2] = p[2]; out[3] = p[3]; }
+        break;
     }
 }
 
@@ -194,6 +208,79 @@ void DecodeCI(int fmt, const u8* src, int w, int h, const u8* tlut, int tlutFmt,
     }
 }
 
+// ---- EFB -> texture copies ----
+// A texture copy (BP 0x52 without the XFB bit) renders into the EFB and copies a rectangle into RAM as a texture.
+// The port keeps the copy as a host texture at window resolution, keyed by its RAM address (Dolphin's "EFB copies
+// to texture only"). The RAM is not written: a texture bound at that address uses the host copy while the RAM there
+// still holds what it held at copy time (a checksum), so a disc texture loaded over it later wins.
+struct EfbCopy {
+    GLuint id;
+    u32 ramSum;
+    size_t bytes;
+};
+std::unordered_map<u32, EfbCopy> g_efbCopies;
+
+// Bits per texel of each copy format (BP 0x52 "real format"; colour and Z names share the numbers).
+const int kCopyBpp[16] = {4, 8, 8, 16, 16, 16, 32, 8, 8, 8, 8, 16, 16, 16, 16, 16};
+
+// Encode a copy (rgba = what the target format samples as, w x h at EFB resolution) into RAM as GX tiles.
+void EncodeCopy(u8* dst, int real, const std::vector<u8>& rgba, int w, int h, u32 strideLines) {
+    int bpp = kCopyBpp[real];
+    int bw = bpp == 4 ? 8 : bpp == 8 ? 8 : 4, bh = bpp == 4 ? 8 : 4;  // block size in texels
+    int blockBytes = bpp == 32 ? 64 : 32;
+    int bx = (w + bw - 1) / bw, by = (h + bh - 1) / bh;
+    size_t rowBytes = strideLines ? (size_t)strideLines * 32 : (size_t)bx * blockBytes;
+    auto px = [&](int x, int y) -> const u8* {
+        static const u8 zero[4] = {0, 0, 0, 0};
+        return x < w && y < h ? &rgba[((size_t)y * w + x) * 4] : zero;
+    };
+    for (int j = 0; j < by; j++) {
+        for (int i = 0; i < bx; i++) {
+            u8* b = dst + j * rowBytes + (size_t)i * blockBytes;
+            for (int y = 0; y < bh; y++) {
+                for (int x = 0; x < bw; x++) {
+                    const u8* o = px(i * bw + x, j * bh + y);
+                    int k = y * bw + x;
+                    switch (bpp) {
+                    case 4:
+                        if (x & 1) b[k / 2] = (u8)((b[k / 2] & 0xF0) | (o[0] >> 4));
+                        else b[k / 2] = (u8)((b[k / 2] & 0x0F) | (o[0] & 0xF0));
+                        break;
+                    case 8: b[k] = real == 2 ? (u8)((o[3] & 0xF0) | (o[0] >> 4)) : o[0]; break;
+                    case 16: {
+                        u16 v;
+                        if (real == 4) v = (u16)((o[0] >> 3) << 11 | (o[1] >> 2) << 5 | (o[2] >> 3));
+                        else if (real == 5)
+                            v = o[3] >= 0xE0 ? (u16)(0x8000 | (o[0] >> 3) << 10 | (o[1] >> 3) << 5 | (o[2] >> 3))
+                                             : (u16)((o[3] >> 5) << 12 | (o[0] >> 4) << 8 | (o[1] >> 4) << 4 | (o[2] >> 4));
+                        else v = (u16)(o[3] << 8 | o[0]);  // IA8 family: alpha byte first
+                        b[k * 2] = (u8)(v >> 8);
+                        b[k * 2 + 1] = (u8)v;
+                        break;
+                    }
+                    default:  // RGBA8: AR pairs, then GB pairs
+                        b[k * 2] = o[3]; b[k * 2 + 1] = o[0];
+                        b[32 + k * 2] = o[1]; b[32 + k * 2 + 1] = o[2];
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
+bool BindEfbCopy(u32 addr, const u8* src) {
+    auto it = g_efbCopies.find(addr);
+    if (it == g_efbCopies.end()) return false;
+    if (Checksum(src, it->second.bytes) != it->second.ramSum) {  // RAM rewritten since: a real texture now
+        glDeleteTextures(1, &it->second.id);
+        g_efbCopies.erase(it);
+        return false;
+    }
+    glBindTexture(GL_TEXTURE_2D, it->second.id);
+    return true;
+}
+
 // Bind texture map `m` (0-7) from the BP registers. Returns false when there is nothing usable.
 bool BindTexMap(int m) {
     u32 img0 = g_gx.bp[(m < 4 ? 0x88 : 0xA8) + (m & 3)];
@@ -204,6 +291,16 @@ bool BindTexMap(int m) {
     u32 addr = (img3 & 0xFFFFFF) << 5;
     if (!addr) return false;
     const u8* src = Phys(addr);
+    static const GLint wrapM[4] = {GL_CLAMP_TO_EDGE, GL_REPEAT, GL_MIRRORED_REPEAT, GL_REPEAT};
+    static const bool noCopyTex = getenv("NICECRASH_NOCOPYTEX") != nullptr;
+    if (!noCopyTex && BindEfbCopy(addr, src)) {
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrapM[mode0 & 3]);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrapM[(mode0 >> 2) & 3]);
+        GLint f = (mode0 >> 4) & 1 ? GL_LINEAR : GL_NEAREST;
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, f);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, f);
+        return true;
+    }
     bool ci = fmt >= 8 && fmt <= 10;
     size_t bytes = ci ? (fmt == 8 ? (size_t)((w + 7) & ~7) * ((h + 7) & ~7) / 2
                                   : fmt == 9 ? (size_t)((w + 7) & ~7) * ((h + 3) & ~3)
@@ -389,10 +486,68 @@ void gxr_tlut_load(u32 bp64, u32 bp65) {
     if (dst + n <= sizeof(g_tmem)) memcpy(g_tmem + dst, src, n);
 }
 
+// Byte order of a draw's vertex arrays. Model files (.mod) carry GX-ready big-endian arrays; arrays the game builds
+// with the CPU (terrain heightfield, water, glare) are in host order, as the port skips the Wii's byte swaps. Float
+// positions tell them apart: real coordinates are plausible in one byte order and not in the other. The answer is
+// kept per array base (non-float positions use it, or big-endian). NICECRASH_ARRAYBE / NICECRASH_ARRAYLE force one.
+static bool PlausibleF32(u32 bits) {
+    u32 e = (bits >> 23) & 0xFF;
+    if (e == 0) return (bits & 0x7FFFFFFF) == 0;  // zero ok, denormals not
+    if (e == 0xFF) return false;
+    return e >= 127 - 20 && e <= 127 + 20;  // |v| in ~[1e-6, 1e6]
+}
+
+static bool ArraysHostOrder(u32 lo, const VtxFmt& f, int count, const u8* data, int vat) {
+    static const int force = getenv("NICECRASH_ARRAYBE") ? 1 : getenv("NICECRASH_ARRAYLE") ? 2 : 0;
+    if (force) return force == 2;
+    static std::unordered_map<u32, bool> known;  // array base -> host order
+    int pt = (lo >> 9) & 3;
+    if (pt < 2) return false;  // positions come through the FIFO: no array to judge
+    u32 base = g_gx.cp[0xA0], stride = g_gx.cp[0xB0] & 0xFF;
+    auto it = known.find(base);
+    if (f.posFmt != 4) return it != known.end() && it->second;
+    int off = (lo & 1);
+    for (int i = 0; i < 8; i++) off += (lo >> (1 + i)) & 1;
+    int vs = gxr_vertex_size(vat);
+    int scoreBE = 0, scoreLE = 0;
+    for (int n = 0; n < count && n < 12; n++) {
+        const u8* v = data + (size_t)n * vs + off;
+        u32 idx = pt == 2 ? v[0] : be16(v);
+        if ((pt == 2 && idx == 0xFF) || (pt == 3 && idx == 0xFFFF)) continue;
+        const u8* a = Phys(base) + idx * stride;
+        for (int c = 0; c < f.posCnt; c++) {
+            scoreBE += PlausibleF32(be32(a + c * 4));
+            scoreLE += PlausibleF32(le32(a + c * 4));
+        }
+    }
+    if (scoreBE == scoreLE) return it != known.end() && it->second;
+    bool hostOrder = scoreLE > scoreBE;
+    known[base] = hostOrder;
+    return hostOrder;
+}
+
 static u32 g_drawsSinceCopy;  // draws since the last display copy (an empty copy is not shown, see gxr_copy)
 
 void gxr_draw(int prim, int vat, int count, const u8* data) {
     if (!count) return;
+    // NICECRASH_SKIPTEX=<hex image address>[,...]: skip draws whose stage-0 texture is one of these (debugging).
+    static std::vector<u32> skipTex = [] {
+        std::vector<u32> v;
+        if (const char* s = getenv("NICECRASH_SKIPTEX"))
+            for (char* e; *s; s = *e ? e + 1 : e) v.push_back((u32)strtoul(s, &e, 16));
+        return v;
+    }();
+    // NICECRASH_DRAWMAX=<n>: draw only the first n draws of each frame (bisecting a bad draw).
+    static const int drawMax = getenv("NICECRASH_DRAWMAX") ? atoi(getenv("NICECRASH_DRAWMAX")) : -1;
+    if (drawMax >= 0 && (int)g_drawsSinceCopy >= drawMax) {
+        g_drawsSinceCopy++;
+        return;
+    }
+    if (!skipTex.empty()) {
+        u32 a = (g_gx.bp[0x94 + (g_gx.bp[0x28] & 3)] & 0xFFFFFF) << 5;
+        for (u32 s : skipTex)
+            if (a == s) return;
+    }
     g_drawsSinceCopy++;
     u32 lo = g_gx.cp[0x50], hi = g_gx.cp[0x60];
     VtxFmt f = Fmt(vat);
@@ -407,7 +562,10 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
     // Decode all vertices.
     std::vector<Vtx> vs(count);
     const u8* p = data;
+    bool arraysLE = ArraysHostOrder(lo, f, count, data, vat);
+    bool le = false;  // set by attrPtr: the attribute came from a host-order array
     auto attrPtr = [&](int type, int arr, int directSize) -> const u8* {
+        le = type >= 2 && arraysLE;
         if (type == 1) {
             const u8* r = p;
             p += directSize;
@@ -430,7 +588,7 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
         if (t) {
             const u8* a = attrPtr(t, 0, f.posCnt * kCompSize[f.posFmt]);
             if (a)
-                for (int c = 0; c < f.posCnt; c++) v.pos[c] = ReadComp(a + c * kCompSize[f.posFmt], f.posFmt, posScale);
+                for (int c = 0; c < f.posCnt; c++) v.pos[c] = ReadComp(a + c * kCompSize[f.posFmt], f.posFmt, posScale, le);
         }
         t = (lo >> 11) & 3;
         if (t) {
@@ -443,7 +601,7 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
             v.col[c][0] = v.col[c][1] = v.col[c][2] = v.col[c][3] = 255;
             if (t) {
                 const u8* a = attrPtr(t, 2 + c, kColSize[f.colFmt[c]]);
-                if (a) ReadColor(a, f.colFmt[c], v.col[c]);
+                if (a) ReadColor(a, f.colFmt[c], v.col[c], le);
             }
         }
         for (int i = 0; i < 8; i++) {
@@ -452,7 +610,7 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
             int cnt = f.texCnt[i] ? 2 : 1;
             const u8* a = attrPtr(t, 4 + i, cnt * kCompSize[f.texFmt[i]]);
             if (a)
-                for (int c = 0; c < cnt; c++) v.tex[i][c] = ReadComp(a + c * kCompSize[f.texFmt[i]], f.texFmt[i], texScale[i]);
+                for (int c = 0; c < cnt; c++) v.tex[i][c] = ReadComp(a + c * kCompSize[f.texFmt[i]], f.texFmt[i], texScale[i], le);
         }
     }
 
@@ -512,6 +670,37 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
                 xff(vs[0].pnmtx * 4 + 2), xff(vs[0].pnmtx * 4 + 3), xff(vs[0].pnmtx * 4 + 4), xff(vs[0].pnmtx * 4 + 5),
                 xff(vs[0].pnmtx * 4 + 6), xff(vs[0].pnmtx * 4 + 7), xff(vs[0].pnmtx * 4 + 8), xff(vs[0].pnmtx * 4 + 9),
                 xff(vs[0].pnmtx * 4 + 10), xff(vs[0].pnmtx * 4 + 11));
+        {
+            int pt = (lo >> 9) & 3;
+            fprintf(stderr, "    vcd %08x/%08x vat %08x/%08x/%08x posfmt %d cnt %d frac %d postype %d base %08x stride %u data",
+                    lo, hi, g_gx.cp[0x70 + vat], g_gx.cp[0x80 + vat], g_gx.cp[0x90 + vat], f.posFmt, f.posCnt, f.posFrac,
+                    pt, g_gx.cp[0xA0], g_gx.cp[0xB0] & 0xFF);
+            for (int k = 0; k < 16; k++) fprintf(stderr, " %02x", data[k]);
+            if (pt >= 2) {
+                u32 idx = pt == 2 ? data[(lo & 1) + 0] : be16(data);
+                const u8* a = Phys(g_gx.cp[0xA0]) + idx * (g_gx.cp[0xB0] & 0xFF);
+                fprintf(stderr, " | arr[%u]", idx);
+                for (int k = 0; k < 16; k++) fprintf(stderr, " %02x", a[k]);
+            }
+            fprintf(stderr, "\n");
+        }
+        fprintf(stderr, "    tev stages %d:", nStages);
+        for (int st = 0; st < nStages; st++) fprintf(stderr, " [c %06x a %06x]", g_gx.bp[0xC0 + st * 2] & 0xFFFFFF, g_gx.bp[0xC1 + st * 2] & 0xFFFFFF);
+        fprintf(stderr, " swap");
+        for (int i = 0; i < 8; i++) fprintf(stderr, " %06x", g_gx.bp[0xF6 + i] & 0xFFFFFF);
+        fprintf(stderr, " reg");
+        for (int i = 0; i < 8; i++) fprintf(stderr, " %06x", g_gx.tevReg[i]);
+        fprintf(stderr, " konst");
+        for (int i = 0; i < 8; i++) fprintf(stderr, " %06x", g_gx.tevKonst[i]);
+        fprintf(stderr, " order %06x pe_ctrl %06x\n", g_gx.bp[0x28] & 0xFFFFFF, g_gx.bp[0x43] & 0xFFFFFF);
+        for (int g = 0; g < nTexGens && g < 8; g++) {
+            int m = vs[0].texmtx[g] * 4;
+            float st[2];
+            TexCoord(vs[0], g, st);
+            fprintf(stderr, "    texgen %d info %08x post %08x mtx %d [%.4f %.4f %.4f %.4f / %.4f %.4f %.4f %.4f / %.4f %.4f %.4f %.4f] -> (%.4f %.4f)\n",
+                    g, g_gx.xf[0x1040 + g], g_gx.xf[0x1050 + g], vs[0].texmtx[g], xff(m), xff(m + 1), xff(m + 2), xff(m + 3),
+                    xff(m + 4), xff(m + 5), xff(m + 6), xff(m + 7), xff(m + 8), xff(m + 9), xff(m + 10), xff(m + 11), st[0], st[1]);
+        }
         for (int k = 0; k < count && k < 6; k++)
             fprintf(stderr, "    v%d pos (%.2f %.2f %.2f) tex (%.4f %.4f) col %02x%02x%02x%02x\n", k, vs[k].pos[0], vs[k].pos[1],
                     vs[k].pos[2], vs[k].tex[0][0], vs[k].tex[0][1], vs[k].col[0][0], vs[k].col[0][1], vs[k].col[0][2], vs[k].col[0][3]);
@@ -583,6 +772,102 @@ void gxr_copy(u32 bp52) {
     }
     int ww, wh;
     sdk_vi_window_size(&ww, &wh);
+    // Source rectangle (BP 0x49 top-left, 0x4A size - 1) in window pixels; GL rows count from the bottom.
+    u32 tl = g_gx.bp[0x49], sz = g_gx.bp[0x4A];
+    int ex = tl & 0x3FF, ey = (tl >> 10) & 0x3FF, ew = (int)(sz & 0x3FF) + 1, eh = (int)((sz >> 10) & 0x3FF) + 1;
+    int px0 = ex * ww / 640, px1 = (ex + ew) * ww / 640, py0 = ey * wh / 480, py1 = (ey + eh) * wh / 480;
+    if (px1 > ww) px1 = ww;
+    if (py1 > wh) py1 = wh;
+    int pw = px1 - px0, ph = py1 - py0;
+    if (!toXfb && xfb_active() && pw > 0 && ph > 0) {
+        xfb_bind_efb(ww, wh);
+        int tpf = (bp52 >> 3) & 15, real = (tpf >> 1) | ((tpf & 1) << 3);
+        bool inten = (bp52 >> 15) & 1, half = (bp52 >> 9) & 1;
+        bool depth = (g_gx.bp[0x43] & 7) == 3;  // PE_CONTROL pixel format Z24: a depth copy
+        u32 dst = (g_gx.bp[0x4B] & 0xFFFFFF) << 5;
+        std::vector<u8> rgba((size_t)pw * ph * 4);
+        std::vector<float> z;
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        if (depth) {
+            z.resize((size_t)pw * ph);
+            glReadPixels(px0, wh - py1, pw, ph, GL_DEPTH_COMPONENT, GL_FLOAT, z.data());
+        } else {
+            glReadPixels(px0, wh - py1, pw, ph, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+        }
+        // Convert in place to what a texture of the target format samples as; flip rows (GX row 0 = top).
+        std::vector<u8> out((size_t)pw * ph * 4);
+        for (int y = 0; y < ph; y++) {
+            for (int x = 0; x < pw; x++) {
+                size_t si = (size_t)(ph - 1 - y) * pw + x;
+                u8* o = &out[((size_t)y * pw + x) * 4];
+                u8 r, g, b, a;
+                if (depth) {
+                    u32 zv = (u32)(z[si] * 16777215.0f + 0.5f);
+                    r = (u8)(zv >> 16); g = (u8)(zv >> 8); b = (u8)zv; a = 255;
+                } else {
+                    const u8* s = &rgba[si * 4];
+                    r = s[0]; g = s[1]; b = s[2]; a = s[3];
+                }
+                u8 i = r;
+                if (inten && !depth) i = (u8)(0.257f * r + 0.504f * g + 0.098f * b + 16.0f);
+                switch (real) {
+                case 0: case 1: case 8: o[0] = o[1] = o[2] = o[3] = i; break;           // I4/I8/R8 (Z4/Z8/Z8M)
+                case 2: case 3: o[0] = o[1] = o[2] = i; o[3] = depth ? g : a; break;    // IA4/IA8 (Z16)
+                case 7: o[0] = o[1] = o[2] = o[3] = a; break;                           // A8
+                case 9: o[0] = o[1] = o[2] = o[3] = g; break;                           // G8 (Z8M)
+                case 10: o[0] = o[1] = o[2] = o[3] = b; break;                          // B8 (Z8L)
+                case 11: o[0] = o[1] = o[2] = g; o[3] = r; break;                       // RG8 (IA8: A = R)
+                case 12: o[0] = o[1] = o[2] = b; o[3] = g; break;                       // GB8
+                case 4: o[0] = r; o[1] = g; o[2] = b; o[3] = 255; break;                // RGB565
+                default: o[0] = r; o[1] = g; o[2] = b; o[3] = a; break;                 // RGB5A3, RGBA8
+                }
+            }
+        }
+        int tw = half ? ew / 2 : ew, th = half ? eh / 2 : eh;
+        if (getenv("NICECRASH_COPYDUMP")) {  // each copy target once, as build/tex/copy_<addr>_r<fmt>.bmp
+            static std::unordered_map<u32, int> seen;
+            if (seen[dst]++ == 30) {
+                char path[128];
+                CreateDirectoryA("build/tex", nullptr);
+                snprintf(path, sizeof path, "build/tex/copy_%08x_r%d%s.bmp", dst, real, depth ? "z" : "");
+                if (FILE* fp = fopen(path, "wb")) {
+                    BITMAPFILEHEADER fh{};
+                    BITMAPINFOHEADER ih{};
+                    ih.biSize = sizeof ih; ih.biWidth = pw; ih.biHeight = -ph; ih.biPlanes = 1; ih.biBitCount = 32;
+                    fh.bfType = 0x4D42; fh.bfOffBits = sizeof fh + sizeof ih; fh.bfSize = fh.bfOffBits + pw * ph * 4;
+                    fwrite(&fh, sizeof fh, 1, fp); fwrite(&ih, sizeof ih, 1, fp);
+                    for (size_t i = 0; i < out.size(); i += 4) {
+                        u8 px[4] = {out[i + 2], out[i + 1], out[i], 255};
+                        fwrite(px, 4, 1, fp);
+                    }
+                    fclose(fp);
+                }
+            }
+        }
+        EfbCopy& c = g_efbCopies[dst];
+        if (!c.id) glGenTextures(1, &c.id);
+        glBindTexture(GL_TEXTURE_2D, c.id);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, pw, ph, 0, GL_RGBA, GL_UNSIGNED_BYTE, out.data());
+        // RAM copy at EFB resolution (the game reads some copies with the CPU: drtex blends sky textures).
+        if (tw > 0 && th > 0 && dst && !getenv("NICECRASH_NOCOPYRAM")) {
+            std::vector<u8> small((size_t)tw * th * 4);
+            for (int y = 0; y < th; y++)
+                for (int x = 0; x < tw; x++) {
+                    int sx = (int)((x + 0.5f) * pw / tw), sy = (int)((y + 0.5f) * ph / th);
+                    memcpy(&small[((size_t)y * tw + x) * 4], &out[((size_t)sy * pw + sx) * 4], 4);
+                }
+            EncodeCopy((u8*)Phys(dst), real, small, tw, th, g_gx.bp[0x4D] & 0x3FF);
+        }
+        c.bytes = (size_t)((tw + 7) & ~7) * ((th + 7) & ~7) * kCopyBpp[real] / 8;
+        c.ramSum = Checksum(Phys(dst), c.bytes);
+        if (getenv("NICECRASH_COPYLOG") || g_frameNo == g_logFrame) {
+            static int n;
+            if (n++ < 40 || g_frameNo == g_logFrame)
+                fprintf(stderr, "[copy] tex %08x real %d%s%s%s src (%d,%d %dx%d) -> %dx%d\n", dst, real, inten ? " I" : "",
+                        half ? " half" : "", depth ? " Z" : "", ex, ey, ew, eh, tw, th);
+        }
+    }
     if (toXfb) {
         if (xfb_active()) {  // the EFB goes to its XFB; the VI shows the one the game selects at the retrace
             xfb_bind_efb(ww, wh);
@@ -604,12 +889,19 @@ void gxr_copy(u32 bp52) {
     if (clear) {
         xfb_bind_efb(ww, wh);
         u32 ar = g_gx.bp[0x4F], gb = g_gx.bp[0x50], z = g_gx.bp[0x51] & 0xFFFFFF;
-        glDisable(GL_SCISSOR_TEST);
+        // The clear covers the copied rectangle only (a texture copy in the corner keeps the rest of the EFB).
+        if (pw > 0 && ph > 0) {
+            glEnable(GL_SCISSOR_TEST);
+            glScissor(px0, wh - py1, pw, ph);
+        } else {
+            glDisable(GL_SCISSOR_TEST);
+        }
         glColorMask(1, 1, 1, 1);
         glDepthMask(1);
         glClearColor(((ar) & 0xFF) / 255.0f, ((gb >> 8) & 0xFF) / 255.0f, (gb & 0xFF) / 255.0f,
                      ((ar >> 8) & 0xFF) / 255.0f);
         glClearDepth(z / 16777215.0);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glDisable(GL_SCISSOR_TEST);
     }
 }

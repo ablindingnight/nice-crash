@@ -8,7 +8,18 @@
 static u8* g_buf;
 static size_t g_len, g_cap;
 
+// Display-list capture (GXBeginDisplayList .. GXEndDisplayList): commands go into the list's memory, big-endian,
+// as the Wii's write-gather pipe writes them there, instead of the live FIFO.
+static u8* g_dl;
+static size_t g_dlLen, g_dlSize;
+static bool g_dlOn;
+
 static inline void Put(u8 v) {
+    if (g_dlOn) {
+        if (g_dlLen < g_dlSize) g_dl[g_dlLen] = v;
+        g_dlLen++;
+        return;
+    }
     if (g_len == g_cap) {
         g_cap = g_cap ? g_cap * 2 : (1 << 20);
         g_buf = (u8*)realloc(g_buf, g_cap);
@@ -77,5 +88,34 @@ void GXDisableBreakPt(void) { g_bpOn = false; }
 void GXGetFifoPtrs(void* fifo, void** rd, void** wr) {
     if (rd) *rd = nullptr;
     if (wr) *wr = nullptr;
+}
+}
+
+extern "C" bool sdk_fifo_capturing() { return g_dlOn; }
+
+extern "C" {
+void __sdk_unused_GXBeginDisplayList(void* list, u32 size);
+u32 __sdk_unused_GXEndDisplayList(void);
+
+// The SDK's versions do the state bookkeeping (dirty state flushed to the live FIFO first, dlistSave); the capture
+// runs between them. The returned size is rounded up to 32 bytes and padded with NOPs, as the Wii's pipe flushes
+// whole 32-byte lines.
+void GXBeginDisplayList(void* list, u32 size) {
+    __sdk_unused_GXBeginDisplayList(list, size);
+    g_dl = (u8*)list;
+    g_dlSize = size;
+    g_dlLen = 0;
+    g_dlOn = true;
+}
+
+void __sdk_unused_GXFlush(void);
+u32 GXEndDisplayList(void) {
+    __sdk_unused_GXFlush();  // the Wii's GXEndDisplayList flushes (via GXGetCPUFifo) while the list is the CPU FIFO
+    __sdk_unused_GXEndDisplayList();
+    g_dlOn = false;
+    size_t n = (g_dlLen + 31) & ~(size_t)31;
+    if (n > g_dlSize) return 0;  // overflow: the Wii reports 0 (FIFO wrap)
+    memset(g_dl + g_dlLen, 0, n - g_dlLen);
+    return (u32)n;
 }
 }

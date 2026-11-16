@@ -389,6 +389,11 @@ def main():
     counts['byval-to-ref'] = n
     for name, f in skipped:
         print('prep: byvalref: %s in %s (C unit) passes a struct by value to a pointer parameter: fix by hand' % (name, f))
+    # Declarations that widen a narrow return type (retwidth.py): MWCC extends u8/u16 returns in r3, x86 leaves
+    # garbage above AL/AX; declare the definition's type.
+    import retwidth
+    texts, n = retwidth.apply(texts, retwidth.scan(texts))
+    counts['ret-narrow'] = n
     for b, i in game.items():
         outputs[i] = (outputs[i][0], texts[b])
     for dst, t in outputs:

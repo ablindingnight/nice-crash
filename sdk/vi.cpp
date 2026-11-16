@@ -259,7 +259,13 @@ void GXWaitDrawDone(void) { gxi_flush(); }
 // waits for the next retrace, as the game's own waits on the GPU would on the Wii. (Deferring the FIFO to the
 // retrace instead deadlocks: the game busy-waits on a draw-sync flag without polling the clock.)
 // NICECRASH_NOPACE turns it off.
+// Like the SDK's GXFlush, pending ("dirty") GX state is written to the pipe first: inside a display list this is
+// how the vertex descriptor gets into the list (GXEndDisplayList -> GXGetCPUFifo -> GXFlush on the Wii).
+void __sdk_unused_GXFlush(void);
+bool sdk_fifo_capturing();
 void GXFlush(void) {
+    __sdk_unused_GXFlush();
+    if (sdk_fifo_capturing()) return;
     static int pace = getenv("NICECRASH_NOPACE") == nullptr;
     if (pace && sdk_vi_copies_since_retrace() > 0) VIWaitForRetrace();
     gxi_flush();
