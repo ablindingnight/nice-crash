@@ -14,6 +14,7 @@
 #include <cstring>
 #include <unordered_map>
 #include <vector>
+#include "env.h"
 #include "gxinterp.h"
 #include "texture.h"
 #include "gxtev.h"
@@ -37,7 +38,7 @@ int g_frameNo;  // display copies so far
 // NICECRASH_DRAWLOG=<retrace frame>: log the draws of the first frame presented on or after it.
 int g_logFrame = -1;  // display copy being logged
 bool LogThisFrame() {
-    static int want = getenv("NICECRASH_DRAWLOG") ? atoi(getenv("NICECRASH_DRAWLOG")) : -1;
+    static int want = NC_ENV("NICECRASH_DRAWLOG") ? atoi(NC_ENV("NICECRASH_DRAWLOG")) : -1;
     if (want >= 0 && g_logFrame < 0 && (int)sdk_vi_retrace_count() >= want) g_logFrame = g_frameNo;
     return g_frameNo == g_logFrame;
 }
@@ -218,6 +219,8 @@ struct EfbCopy {
     GLuint id;
     u32 ramSum;
     size_t bytes;
+    int pending = 0;  // GPU copies whose RAM image is still being read back (see ResolveCopies)
+    int tw = 0, th = 0;  // host texture size
     int frame = -1;  // display frame the RAM was last found unchanged
 };
 std::unordered_map<u32, EfbCopy> g_efbCopies;
@@ -274,7 +277,8 @@ void EncodeCopy(u8* dst, int real, const std::vector<u8>& rgba, int w, int h, u3
 bool BindEfbCopy(u32 addr, const u8* src) {
     auto it = g_efbCopies.find(addr);
     if (it == g_efbCopies.end()) return false;
-    if (it->second.frame != g_frameNo && Checksum(src, it->second.bytes) != it->second.ramSum) {  // RAM rewritten
+    if (!it->second.pending && it->second.frame != g_frameNo &&
+        Checksum(src, it->second.bytes) != it->second.ramSum) {  // RAM rewritten
         glDeleteTextures(1, &it->second.id);
         g_efbCopies.erase(it);
         return false;
@@ -295,7 +299,7 @@ bool BindTexMap(int m) {
     if (!addr) return false;
     const u8* src = Phys(addr);
     static const GLint wrapM[4] = {GL_CLAMP_TO_EDGE, GL_REPEAT, GL_MIRRORED_REPEAT, GL_REPEAT};
-    static const bool noCopyTex = getenv("NICECRASH_NOCOPYTEX") != nullptr;
+    static const bool noCopyTex = NC_ENV("NICECRASH_NOCOPYTEX") != nullptr;
     if (!noCopyTex && BindEfbCopy(addr, src)) {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrapM[mode0 & 3]);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrapM[(mode0 >> 2) & 3]);
@@ -323,7 +327,7 @@ bool BindTexMap(int m) {
         std::vector<u8> rgba;
         if (ci) DecodeCI(fmt, src, w, h, g_tmem + tlutOff, (int)tlutFmt, rgba);
         else if (!tex::DecodeRawGX(fmt, src, w, h, rgba)) return false;
-        if (getenv("NICECRASH_TEXDUMP")) {  // each new/changed texture as build/tex/<addr>_<fmt>_<w>x<h>.bmp
+        if (NC_ENV("NICECRASH_TEXDUMP")) {  // each new/changed texture as build/tex/<addr>_<fmt>_<w>x<h>.bmp
             char path[128];
             CreateDirectoryA("build/tex", nullptr);
             snprintf(path, sizeof path, "build/tex/%08x_f%d_%dx%d_t%05x.bmp", addr, fmt, w, h, ci ? tlutOff : 0);
@@ -352,7 +356,7 @@ bool BindTexMap(int m) {
     static const GLint wrap[4] = {GL_CLAMP_TO_EDGE, GL_REPEAT, GL_MIRRORED_REPEAT, GL_REPEAT};
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrap[mode0 & 3]);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrap[(mode0 >> 2) & 3]);
-    GLint mag = (mode0 >> 4) & 1 && !getenv("NICECRASH_NEAREST") ? GL_LINEAR : GL_NEAREST;
+    GLint mag = (mode0 >> 4) & 1 && !NC_ENV("NICECRASH_NEAREST") ? GL_LINEAR : GL_NEAREST;
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, mag);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, mag);
     return true;
@@ -500,7 +504,7 @@ static bool PlausibleF32(u32 bits) {
 }
 
 static bool ArraysHostOrder(u32 lo, const VtxFmt& f, int count, const u8* data, int vat) {
-    static const int force = getenv("NICECRASH_ARRAYBE") ? 1 : getenv("NICECRASH_ARRAYLE") ? 2 : 0;
+    static const int force = NC_ENV("NICECRASH_ARRAYBE") ? 1 : NC_ENV("NICECRASH_ARRAYLE") ? 2 : 0;
     if (force) return force == 2;
     static std::unordered_map<u32, bool> known;  // array base -> host order
     int pt = (lo >> 9) & 3;
@@ -561,12 +565,12 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
     // NICECRASH_SKIPTEX=<hex image address>[,...]: skip draws whose stage-0 texture is one of these (debugging).
     static std::vector<u32> skipTex = [] {
         std::vector<u32> v;
-        if (const char* s = getenv("NICECRASH_SKIPTEX"))
+        if (const char* s = NC_ENV("NICECRASH_SKIPTEX"))
             for (char* e; *s; s = *e ? e + 1 : e) v.push_back((u32)strtoul(s, &e, 16));
         return v;
     }();
     // NICECRASH_DRAWMAX=<n>: draw only the first n draws of each frame (bisecting a bad draw).
-    static const int drawMax = getenv("NICECRASH_DRAWMAX") ? atoi(getenv("NICECRASH_DRAWMAX")) : -1;
+    static const int drawMax = NC_ENV("NICECRASH_DRAWMAX") ? atoi(NC_ENV("NICECRASH_DRAWMAX")) : -1;
     if (drawMax >= 0 && (int)g_drawsSinceCopy >= drawMax) {
         g_drawsSinceCopy++;
         return;
@@ -785,7 +789,7 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
         Transform(v.pos, v.pnmtx, x, o.pos);
     }
     {  // NICECRASH_BIGLOG=<n>: log the first n draws with a vertex far outside the screen (bad positions/matrices)
-        static int left = getenv("NICECRASH_BIGLOG") ? atoi(getenv("NICECRASH_BIGLOG")) : 0;
+        static int left = NC_ENV("NICECRASH_BIGLOG") ? atoi(NC_ENV("NICECRASH_BIGLOG")) : 0;
         if (left > 0) {
             for (int n = 0; n < count; n++) {
                 float ex = bv[n].pos[0] / bv[n].pos[3], ey = bv[n].pos[1] / bv[n].pos[3];
@@ -831,10 +835,161 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
     if (g_batch.size() > 60000) gxr_flush_batch();
 }
 
+// ---- EFB -> texture copies on the GPU ----
+// A colour copy is converted by a shader straight from the EFB texture into the copy's host texture (window
+// resolution), and at EFB resolution into a small texture that is read back through a pixel buffer object; the
+// RAM image (GX tiles, for the game's CPU readers such as drtex's sky blends) is written one display frame later,
+// when the read has finished, instead of stalling the GPU mid-frame (glReadPixels was ~25% of the race's frame).
+// NICECRASH_CPUCOPY=1: the old synchronous path for every copy. Depth copies always take it.
+#define GL_PIXEL_PACK_BUFFER_ 0x88EB
+#define GL_STREAM_READ_ 0x88E1
+#define GL_READ_ONLY_ 0x88B8
+typedef void(APIENTRY* GenBuffers_t)(GLsizei, GLuint*);
+typedef void(APIENTRY* BindBuffer_t)(GLenum, GLuint);
+typedef void(APIENTRY* BufferData_t)(GLenum, ptrdiff_t, const void*, GLenum);
+typedef void*(APIENTRY* MapBuffer_t)(GLenum, GLenum);
+typedef GLboolean(APIENTRY* UnmapBuffer_t)(GLenum);
+GenBuffers_t p_genBuffers;
+BindBuffer_t p_bindBuffer;
+BufferData_t p_bufferData;
+MapBuffer_t p_mapBuffer;
+UnmapBuffer_t p_unmapBuffer;
+
+bool LoadPbo() {
+    static int ok = -1;
+    if (ok < 0) {
+        p_genBuffers = (GenBuffers_t)(void*)wglGetProcAddress("glGenBuffers");
+        p_bindBuffer = (BindBuffer_t)(void*)wglGetProcAddress("glBindBuffer");
+        p_bufferData = (BufferData_t)(void*)wglGetProcAddress("glBufferData");
+        p_mapBuffer = (MapBuffer_t)(void*)wglGetProcAddress("glMapBuffer");
+        p_unmapBuffer = (UnmapBuffer_t)(void*)wglGetProcAddress("glUnmapBuffer");
+        ok = p_genBuffers && p_bindBuffer && p_bufferData && p_mapBuffer && p_unmapBuffer;
+    }
+    return ok;
+}
+
+struct PendingCopy {
+    GLuint pbo;
+    u32 dst, stride;
+    int real, tw, th, frame;
+};
+std::vector<PendingCopy> g_pendingCopies;
+std::vector<GLuint> g_freePbos;
+
+// Write the RAM images of finished GPU copies: those issued before display frame `before` (all with -1).
+void ResolveCopies(int before) {
+    size_t keep = 0;
+    for (size_t i = 0; i < g_pendingCopies.size(); i++) {
+        PendingCopy& pc = g_pendingCopies[i];
+        if (before >= 0 && pc.frame >= before) {
+            g_pendingCopies[keep++] = pc;
+            continue;
+        }
+        p_bindBuffer(GL_PIXEL_PACK_BUFFER_, pc.pbo);
+        auto it = g_efbCopies.find(pc.dst);
+        if (const u8* m = it != g_efbCopies.end() ? (const u8*)p_mapBuffer(GL_PIXEL_PACK_BUFFER_, GL_READ_ONLY_) : nullptr) {
+            std::vector<u8> small(m, m + (size_t)pc.tw * pc.th * 4);
+            p_unmapBuffer(GL_PIXEL_PACK_BUFFER_);
+            EncodeCopy((u8*)Phys(pc.dst), pc.real, small, pc.tw, pc.th, pc.stride);
+            if (--it->second.pending <= 0) {
+                it->second.pending = 0;
+                it->second.ramSum = Checksum(Phys(pc.dst), it->second.bytes);
+            }
+        } else if (it != g_efbCopies.end() && --it->second.pending < 0) {
+            it->second.pending = 0;
+        }
+        p_bindBuffer(GL_PIXEL_PACK_BUFFER_, 0);
+        g_freePbos.push_back(pc.pbo);
+    }
+    g_pendingCopies.resize(keep);
+}
+
+void QuadFromEfb(float u0, float u1, float vTop, float vBot) {
+    glBegin(GL_QUADS);
+    glTexCoord2f(u0, vTop); glVertex2f(0, 0);
+    glTexCoord2f(u1, vTop); glVertex2f(1, 0);
+    glTexCoord2f(u1, vBot); glVertex2f(1, 1);
+    glTexCoord2f(u0, vBot); glVertex2f(0, 1);
+    glEnd();
+}
+
+// Returns false (nothing changed) when the GPU path is not available; the caller then copies on the CPU.
+bool GpuCopy(EfbCopy& c, u32 dst, int real, bool inten, int px0, int py0, int pw, int ph, int ww, int wh, int tw,
+             int th, bool ram) {
+    static const bool cpu = NC_ENV("NICECRASH_CPUCOPY") != nullptr;
+    if (cpu || !LoadPbo()) return false;
+    bool fresh = !c.id;
+    if (fresh) glGenTextures(1, &c.id);
+    if (fresh || c.tw != pw || c.th != ph) {
+        glBindTexture(GL_TEXTURE_2D, c.id);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, pw, ph, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        c.tw = pw;
+        c.th = ph;
+    }
+    if (!xfb_target_tex(c.id, pw, ph)) return false;
+    if (!gxt_copy_begin(real, inten, (g_gx.bp[0x43] & 7) == 1)) {
+        xfb_bind_efb(ww, wh);
+        return false;
+    }
+    glDisable(GL_BLEND);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_ALPHA_TEST);
+    glDisable(GL_COLOR_LOGIC_OP);
+    glDisable(GL_CULL_FACE);
+    glColorMask(1, 1, 1, 1);
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glOrtho(0, 1, 0, 1, -1, 1);
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+    gxt_active_texture(0);
+    glBindTexture(GL_TEXTURE_2D, xfb_efb_color());
+    // Output row 0 (texture t = 0) is the copy's top line, as the CPU path uploads it.
+    float u0 = (float)px0 / ww, u1 = (float)(px0 + pw) / ww, vTop = 1.0f - (float)py0 / wh,
+          vBot = 1.0f - (float)(py0 + ph) / wh;
+    QuadFromEfb(u0, u1, vTop, vBot);
+    if (ram) {
+        static GLuint small;
+        static int sw, sh;
+        if (!small) glGenTextures(1, &small);
+        if (sw != tw || sh != th) {
+            glBindTexture(GL_TEXTURE_2D, small);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, tw, th, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+            sw = tw;
+            sh = th;
+        }
+        if (xfb_target_tex(small, tw, th)) {
+            glBindTexture(GL_TEXTURE_2D, xfb_efb_color());
+            QuadFromEfb(u0, u1, vTop, vBot);
+            GLuint pbo;
+            if (!g_freePbos.empty()) {
+                pbo = g_freePbos.back();
+                g_freePbos.pop_back();
+            } else {
+                p_genBuffers(1, &pbo);
+            }
+            p_bindBuffer(GL_PIXEL_PACK_BUFFER_, pbo);
+            p_bufferData(GL_PIXEL_PACK_BUFFER_, (ptrdiff_t)tw * th * 4, nullptr, GL_STREAM_READ_);
+            glPixelStorei(GL_PACK_ALIGNMENT, 1);
+            glReadPixels(0, 0, tw, th, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+            p_bindBuffer(GL_PIXEL_PACK_BUFFER_, 0);
+            g_pendingCopies.push_back({pbo, dst, g_gx.bp[0x4D] & 0x3FF, real, tw, th, g_frameNo});
+            c.pending++;
+        }
+    }
+    gxt_copy_end();
+    xfb_bind_efb(ww, wh);
+    c.bytes = (size_t)((tw + 7) & ~7) * ((th + 7) & ~7) * kCopyBpp[real] / 8;
+    if (!c.pending) c.ramSum = Checksum(Phys(dst), c.bytes);
+    g_stateDirty = true;
+    return true;
+}
+
 void gxr_copy(u32 bp52) {
     gxr_end_batch();
     bool toXfb = (bp52 >> 14) & 1, clear = (bp52 >> 11) & 1;
-    if (toXfb && getenv("NICECRASH_COPYLOG")) {
+    if (toXfb && NC_ENV("NICECRASH_COPYLOG")) {
         static int n;
         if (n++ < 3)
             fprintf(stderr, "[copy] src %06x size %06x yscale %06x dst stride %06x bp52 %06x\n", g_gx.bp[0x49] & 0xFFFFFF,
@@ -849,13 +1004,25 @@ void gxr_copy(u32 bp52) {
     if (px1 > ww) px1 = ww;
     if (py1 > wh) py1 = wh;
     int pw = px1 - px0, ph = py1 - py0;
-    static const bool noEfbCopy = getenv("NICECRASH_NOEFBCOPY") != nullptr;
+    static const bool noEfbCopy = NC_ENV("NICECRASH_NOEFBCOPY") != nullptr;
     if (!toXfb && !noEfbCopy && xfb_active() && pw > 0 && ph > 0) {
         xfb_bind_efb(ww, wh);
         int tpf = (bp52 >> 3) & 15, real = (tpf >> 1) | ((tpf & 1) << 3);
         bool inten = (bp52 >> 15) & 1, half = (bp52 >> 9) & 1;
         bool depth = (g_gx.bp[0x43] & 7) == 3;  // PE_CONTROL pixel format Z24: a depth copy
         u32 dst = (g_gx.bp[0x4B] & 0xFFFFFF) << 5;
+        int gtw = half ? ew / 2 : ew, gth = half ? eh / 2 : eh;
+        bool gpu = !depth && !NC_ENV("NICECRASH_COPYDUMP") &&
+                   GpuCopy(g_efbCopies[dst], dst, real, inten, px0, py0, pw, ph, ww, wh, gtw, gth,
+                           gtw > 0 && gth > 0 && dst && !NC_ENV("NICECRASH_NOCOPYRAM"));
+        if (gpu) {
+            if (NC_ENV("NICECRASH_COPYLOG") || g_frameNo == g_logFrame) {
+                static int n;
+                if (n++ < 40 || g_frameNo == g_logFrame)
+                    fprintf(stderr, "[copy] tex %08x real %d%s%s gpu src (%d,%d %dx%d) -> %dx%d\n", dst, real,
+                            inten ? " I" : "", half ? " half" : "", ex, ey, ew, eh, gtw, gth);
+            }
+        } else {
         std::vector<u8> rgba((size_t)pw * ph * 4);
         std::vector<float> z;
         glPixelStorei(GL_PACK_ALIGNMENT, 1);
@@ -895,7 +1062,7 @@ void gxr_copy(u32 bp52) {
             }
         }
         int tw = half ? ew / 2 : ew, th = half ? eh / 2 : eh;
-        if (getenv("NICECRASH_COPYDUMP")) {  // each copy target once, as build/tex/copy_<addr>_r<fmt>.bmp
+        if (NC_ENV("NICECRASH_COPYDUMP")) {  // each copy target once, as build/tex/copy_<addr>_r<fmt>.bmp
             static std::unordered_map<u32, int> seen;
             if (seen[dst]++ == 30) {
                 char path[128];
@@ -921,7 +1088,7 @@ void gxr_copy(u32 bp52) {
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, pw, ph, 0, GL_RGBA, GL_UNSIGNED_BYTE, out.data());
         // RAM copy at EFB resolution (the game reads some copies with the CPU: drtex blends sky textures).
-        if (tw > 0 && th > 0 && dst && !getenv("NICECRASH_NOCOPYRAM")) {
+        if (tw > 0 && th > 0 && dst && !NC_ENV("NICECRASH_NOCOPYRAM")) {
             std::vector<u8> small((size_t)tw * th * 4);
             for (int y = 0; y < th; y++)
                 for (int x = 0; x < tw; x++) {
@@ -932,23 +1099,26 @@ void gxr_copy(u32 bp52) {
         }
         c.bytes = (size_t)((tw + 7) & ~7) * ((th + 7) & ~7) * kCopyBpp[real] / 8;
         c.ramSum = Checksum(Phys(dst), c.bytes);
-        if (getenv("NICECRASH_COPYLOG") || g_frameNo == g_logFrame) {
+        if (NC_ENV("NICECRASH_COPYLOG") || g_frameNo == g_logFrame) {
             static int n;
             if (n++ < 40 || g_frameNo == g_logFrame)
                 fprintf(stderr, "[copy] tex %08x real %d%s%s%s src (%d,%d %dx%d) -> %dx%d\n", dst, real, inten ? " I" : "",
                         half ? " half" : "", depth ? " Z" : "", ex, ey, ew, eh, tw, th);
         }
+        }  // CPU path
     }
     if (toXfb) {
+        // RAM images of GPU copies issued before the previous display copy have finished reading back by now.
+        if (!g_pendingCopies.empty()) ResolveCopies(g_frameNo);
         if (xfb_active()) {  // the EFB goes to its XFB; the VI shows the one the game selects at the retrace
             xfb_bind_efb(ww, wh);
             sdk_vi_note_copy();
             // A copy of an EFB nothing was drawn into since the last copy (the host's timing gives the game the odd
             // empty frame; on the Wii they do not reach the screen) keeps the XFB's previous picture.
-            if (g_drawsSinceCopy || getenv("NICECRASH_EMPTYCOPIES")) {
-                if (getenv("NICECRASH_XFBLOG")) fprintf(stderr, "[xfb] draws in frame %u\n", g_drawsSinceCopy);
+            if (g_drawsSinceCopy || NC_ENV("NICECRASH_EMPTYCOPIES")) {
+                if (NC_ENV("NICECRASH_XFBLOG")) fprintf(stderr, "[xfb] draws in frame %u\n", g_drawsSinceCopy);
                 xfb_copy(g_gx.bp[0x4B] << 5, (int)((g_gx.bp[0x4A] >> 10) & 0x3FF) + 1);
-            } else if (getenv("NICECRASH_XFBLOG")) {
+            } else if (NC_ENV("NICECRASH_XFBLOG")) {
                 fprintf(stderr, "[xfb] empty copy skipped\n");
             }
             g_drawsSinceCopy = 0;

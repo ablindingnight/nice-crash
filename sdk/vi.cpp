@@ -69,6 +69,10 @@ static void CreateGameWindow() {
     SetPixelFormat(g_dc, ChoosePixelFormat(g_dc, &pfd), &pfd);
     g_rc = wglCreateContext(g_dc);
     wglMakeCurrent(g_dc, g_rc);
+    // NICECRASH_NOVSYNC=1: swap without waiting for the monitor (the VI retrace is timed on the performance counter;
+    // measured 2026-11-16: no frame-rate difference in the race, so the driver default stays).
+    typedef BOOL(WINAPI * SwapIntervalFn)(int);
+    if (auto si = (SwapIntervalFn)(void*)wglGetProcAddress("wglSwapIntervalEXT")) { if (getenv("NICECRASH_NOVSYNC")) si(0); }
     QueryPerformanceFrequency(&g_freq);
     QueryPerformanceCounter(&g_last);
 }

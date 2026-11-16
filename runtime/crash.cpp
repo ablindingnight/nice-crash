@@ -6,6 +6,7 @@
 #include <dbghelp.h>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 static void PrintFrame(HANDLE proc, DWORD64 pc, int i) {
     char buf[sizeof(SYMBOL_INFO) + 256];
@@ -335,4 +336,159 @@ extern "C" void port_fptrap_rearm() {
     csr &= ~0x3Fu;
     csr &= ~0x80u;
     __asm__ volatile("ldmxcsr %0" : : "m"(csr));
+}
+
+// NICECRASH_PROF=<start s>:<seconds>: a sampling profiler. After <start> seconds it samples the instruction pointer
+// of every thread of the process about once a millisecond for <seconds>, then prints the functions with the most
+// samples (flat profile; samples in Windows wait functions are idle threads and listed apart).
+#include <tlhelp32.h>
+#include <mmsystem.h>
+#include <algorithm>
+#include <string>
+#include <unordered_map>
+#include <vector>
+struct ProfSample { DWORD tid; DWORD pc; DWORD exe; };
+static std::string ProfName(HANDLE proc, DWORD64 pc) {
+    char buf[sizeof(SYMBOL_INFO) + 256];
+    SYMBOL_INFO* si = (SYMBOL_INFO*)buf;
+    si->SizeOfStruct = sizeof(SYMBOL_INFO);
+    si->MaxNameLen = 255;
+    DWORD64 disp = 0;
+    std::string name = SymFromAddr(proc, pc, &disp, si) ? si->Name : "?";
+    IMAGEHLP_MODULE64 mi{};
+    mi.SizeOfStruct = sizeof mi;
+    if (SymGetModuleInfo64(proc, pc, &mi)) name = std::string(mi.ModuleName) + "!" + name;
+    return name.size() > 110 ? name.substr(0, 110) : name;
+}
+static DWORD WINAPI Profiler(void*) {
+    int start = 0, dur = 0;
+    if (sscanf(getenv("NICECRASH_PROF"), "%d:%d", &start, &dur) != 2 || dur <= 0) return 0;
+    Sleep((DWORD)start * 1000);
+    HANDLE proc = GetCurrentProcess();
+    SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS);
+    SymInitialize(proc, nullptr, TRUE);
+    // The exe's address range: each sample is also charged to the first frame on its stack inside the game exe
+    // (driver and Windows time lands on the port function that called it).
+    BYTE* base = (BYTE*)GetModuleHandleA(nullptr);
+    IMAGE_NT_HEADERS* nt = (IMAGE_NT_HEADERS*)(base + ((IMAGE_DOS_HEADER*)base)->e_lfanew);
+    DWORD lo = (DWORD)(uintptr_t)base, hi = lo + nt->OptionalHeader.SizeOfImage;
+    timeBeginPeriod(1);
+    std::vector<ProfSample> samples;
+    samples.reserve((size_t)dur * 1000 * 16);  // no reallocation while a thread is suspended
+    std::vector<std::pair<HANDLE, DWORD>> threads;
+    DWORD self = GetCurrentThreadId(), pid = GetCurrentProcessId(), end = GetTickCount() + (DWORD)dur * 1000,
+          refresh = 0;
+    while ((int)(GetTickCount() - end) < 0) {
+        if ((int)(GetTickCount() - refresh) >= 0) {
+            for (auto& t : threads) CloseHandle(t.first);
+            threads.clear();
+            HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+            THREADENTRY32 te{};
+            te.dwSize = sizeof te;
+            for (BOOL ok = Thread32First(snap, &te); ok; ok = Thread32Next(snap, &te))
+                if (te.th32OwnerProcessID == pid && te.th32ThreadID != self)
+                    if (HANDLE h = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION,
+                                              FALSE, te.th32ThreadID))
+                        threads.push_back({h, te.th32ThreadID});
+            CloseHandle(snap);
+            refresh = GetTickCount() + 500;
+        }
+        for (auto& t : threads) {
+            if (SuspendThread(t.first) == (DWORD)-1) continue;
+            CONTEXT c{};
+            c.ContextFlags = CONTEXT_FULL;
+            if (GetThreadContext(t.first, &c)) {
+#ifdef _M_IX86
+                // Frame-pointer chain from EBP (no allocation or locks while the thread is suspended: it may hold
+                // the heap lock). Driver code without frame pointers is skipped up to the nearest caller using EBP.
+                ProfSample s{t.second, c.Eip, 0};
+                if (c.Eip >= lo && c.Eip < hi) {
+                    s.exe = c.Eip;
+                } else {
+                    DWORD fp = c.Ebp;
+                    for (int k = 0; k < 64 && fp > c.Esp && fp < c.Esp + 0x400000 && !(fp & 3); k++) {
+                        DWORD ret = ((DWORD*)(uintptr_t)fp)[1], next = ((DWORD*)(uintptr_t)fp)[0];
+                        if (ret >= lo && ret < hi) { s.exe = ret; break; }
+                        if (next <= fp) break;
+                        fp = next;
+                    }
+                }
+                if (samples.size() < samples.capacity()) samples.push_back(s);
+#endif
+            }
+            ResumeThread(t.first);
+        }
+        Sleep(1);
+    }
+    timeEndPeriod(1);
+    std::unordered_map<DWORD, unsigned> perThread;
+    for (auto& s : samples) perThread[s.tid]++;
+    // Busy samples: not parked in a wait. A thread's "busy" share is what matters.
+    auto idle = [&](const std::string& n) {
+        return n.find("Wait") != std::string::npos || n.find("DelayExecution") != std::string::npos ||
+               n.find("RemoveIoCompletion") != std::string::npos;
+    };
+    std::unordered_map<DWORD, std::string> nameCache;
+    auto nameOf = [&](DWORD pc) -> const std::string& {
+        auto it = nameCache.find(pc);
+        if (it == nameCache.end()) it = nameCache.emplace(pc, ProfName(proc, pc)).first;
+        return it->second;
+    };
+    fprintf(stderr, "[prof] %zu samples over %d s\n", samples.size(), dur);
+    for (auto& pt : perThread) {
+        std::unordered_map<std::string, unsigned> self_, incl;
+        unsigned busy = 0;
+        for (auto& s : samples) {
+            if (s.tid != pt.first) continue;
+            const std::string& n = nameOf(s.pc);
+            if (idle(n)) { self_["(idle) " + n]++; continue; }
+            busy++;
+            self_[n]++;
+            incl[s.exe ? nameOf(s.exe) : "(no exe frame)"]++;
+        }
+        if (busy * 20 < pt.second) continue;  // mostly idle thread
+        fprintf(stderr, "[prof] thread %lu: %u samples, %u busy (%.0f%%)\n", pt.first, pt.second, busy,
+                100.0 * busy / pt.second);
+        for (auto* m : {&self_, &incl}) {
+            std::vector<std::pair<unsigned, std::string>> rows;
+            for (auto& kv : *m) rows.push_back({kv.second, kv.first});
+            std::sort(rows.rbegin(), rows.rend());
+            fprintf(stderr, "[prof]   %s\n", m == &self_ ? "self:" : "by first game-exe frame:");
+            for (size_t i = 0; i < rows.size() && i < 30; i++)
+                fprintf(stderr, "[prof]   %6.2f%% %6u  %s\n", 100.0 * rows[i].first / pt.second, rows[i].first,
+                        rows[i].second.c_str());
+        }
+    }
+    // NICECRASH_PROFLINES=<substring>: busy samples inside functions whose name contains it, by source line.
+    if (const char* want = getenv("NICECRASH_PROFLINES")) {
+        SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES);
+        std::unordered_map<std::string, unsigned> lines;
+        unsigned n = 0;
+        for (auto& s : samples) {
+            if (nameOf(s.pc).find(want) == std::string::npos) continue;
+            IMAGEHLP_LINE64 line{};
+            line.SizeOfStruct = sizeof line;
+            DWORD ldisp = 0;
+            char key[300];
+            if (SymGetLineFromAddr64(proc, s.pc, &ldisp, &line)) {
+                const char* f = strrchr(line.FileName, 92);  // backslash
+                snprintf(key, sizeof key, "%s:%lu", f ? f + 1 : line.FileName, line.LineNumber);
+            } else {
+                snprintf(key, sizeof key, "%08lx", s.pc);
+            }
+            lines[key]++;
+            n++;
+        }
+        std::vector<std::pair<unsigned, std::string>> rows;
+        for (auto& kv : lines) rows.push_back({kv.second, kv.first});
+        std::sort(rows.rbegin(), rows.rend());
+        fprintf(stderr, "[prof] lines in *%s*: %u samples\n", want, n);
+        for (size_t i = 0; i < rows.size() && i < 40; i++)
+            fprintf(stderr, "[prof]   %6u  %s\n", rows[i].first, rows[i].second.c_str());
+    }
+    fflush(stderr);
+    return 0;
+}
+__attribute__((constructor(102))) static void InstallProfiler() {
+    if (getenv("NICECRASH_PROF")) CloseHandle(CreateThread(nullptr, 0, Profiler, nullptr, 0, nullptr));
 }

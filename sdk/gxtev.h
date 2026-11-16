@@ -14,3 +14,7 @@ void gxt_color1(const u8 c[4]);
 void gxt_draw_arrays(unsigned mode, const void* base, int stride, int n, int nTex);
 // PE blend state (BP 0x41/0x42/0x43) as GL blend/logic-op/colour-mask state.
 void gxt_blend(u32 cmode0, u32 cmode1, u32 pe_ctrl);
+// EFB -> texture copy on the GPU: binds a program that converts the EFB colour sampled from texture unit 0 into what
+// a texture of copy format `real` (BP 0x52) samples as. Draw a quad, then gxt_copy_end(). False: no shaders.
+bool gxt_copy_begin(int real, bool intensity, bool srcAlpha);
+void gxt_copy_end();

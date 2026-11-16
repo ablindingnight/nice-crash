@@ -11,6 +11,7 @@
 #include <iterator>
 #include <string>
 #include <unordered_map>
+#include "env.h"
 #include "gxinterp.h"
 #include "gxtev.h"
 
@@ -73,7 +74,7 @@ bool Load() {
     p_blendFuncSep = (BlendFuncSep_t)(void*)wglGetProcAddress("glBlendFuncSeparate");
     p_blendEqSep = (BlendEqSep_t)(void*)wglGetProcAddress("glBlendEquationSeparate");
     p_blendColor = (BlendColor_t)(void*)wglGetProcAddress("glBlendColor");
-    if (getenv("NICECRASH_NOTEV")) g_ok = 0;
+    if (NC_ENV("NICECRASH_NOTEV")) g_ok = 0;
     return g_ok;
 }
 
@@ -271,7 +272,7 @@ std::string BuildFS(int nStages, const bool texOk[8]) {
         } else {
             s += "  tx = vec4(0.0);\n";
         }
-        if (const char* dbg = getenv("NICECRASH_TEVDBG"))  // debugging: show this stage's texture sample (and coords)
+        if (const char* dbg = NC_ENV("NICECRASH_TEVDBG"))  // debugging: show this stage's texture sample (and coords)
             if (atoi(dbg + (*dbg >= 'a')) == st && nStages > 3) {
                 // c<stage>: final texel coordinate (X low in r, X high in g, Y mod 256 in b); b<stage>: the same
                 // before the indirect offset; i<stage>: the biased indirect values + 128; else: sample + coords.
@@ -399,7 +400,7 @@ bool gxt_begin(const bool texOk[8]) {
         mix(g_gx.bp[0xF6 + i] & 0xFFFFFF);
     }
     static std::unordered_map<u64, Prog*> fast;
-    static const bool tevlog = getenv("NICECRASH_TEVLOG") != nullptr;
+    static const bool tevlog = NC_ENV("NICECRASH_TEVLOG") != nullptr;
     auto fit = fast.find(h);
     if (fit != fast.end() && !tevlog) {
         if (!fit->second->id) return false;
@@ -462,13 +463,13 @@ bool gxt_begin(const bool texOk[8]) {
                 pr.ishift = p_glGetUniformLocation(pr.id, "ishift");
             }
         }
-        if (getenv("NICECRASH_TEVLOG")) fprintf(stderr, "[tev] program %zu (%s):\n%s\n", g_progs.size(), key.c_str(), fsrc.c_str());
+        if (NC_ENV("NICECRASH_TEVLOG")) fprintf(stderr, "[tev] program %zu (%s):\n%s\n", g_progs.size(), key.c_str(), fsrc.c_str());
         it = g_progs.emplace(key, pr).first;
     }
     fast[h] = &it->second;
     if (!it->second.id) return false;
     g_cur = &it->second;
-    if (getenv("NICECRASH_TEVLOG") && atoi(getenv("NICECRASH_TEVLOG")) > 1)
+    if (NC_ENV("NICECRASH_TEVLOG") && atoi(NC_ENV("NICECRASH_TEVLOG")) > 1)
         fprintf(stderr, "[tev] use %.40s gen %06x F3 %06x reg %06x %06x konst %06x %06x map0 %06x/%06x map1 %06x/%06x tlut %06x %06x\n", it->first.c_str(), g_gx.bp[0] & 0xFFFFFF,
                 g_gx.bp[0xF3] & 0xFFFFFF, g_gx.tevReg[2], g_gx.tevReg[3], g_gx.tevKonst[0], g_gx.tevKonst[1], g_gx.bp[0x88] & 0xFFFFFF, g_gx.bp[0x94] & 0xFFFFFF, g_gx.bp[0x89] & 0xFFFFFF, g_gx.bp[0x95] & 0xFFFFFF, g_gx.bp[0x98] & 0xFFFFFF, g_gx.bp[0x99] & 0xFFFFFF);
     }
@@ -568,7 +569,7 @@ void gxt_blend(u32 cm, u32 cm1, u32 pe) {
                                    GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_DST_ALPHA, GL_ONE_MINUS_DST_ALPHA};
     static const GLenum dstF[8] = {GL_ZERO, GL_ONE, GL_SRC_COLOR, GL_ONE_MINUS_SRC_COLOR,
                                    GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_DST_ALPHA, GL_ONE_MINUS_DST_ALPHA};
-    static const int ab = getenv("NICECRASH_BLENDAB") ? atoi(getenv("NICECRASH_BLENDAB")) : 0;  // debugging: 1 = no dst alpha, 2 = alpha always, 4 = no logic op
+    static const int ab = NC_ENV("NICECRASH_BLENDAB") ? atoi(NC_ENV("NICECRASH_BLENDAB")) : 0;  // debugging: 1 = no dst alpha, 2 = alpha always, 4 = no logic op
     bool hasAlpha = (pe & 7) == 1 || (ab & 2);
     if (ab & 1) cm1 = 0;
     if (ab & 4) cm &= ~2u;  // RGBA6_Z24; RGB8_Z24 and RGB565_Z16 read destination alpha as 1
@@ -612,3 +613,68 @@ void gxt_blend(u32 cm, u32 cm1, u32 pe) {
     glColorMask((cm >> 3) & 1, (cm >> 3) & 1, (cm >> 3) & 1, ((cm >> 4) & 1) && hasAlpha);
 }
 
+
+// ---- EFB copy conversion (gxr_copy) ----
+// The same conversions as the CPU path in gxr_copy: intensity (BT.601 Y with +16), the I/IA/A/R/G/B/RG/GB channel
+// picks, RGB565 (opaque) and the full-colour formats; alpha only from an RGBA6 EFB.
+bool gxt_copy_begin(int real, bool intensity, bool srcAlpha) {
+    if (!Load()) return false;
+    static GLuint prog;
+    static GLint uFmt, uInten, uAlpha, uEfb;
+    static bool tried;
+    if (!tried) {
+        tried = true;
+        static const char* vs =
+            "#version 120\n"
+            "void main() { gl_Position = ftransform(); gl_TexCoord[0] = gl_MultiTexCoord0; }\n";
+        static const char* fs =
+            "#version 120\n"
+            "uniform sampler2D efb;\n"
+            "uniform int fmt;\n"
+            "uniform float inten, srcAlpha;\n"
+            "void main() {\n"
+            "  vec4 s = texture2D(efb, gl_TexCoord[0].st);\n"
+            "  float a = srcAlpha > 0.5 ? s.a : 1.0;\n"
+            "  float i = inten > 0.5 ? floor(clamp(dot(s.rgb, vec3(0.257, 0.504, 0.098)) * 255.0 + 16.0, 0.0, 255.0)) / 255.0 : s.r;\n"
+            "  vec4 o;\n"
+            "  if (fmt == 0 || fmt == 1 || fmt == 8) o = vec4(i);\n"
+            "  else if (fmt == 2 || fmt == 3) o = vec4(i, i, i, a);\n"
+            "  else if (fmt == 7) o = vec4(a);\n"
+            "  else if (fmt == 9) o = vec4(s.g);\n"
+            "  else if (fmt == 10) o = vec4(s.b);\n"
+            "  else if (fmt == 11) o = vec4(s.g, s.g, s.g, s.r);\n"
+            "  else if (fmt == 12) o = vec4(s.b, s.b, s.b, s.g);\n"
+            "  else if (fmt == 4) o = vec4(s.rgb, 1.0);\n"
+            "  else o = vec4(s.rgb, a);\n"
+            "  gl_FragColor = o;\n"
+            "}\n";
+        GLuint v = Compile(GL_VERTEX_SHADER_, vs), f = v ? Compile(GL_FRAGMENT_SHADER_, fs) : 0;
+        if (f) {
+            prog = p_glCreateProgram();
+            p_glAttachShader(prog, v);
+            p_glAttachShader(prog, f);
+            p_glLinkProgram(prog);
+            GLint ok = 0;
+            p_glGetProgramiv(prog, GL_LINK_STATUS_, &ok);
+            if (!ok) {
+                fprintf(stderr, "[tev] copy program link failed: EFB copies on the CPU\n");
+                prog = 0;
+            } else {
+                uFmt = p_glGetUniformLocation(prog, "fmt");
+                uInten = p_glGetUniformLocation(prog, "inten");
+                uAlpha = p_glGetUniformLocation(prog, "srcAlpha");
+                uEfb = p_glGetUniformLocation(prog, "efb");
+            }
+        }
+    }
+    if (!prog) return false;
+    p_glUseProgram(prog);
+    p_glUniform1i(uFmt, real);
+    GLfloat fi = intensity ? 1.0f : 0.0f, fa = srcAlpha ? 1.0f : 0.0f;
+    p_glUniform1fv(uInten, 1, &fi);
+    p_glUniform1fv(uAlpha, 1, &fa);
+    p_glUniform1i(uEfb, 0);
+    return true;
+}
+
+void gxt_copy_end() { p_glUseProgram(0); }

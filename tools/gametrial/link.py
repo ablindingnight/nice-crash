@@ -277,7 +277,7 @@ def main():
         _g.glob(os.path.join(PORT, 'sdk', '*.cpp')) + [os.path.join(PORT, 'lib', 'portconfig.cpp'), os.path.join(PORT, 'lib', 'texture.cpp')] if os.path.basename(p) not in ('port_main.cpp', 'unimpl.cpp'))
     for src in srcs:
         o = os.path.join(B, 'rt_' + src.replace('/', '_') + '.o')
-        r = zig('c++', '-target', 'x86-windows-gnu', '-std=c++17', '-O1', '-g', '-c', '-I', 'lib', '-I', 'sdk', '-fno-sanitize=all', src, '-o', o)
+        r = zig('c++', '-target', 'x86-windows-gnu', '-std=c++17', '-O2', '-fno-omit-frame-pointer', '-g', '-c', '-I', 'lib', '-I', 'sdk', '-fno-sanitize=all', src, '-o', o)
         if r.returncode:
             print(r.stderr)
             sys.exit(1)

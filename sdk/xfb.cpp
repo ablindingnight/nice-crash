@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <map>
+#include "env.h"
 #include "sdk.h"
 #include "xfb.h"
 
@@ -101,7 +102,7 @@ void xfb_copy(u32 addr, int lines) {
     if (!Load() || !g_fbo) return;
     addr &= 0x1FFFFFFF;
     Xfb& x = g_xfbs[addr];
-    if (getenv("NICECRASH_XFBLOG")) fprintf(stderr, "[xfb] copy %08x lines %d%c", addr, lines, 10);
+    if (NC_ENV("NICECRASH_XFBLOG")) fprintf(stderr, "[xfb] copy %08x lines %d%c", addr, lines, 10);
     if (!x.tex) glGenTextures(1, &x.tex);
     p_glBindFramebuffer(GL_FRAMEBUFFER_, g_fbo);
     glBindTexture(GL_TEXTURE_2D, x.tex);
@@ -122,7 +123,7 @@ bool xfb_present(u32 addr, bool black, int ww, int wh) {
     if (!Load() || !g_fbo) return false;
     addr &= 0x1FFFFFFF;
     auto it = g_xfbs.find(addr);
-    if (getenv("NICECRASH_XFBLOG"))
+    if (NC_ENV("NICECRASH_XFBLOG"))
         fprintf(stderr, "[xfb] present %08x %s serial %u (latest copy %08x serial %u)%c", addr,
                 it == g_xfbs.end() ? "MISSING" : "ok", it == g_xfbs.end() ? 0 : it->second.serial, g_lastAddr, g_serial, 10);
     if (it == g_xfbs.end()) it = g_xfbs.find(g_lastAddr);  // the game never named one: show the latest copy
@@ -160,4 +161,20 @@ bool xfb_present(u32 addr, bool black, int ww, int wh) {
 
 void xfb_rebind_efb() {
     if (g_ok > 0 && g_fbo) p_glBindFramebuffer(GL_FRAMEBUFFER_, g_fbo);
+}
+
+unsigned xfb_efb_color() { return g_color; }
+
+bool xfb_target_tex(unsigned tex, int w, int h) {
+    if (!Load() || !g_fbo) return false;
+    static GLuint fbo;
+    if (!fbo) p_glGenFramebuffers(1, &fbo);
+    p_glBindFramebuffer(GL_FRAMEBUFFER_, fbo);
+    p_glFramebufferTexture2D(GL_FRAMEBUFFER_, GL_COLOR_ATTACHMENT0_, GL_TEXTURE_2D, tex, 0);
+    if (p_glCheckFramebufferStatus(GL_FRAMEBUFFER_) != GL_FRAMEBUFFER_COMPLETE_) {
+        p_glBindFramebuffer(GL_FRAMEBUFFER_, g_fbo);
+        return false;
+    }
+    glViewport(0, 0, w, h);
+    return true;
 }
