@@ -33,9 +33,12 @@ enum : u32 {
 struct KStatus {
     u32 hold, trig, release;  // 0x0
     f32 accX, accY, accZ;     // 0xC
-    u8 pad18[0x5C - 0x18];
+    u8 pad18[0x20 - 0x18];
+    f32 posX, posY;           // 0x20: the pointer, -1..1 (x right, y down)
+    u8 pad28[0x5C - 0x28];
     s32 devType;              // 0x5C
-    u8 pad60[0x85 - 0x60];
+    u8 pad60[0x84 - 0x60];
+    s8 dpdValid;              // 0x84: > 0 when the pointer is on screen
     s8 err;                   // 0x85
     u8 pad86[2];
 };
@@ -43,6 +46,8 @@ static_assert(sizeof(KStatus) == 0x88, "KStatus layout");
 
 u32 sdk_vi_retrace_count();
 bool sdk_vi_has_focus();
+bool sdk_vi_pointer(float* x, float* y);
+bool sdk_vi_mouse_button();
 
 static WPADConnectCallback g_connectCb[4];
 static u32 g_prevHold;
@@ -239,6 +244,10 @@ s32 KPADRead(s32 chan, void* buf, u32 n) {
     if (hold & STICK_LEFT) steer = -1;
     if (hold & STICK_RIGHT) steer = 1;
     hold &= ~(u32)(STICK_UP | STICK_DOWN | STICK_LEFT | STICK_RIGHT);
+    // The mouse is remote 1's pointer (the HOME menu points and presses A); a left click is A.
+    f32 px = 0, py = 0;
+    bool pointing = chan == 0 && sdk_vi_pointer(&px, &py);
+    if (chan == 0 && sdk_vi_mouse_button()) hold |= BTN_A;
     XState probe;
     if (chan != 0 && !PadState(chan, &probe)) return 0;  // no pad: no remote
     static u32 prev[4];
@@ -259,6 +268,9 @@ s32 KPADRead(s32 chan, void* buf, u32 n) {
     k->accY = -sqrtf(fmaxf(0.0f, 1.0f - roll * roll)) * cosf(pitch);
     k->devType = 0;  // WPAD_DEV_CORE
     k->err = 0;      // WPAD_ERR_NONE
+    k->posX = px;
+    k->posY = py;
+    k->dpdValid = pointing ? 1 : 0;
     return 1;
 }
 
@@ -272,6 +284,7 @@ void WPADControlMotor(s32 chan, u32 on) {
 u8 WPADGetRadioSensitivity(s32) { return 100; }
 void __WPADShutdown(void) {}
 void __WPADReconnect(void) {}
+void KPADEnableDPD(s32) {}   // the pointer is always on (the mouse)
 void KPADDisableDPD(s32) {}
 
 void PADInit(void) {}

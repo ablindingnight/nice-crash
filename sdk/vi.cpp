@@ -259,4 +259,18 @@ void GXFlush(void) {
 }  // extern "C"
 
 u32 sdk_vi_retrace_count() { return g_retrace; }
+
+// The mouse as the Wii Remote pointer: its position over the picture as -1..1 (x right, y down), as KPAD reports
+// the pointer. False when the window is not focused or the cursor is outside the picture.
+bool sdk_vi_pointer(float* x, float* y) {
+    if (!g_hwnd || GetForegroundWindow() != g_hwnd) return false;
+    POINT p;
+    if (!GetCursorPos(&p) || !ScreenToClient(g_hwnd, &p)) return false;
+    // The picture: the XFB's 448 of 480 lines, centred (xfb_present), across the whole width.
+    float top = g_h * (480.0f - 448.0f) / 2.0f / 480.0f, height = g_h * 448.0f / 480.0f;
+    *x = 2.0f * p.x / g_w - 1.0f;
+    *y = 2.0f * (p.y - top) / height - 1.0f;
+    return *x >= -1.0f && *x <= 1.0f && *y >= -1.0f && *y <= 1.0f;
+}
+bool sdk_vi_mouse_button() { return g_hwnd && GetForegroundWindow() == g_hwnd && (GetAsyncKeyState(VK_LBUTTON) & 0x8000); }
 bool sdk_vi_has_focus() { return g_hwnd && GetForegroundWindow() == g_hwnd; }
