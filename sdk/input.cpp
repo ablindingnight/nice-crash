@@ -424,13 +424,20 @@ static u32 CurrentHold(f32* tilt) {
         if (Key(VK_HOME)) hold |= BTN_HOME;
         if (Key(VK_UP)) hold |= BTN_RIGHT;  // sideways remote: screen up = pad right
         if (Key(VK_DOWN)) hold |= BTN_LEFT;
-        if (!shift) {
-            if (Key(VK_LEFT)) hold |= BTN_UP;
-            if (Key(VK_RIGHT)) hold |= BTN_DOWN;
-        } else {
-            if (Key(VK_LEFT)) *tilt -= 0.5f;
-            if (Key(VK_RIGHT)) *tilt += 0.5f;
-        }
+        // Left/Right steer (the remote's tilt; KPADRead doubles *tilt, so 0.5 = full lock) and are also the D-pad
+        // for menus (the races don't use those D-pad directions). The steering ramps in over ~0.15 s and back out,
+        // so a tap is a small correction; Shift halves it.
+        bool l = Key(VK_LEFT), r = Key(VK_RIGHT);
+        if (l) hold |= BTN_UP;
+        if (r) hold |= BTN_DOWN;
+        static f32 steer;
+        static u32 lastFrame;
+        f32 want = (r ? 1.0f : 0.0f) - (l ? 1.0f : 0.0f);
+        f32 step = 0.11f * (f32)(now != lastFrame ? now - lastFrame : 0);
+        if (step > 1.0f) step = 1.0f;
+        lastFrame = now;
+        steer = want > steer ? (steer + step < want ? steer + step : want) : (steer - step > want ? steer - step : want);
+        *tilt = (shift ? 0.25f : 0.5f) * steer;
     }
     return hold;
 }
