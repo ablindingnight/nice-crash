@@ -3,6 +3,8 @@
 #include "tasks.h"
 #include <windows.h>
 #include <shellapi.h>
+#include <shlobj.h>
+#include <objidl.h>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -81,6 +83,50 @@ std::wstring FormatBytes(long long n) {
 std::string ShortHash(const std::string& h) {
     if (h.size() < 8) return h;
     return h.substr(0, 4) + "\xE2\x80\xA6" + h.substr(h.size() - 4);
+}
+
+long long FreeBytes(const std::string& path) {
+    ULARGE_INTEGER avail;
+    if (!GetDiskFreeSpaceExA(path.c_str(), &avail, nullptr, nullptr)) return -1;
+    return (long long)avail.QuadPart;
+}
+
+// Shortcuts to the launcher (design 9: offered on the last first-run step). NICECRASH_SHORTCUT_DIR puts both in
+// one folder instead (testing).
+static std::wstring ShortcutPath(int where) {
+    if (const char* e = getenv("NICECRASH_SHORTCUT_DIR"))
+        return W(e) + (where == 0 ? L"\\Nice Crash (desktop).lnk" : L"\\Nice Crash (start).lnk");
+    PWSTR dir = nullptr;
+    std::wstring r;
+    if (SUCCEEDED(SHGetKnownFolderPath(where == 0 ? FOLDERID_Desktop : FOLDERID_Programs, 0, nullptr, &dir)))
+        r = std::wstring(dir) + L"\\" + W(PROJECT_NAME) + L".lnk";
+    CoTaskMemFree(dir);
+    return r;
+}
+
+bool ShortcutExists(int where) {
+    std::wstring p = ShortcutPath(where);
+    return !p.empty() && GetFileAttributesW(p.c_str()) != INVALID_FILE_ATTRIBUTES;
+}
+
+bool CreateShortcut(int where) {
+    std::wstring path = ShortcutPath(where);
+    if (path.empty()) return false;
+    wchar_t exe[MAX_PATH];
+    GetModuleFileNameW(nullptr, exe, MAX_PATH);
+    IShellLinkW* link = nullptr;
+    if (FAILED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_IShellLinkW, (void**)&link)))
+        return false;
+    link->SetPath(exe);
+    link->SetWorkingDirectory(W(ExeDir()).c_str());
+    link->SetIconLocation(exe, 0);
+    link->SetDescription(L"Nice Crash launcher");
+    IPersistFile* pf = nullptr;
+    bool ok = SUCCEEDED(link->QueryInterface(IID_IPersistFile, (void**)&pf)) && SUCCEEDED(pf->Save(path.c_str(), TRUE));
+    if (pf) pf->Release();
+    link->Release();
+    if (!ok) LogLine("[launcher] couldn't create the shortcut %s", A(path).c_str());
+    return ok;
 }
 
 static long long DirSize(const std::string& d, int depth = 0) {
@@ -468,6 +514,16 @@ static DWORD WINAPI CheckThread(void* p) {
         SetStep(TOOLS, SKIPPED, L"Not needed: the game is already built");
     } else {
         SetStep(TOOLS, ACTIVE);
+        // Space check before anything big starts (design 9): a build takes about 1 GB (objects, zig cache, exe).
+        {
+            const long long need = 1536LL << 20;
+            long long free = FreeBytes(root.empty() ? ExeDir() : root);
+            if (free >= 0 && free < need) {
+                Fail(TOOLS, L"Building needs about " + FormatBytes(need) + L" free on this drive; there's " +
+                                FormatBytes(free) + L". Free some space, then try again.");
+                goto out;
+            }
+        }
         std::string py = FindOnPath("python.exe");
         std::string zig = getenv("ZIG") ? getenv("ZIG") : FindOnPath("zig.exe");
         if (zig.empty()) {  // trial.py also finds a winget zig; it reports its own error if that fails too

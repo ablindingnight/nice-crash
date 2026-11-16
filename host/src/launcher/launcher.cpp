@@ -44,6 +44,7 @@ struct App {
     bool showDetails = false;
     bool demoChecklist = false;
     bool checkRefreshed = false;
+    bool offerShortcuts = false, scDesktop = true, scStart = true;
     // settings
     float scroll = 0, scrollWant = -1;
     // messages
@@ -566,6 +567,15 @@ void DiscScreen() {
 
 // ---------------------------------------------------------------- first run checklist
 
+void MakeShortcuts() {
+    if (!A.offerShortcuts) return;
+    A.offerShortcuts = false;
+    bool ok = true;
+    if (A.scDesktop && !tasks::ShortcutExists(0)) ok &= tasks::CreateShortcut(0);
+    if (A.scStart && !tasks::ShortcutExists(1)) ok &= tasks::CreateShortcut(1);
+    if (!ok) Toast(L"Couldn't make a shortcut. You can still start Nice Crash from its folder.");
+}
+
 tasks::Checklist DemoChecklist() {
     tasks::Checklist c;
     c.title = L"Getting Nice Crash ready";
@@ -598,6 +608,13 @@ void FirstRunScreen() {
     if (c.finished && !A.checkRefreshed) {
         A.st = tasks::Refresh();
         A.checkRefreshed = true;
+        // Offer shortcuts once, after a first run (not a rebuild), for the ones that don't exist yet.
+        bool rebuild = c.title.find(L"Rebuild") != std::wstring::npos;
+        A.scDesktop = !tasks::ShortcutExists(0);
+        A.scStart = !tasks::ShortcutExists(1);
+        A.offerShortcuts = !c.failed && !rebuild && (A.scDesktop || A.scStart);
+        A.pendingFocus = true;  // the footer changed (Cancel -> PLAY / Try again): focus its default
+
     }
     float x = 96, y = 84, w = 1088;
     int cur = 0, done = 0;
@@ -710,8 +727,18 @@ void FirstRunScreen() {
     if (Link(A.showDetails ? L"Hide details" : L"Show details", x, fy + 10, 15, col::tilt, true, &lw))
         A.showDetails = !A.showDetails;
     float sx = x + lw + 28;
-    Icon("shield", sx, fy + 13, 16, col::ok, 1.8f);
-    Text(L"Your dump is only read, never changed. Nothing leaves this PC.", F_BODY, 14, sx + 24, fy + 12, col::dim);
+    if (A.offerShortcuts && c.finished && !c.failed) {
+        // Last step of a first run (design 9): shortcuts to the launcher, both ticked; made on PLAY or Home.
+        int i1 = g.focusCount;
+        TakeFocus(sx, fy + 6, 190, 30);
+        Checkbox(&A.scDesktop, L"Desktop shortcut", sx, fy + 9, i1);
+        int i2 = g.focusCount;
+        TakeFocus(sx + 220, fy + 6, 210, 30);
+        Checkbox(&A.scStart, L"Start menu entry", sx + 220, fy + 9, i2);
+    } else {
+        Icon("shield", sx, fy + 13, 16, col::ok, 1.8f);
+        Text(L"Your dump is only read, never changed. Nothing leaves this PC.", F_BODY, 14, sx + 24, fy + 12, col::dim);
+    }
     float bx = x + w;
     if (c.running) {
         float bw = TextWidth(L"CANCEL", F_DISPLAY, 17, 0.12f) + 52;
@@ -734,10 +761,19 @@ void FirstRunScreen() {
         // Ready to play.
         float pw = 260;
         int pi = g.focusCount;
-        if (PlayButton(L"PLAY", bx - pw, fy - 18, pw, 62, true, false)) { A.st = tasks::Refresh(); Go(HOME); Play(); }
+        if (PlayButton(L"PLAY", bx - pw, fy - 18, pw, 62, true, false)) {
+            MakeShortcuts();
+            A.st = tasks::Refresh();
+            Go(HOME);
+            Play();
+        }
         DefaultFocus(pi);
         float bw2 = TextWidth(L"HOME", F_DISPLAY, 17, 0.12f) + 52;
-        if (Button2(L"Home", bx - pw - 30 - bw2, fy) || (g.in.back && !g.consumed)) { g.consumed = true; Go(HOME); }
+        if (Button2(L"Home", bx - pw - 30 - bw2, fy) || (g.in.back && !g.consumed)) {
+            g.consumed = true;
+            MakeShortcuts();
+            Go(HOME);
+        }
     }
     (void)first;
 }

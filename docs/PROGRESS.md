@@ -381,3 +381,8 @@
   Still to come: model/scale picker, checklist with Cancel, disk space, "Remove enhanced files", the game's
   replacement-video and texture-by-hash hooks. Check the Real-ESRGAN / Real-CUGAN / RIFE ncnn-vulkan licences
   before bundling anything.
+- Design 9 additions in the launcher: a free-space check before a build (about 1.5 GB; a build is about 1 GB of
+  objects, zig cache and exe) and, on the last first-run step, "Desktop shortcut" / "Start menu entry" checkboxes
+  (both on, offered only for shortcuts that don't exist yet, made on PLAY or Home; NICECRASH_SHORTCUT_DIR for tests).
+  `graphics.enhanced_assets` is a restart setting, as in the design. The game build's datagen step needs nothing
+  from the launcher: trial.py runs prep.py, which reads NICECRASH_DOL (the launcher passes it).

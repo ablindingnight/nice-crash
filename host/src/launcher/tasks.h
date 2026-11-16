@@ -14,6 +14,9 @@ std::string LogDir();       // %LOCALAPPDATA%\NiceCrash\logs (created)
 std::string LogPath();      // LogDir() + "\nicecrash_log.txt"
 
 std::wstring FormatBytes(long long n);
+long long FreeBytes(const std::string& path);   // free space for this user on path's drive, -1 if unknown
+bool ShortcutExists(int where);                 // 0 = desktop, 1 = Start menu
+bool CreateShortcut(int where);
 std::string ShortHash(const std::string& sha1);   // "e516…672b"
 
 struct DumpInfo {
