@@ -1,4 +1,3 @@
 # undefined symbol	definition it is in retail (same address / vtable slot)
 # (decomp d128adacf fixed the CollShape SetId, CenterLine, Phob/CollVolume and Xform aliases at source)
-# aidriver.cpp `new AIDriver`: retail calls fn_801938F4 = __ct__8AIDriverFv (aicar.cpp, takes and returns the object)
-__ZN8AIDriverC1Ev	___ct__8AIDriverFv
+# (decomp 1ef2a5d75 made AIDriver::AIDriver a real member: alias dropped at pin 835b0f847)

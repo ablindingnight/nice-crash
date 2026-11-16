@@ -1,0 +1,10 @@
+@@@ include/revolution/GX/GXHardware.h | FIFO: the SDK's write-gather pipe is a union at the fixed address 0xCC008000; game C++ units that include the SDK's GX inlines (kernel.cpp: GXPosition3s16, GXColor4u8, ...) write through the host FIFO object instead (shim/include/port_fifo.h), as the prep rule wgpipe-union does for the game's own pipe casts
+<<<
+} WGPIPE DECL_ADDRESS(0xCC008000);
+===
+} WGPIPE DECL_ADDRESS(0xCC008000);
+#ifdef __cplusplus  // port
+#include <port_fifo.h>
+#define WGPIPE port_wgpipe
+#endif
+>>>

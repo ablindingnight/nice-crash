@@ -11,8 +11,10 @@ extern "C" void port_fifo_f32(float v);
 struct PortWGPipe {
     struct U8 { void operator=(unsigned char v) const { port_fifo_u8(v); } } uc, c;
     struct U16 { void operator=(unsigned short v) const { port_fifo_u16(v); } } us, s;
-    struct U32 { void operator=(unsigned int v) const { port_fifo_u32(v); } } u, i;
+    struct U32 { void operator=(unsigned int v) const { port_fifo_u32(v); } } u, i, ui;
     struct F32 { void operator=(float v) const { port_fifo_f32(v); } } f;
+    // GXFastCallDisplayList: the list address (Wii memory is mapped at the same host address, 32-bit build)
+    struct P { void operator=(void* v) const { port_fifo_u32((unsigned int)(unsigned long)v); } } p;
 };
 static const PortWGPipe port_wgpipe = {};
 #endif

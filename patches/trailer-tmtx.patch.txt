@@ -1,9 +1,0 @@
-@@@ trailer.cpp | CTOR: TMtx's anonymous union holds RVec3 (which has a constructor), so clang deletes TMtx's default constructor and BodyState can't be built. An empty TMtx() {} keeps the code identical (the decomp keeps it out for now: it renumbers @N labels)
-<<<
-struct TMtx {
-    union {
-===
-struct TMtx {
-    TMtx() {}
-    union {
->>>

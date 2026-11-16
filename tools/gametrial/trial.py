@@ -15,6 +15,40 @@ OUT = os.path.join(HERE, 'out')
 SHIM = os.path.join(PORT, 'shim', 'include')
 
 
+
+_BTE = None
+
+
+def bte_dirs():
+    """The decomp builds with `-ir include/revolution/BTE` (MWCC searches every subfolder); the Broadcom headers the
+    game's WPAD/KPAD headers now pull in (bt_target.h -> data_types.h) need the same, searched last."""
+    global _BTE
+    if _BTE is None:
+        root = os.path.join(PORT, 'build', 'gamesrc', 'include', 'revolution', 'BTE')
+        _BTE = []
+        for d, _, fs in sorted(os.walk(root)):
+            if any(f.endswith('.h') for f in fs):
+                _BTE += ['-idirafter', d]
+    return _BTE
+
+
+_UNITDEF = None
+
+
+def unit_defines(base):
+    """Per-unit -D flags from the decomp's configure.py extra_cflags (rjoy/sysconfig: REVOLUTION and the SDK
+    variant, which the BTE/SC headers they include test)."""
+    global _UNITDEF
+    if _UNITDEF is None:
+        import re
+        _UNITDEF = {}
+        cfg = os.path.join(ET, 'configure.py')
+        if os.path.exists(cfg):
+            for m in re.finditer(r'"game/([\w.]+)",[^\n]*?extra_cflags=\[([^\]]*)\]', open(cfg, encoding='utf-8').read()):
+                _UNITDEF[m.group(1)] = re.findall(r'"(-D\w+(?:=\w+)?)"', m.group(2))
+    return _UNITDEF.get(base, [])
+
+
 def find_zig():
     for p in os.environ.get('PATH', '').split(os.pathsep):
         z = os.path.join(p, 'zig.exe')
@@ -42,7 +76,7 @@ def flags_for(src):
     if os.path.basename(src) in CXX_C_FILES:
         return ['c++', ['-std=gnu++11', '-x', 'c++']]
     if src.endswith('.c'):
-        return ['cc', ['-std=gnu99']]
+        return ['cc', ['-std=gnu99', '-Wno-implicit-function-declaration']]  # C89-style calls (radmemset16)
     return ['c++', ['-std=gnu++11']]
 
 
@@ -58,7 +92,7 @@ def run(zig, src, obj):
            # would treat the path as unreachable and run into the next function.
            '-fno-strict-return'] + (['-fno-exceptions'] if mode == 'c++' else []) + [
            '-I', SHIM, '-I', os.path.join(PORT, 'build', 'dumpinc'), '-I', os.path.join(PORT, 'build', 'gamesrc', 'include'), '-I', os.path.join(ET, 'include'), '-I', os.path.join(PORT, 'build', 'gamesrc'), '-I', os.path.join(ET, 'src'),
-           '-include', os.path.join(SHIM, 'port_prefix.h'), src]
+           *bte_dirs(), *unit_defines(b), '-include', os.path.join(SHIM, 'port_prefix.h'), src]
     p = subprocess.run(cmd, env=env, cwd=PORT, capture_output=True, text=True, errors='replace',
                        creationflags=0x08000000)
     log = p.stdout + p.stderr

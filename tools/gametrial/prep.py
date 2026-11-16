@@ -15,6 +15,10 @@ OUT = os.path.join(PORT, 'build', 'gamesrc')
 
 RULES = [
     # The GX write-gather pipe at 0xCC008000 -> the host FIFO object (shim/include/port_fifo.h).
+    # Hardware register arrays (OSHardware.h, ipcHardware.h): `volatile u32 PI_HW_REGS[] : 0xCC003000;` on MWCC is
+    # a declaration at a fixed address. Without the address it is a definition of an unsized array, an error in
+    # C++ (the game's C++ units reach these headers through revolution/OS.h). Declare them extern.
+    ('hw-regs-extern', re.compile(r'(?m)^volatile(\s+\w+\s+DECL_HW_REGS\()'), r'extern volatile\1'),
     ('wgpipe-union', re.compile(r'\(\*\(volatile\s+WGPipe\s*\*\)\s*0xCC008000\)'), 'port_wgpipe'),
     ('wgpipe-u8', re.compile(r'\(\*\(volatile\s+u8\s*\*\)\s*0xCC008000\)'), 'port_wgpipe.uc'),
     # libm prototypes the decomp wrote with float parameters (`f64 sqrt(f32)`, Bink's `pow(f32, f64)`): on PPC a

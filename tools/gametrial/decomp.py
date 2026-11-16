@@ -13,7 +13,7 @@ LIVE = os.path.normpath(os.path.join(PORT, '..', 'excite-truck'))
 REF_FILE = os.path.join(HERE, 'decomp_ref.txt')
 # Exported paths (libs/revolution: the HOME button library, tools/gametrial/hbmbuild.py). A snapshot missing one
 # (an older export) gets it added.
-PATHS = ['src', 'include', 'config', 'libs/revolution', 'libs/tp_include', 'libs/msc', 'tools/datagen.py']
+PATHS = ['src', 'include', 'config', 'libs/revolution', 'libs/tp_include', 'libs/msc', 'tools/datagen.py', 'configure.py']
 
 
 def ref():
