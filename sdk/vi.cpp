@@ -289,6 +289,7 @@ bool sdk_vi_pointer(float* x, float* y) {
 }
 bool sdk_vi_mouse_button() { return g_hwnd && GetForegroundWindow() == g_hwnd && (GetAsyncKeyState(VK_LBUTTON) & 0x8000); }
 bool sdk_vi_has_focus() { return g_hwnd && GetForegroundWindow() == g_hwnd; }
+void* sdk_vi_hwnd() { return g_hwnd; }
 
 // Direct EFB pixel access. The Wii maps the EFB at 0x08000000 (uncached) for these; the host EFB is an OpenGL
 // framebuffer. Peeks answer "far" / black (nothing in front: occlusion tests such as the sun's lens flare see a clear

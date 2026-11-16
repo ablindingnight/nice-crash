@@ -420,3 +420,17 @@
 - 2D menus/HUD/fonts and truck paint/decals/tires: texture replace-by-hash (Dolphin custom-texture format) plus the
   replacement-video hook for the intro; settings keys shared with the launcher (enhanced_assets, upscale_model,
   upscale_scale).
+
+## DirectInput controllers (2026-11-16)
+
+- `sdk/input.cpp`: pads come from XInput and DirectInput (`dinput8.dll`, loaded at run time; GUIDs and the joystick
+  data format are spelled out, so no extra import libraries). Slots 0-3 = connected XInput pads first, then
+  DirectInput game controllers that are not XInput devices (device path without `IG_`). Each slot drives remote
+  n+1 with the existing pad mapping (a DirectInput pad is read as an XInput one: POV hat = D-pad, X/Y = left stick,
+  Z/Rz = right stick).
+- Default DirectInput buttons (0-based) for A B X Y LB RB LT RT Back Start: `1,2,0,3,4,5,6,7,8,9` (Logitech
+  D mode, DualShock 4, most generic pads). `NICECRASH_DIBUTTONS="..."` remaps; `NICECRASH_NODINPUT=1` turns it off.
+- Pad discovery takes 300-770 ms on this PC (enumeration and absent-pad XInput probes), so a pad thread rescans
+  about once a second and polls every ~2 ms; the game thread only copies cached states (this also covers the
+  old "cache absent XInput pads" item). Rumble: XInput pads only.
+- Not tested with a real DirectInput pad (none attached here); keyboard and scripted input checked.
