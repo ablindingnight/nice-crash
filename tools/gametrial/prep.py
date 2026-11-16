@@ -186,12 +186,16 @@ def regorder_adapters(texts):
             if d['start'] != first:
                 t = t[:d['start']] + '/* port: regorder adapter for %s is above */' % d['name'] + t[d['end']:]
                 continue
-            ps = [split_param(a, i) for i, a in enumerate(d['params'].split(','))]
-            defps = [a.strip() for a in d['defparams'].split(',')]
+            variadic = d['cls'].endswith('.')
+            if variadic and f.endswith('.c'):
+                continue  # forwarding varargs needs C++ (a variadic template); no C unit has one today
+            ps = [split_param(a, i) for i, a in enumerate(d['params'].split(','))
+                  if a.strip() != '...']
+            defps = [a.strip() for a in d['defparams'].split(',') if a.strip() != '...']
             ints = [i for i, c in enumerate(d['cls']) if c == 'i']
             flts = [i for i, c in enumerate(d['cls']) if c == 'f']
             order, real = [], []
-            for j, c in enumerate(d['defcls']):
+            for j, c in enumerate(d['defcls'].rstrip('.')):
                 k = (ints if c == 'i' else flts).pop(0)
                 order.append(ps[k][1])
                 if c == 'f':
@@ -201,6 +205,18 @@ def regorder_adapters(texts):
                     real.append(ps[k][0])
             ret = re.sub(r'\b(extern|static|inline)\b|"C"', ' ', d['prefix']).strip()
             cxx = not f.endswith('.c')
+            if variadic:
+                # The fixed arguments in the definition's order, the variable ones forwarded as they come.
+                body = ('extern "C" %s __port_ro_%s(%s, ...) __asm__("_%s");\n'
+                        'extern "C++" { template <class... PortVa> static inline %s %s(%s, PortVa... va) '
+                        '{ %s__port_ro_%s(%s, va...); } }' % (
+                            ret, d['name'], ', '.join(real), d['name'],
+                            ret, d['name'], ', '.join('%s %s' % p for p in ps),
+                            '' if ret == 'void' else 'return ', d['name'], ', '.join(order)))
+                t = t[:d['start']] + '/* port: regorder adapter, variadic (int/float order differs from %s) */\n' % (
+                    d['deffile']) + body + t[d['end']:]
+                n += 1
+                continue
             body = ('%s%s __port_ro_%s(%s) __asm__("_%s");\n'
                     'static inline %s %s(%s) { %s__port_ro_%s(%s); }' % (
                         'extern "C" ' if cxx else '', ret, d['name'], ', '.join(real), d['name'],

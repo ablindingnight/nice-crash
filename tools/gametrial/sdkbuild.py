@@ -74,7 +74,9 @@ ASM_HELPERS = {
 
 # Implemented by the host layer instead (GPU synchronisation that depends on interrupts).
 HOST_OVERRIDES = ['GXDrawDone', 'GXWaitDrawDone', 'GXFlush', 'GXSetDrawSyncCallback', 'GXSetDrawDoneCallback',
-                  'GXEnableBreakPt', 'GXDisableBreakPt', 'GXGetFifoPtrs']
+                  'GXEnableBreakPt', 'GXDisableBreakPt', 'GXGetFifoPtrs',
+                  # Direct EFB pixel access (0x08000000 uncached): the host EFB is an OpenGL framebuffer (sdk/vi.cpp).
+                  'GXPeekARGB', 'GXPokeARGB', 'GXPeekZ', 'GXPokeZ']
 
 
 def replace_asm_helpers(t):

@@ -274,3 +274,19 @@ bool sdk_vi_pointer(float* x, float* y) {
 }
 bool sdk_vi_mouse_button() { return g_hwnd && GetForegroundWindow() == g_hwnd && (GetAsyncKeyState(VK_LBUTTON) & 0x8000); }
 bool sdk_vi_has_focus() { return g_hwnd && GetForegroundWindow() == g_hwnd; }
+
+// Direct EFB pixel access. The Wii maps the EFB at 0x08000000 (uncached) for these; the host EFB is an OpenGL
+// framebuffer. Peeks answer "far" / black (nothing in front: occlusion tests such as the sun's lens flare see a clear
+// sky); pokes are dropped. TODO: read the GL depth/colour attachment when something needs real values.
+extern "C" {
+void GXPeekZ(u16 x, u16 y, u32* z) {
+    (void)x, (void)y;
+    if (z) *z = 0x00FFFFFF;
+}
+void GXPokeZ(u16, u16, u32) {}
+void GXPeekARGB(u16 x, u16 y, u32* color) {
+    (void)x, (void)y;
+    if (color) *color = 0;
+}
+void GXPokeARGB(u16, u16, u32) {}
+}

@@ -33,7 +33,12 @@ def classes(params):
     if p in ('', 'void'):
         return ''
     if '...' in p:
-        return None
+        # Variadic: classify the fixed parameters and mark it ('.'); prep.py forwards the rest unchanged.
+        fixed = re.sub(r',?\s*\.\.\.\s*$', '', p)
+        if '...' in fixed:
+            return None
+        c = classes(fixed)
+        return None if c is None else c + '.'
     out = ''
     for a in p.split(','):
         a = re.sub(r'\b(const|volatile|register|struct|class|unsigned|signed)\b', ' ', a).strip()
