@@ -370,3 +370,11 @@
   smaller than retail (Racer, TrackSample, lbl_804DB468), hand-written LE->BE swaps, renamed data labels.
 - To do: XInputGetState on absent pads enumerates devices every poll (slow): cache absent pads and re-probe every
   few seconds. DirectInput pads (user request 2026-11-15): add via Windows raw input/DirectInput, no downloads.
+
+## Renderer design notes (enhancement plan, coordinator 2026-11-15; handoff/port_refs/ENHANCE_MY_GAME_2026-11-15.md)
+- Keep room in the GX-to-host renderer (sdk/gxrender.cpp) for: internal resolution scale above 480p (EFB as an
+  offscreen target sized by a scale factor; EFB copies/peeks must scale coordinates), MSAA 2x/4x/8x (multisampled
+  EFB target resolved on display/texture copies), FXAA/SMAA post pass, anisotropic filtering (per-sampler setting).
+- 2D menus/HUD/fonts and truck paint/decals/tires: texture replace-by-hash (Dolphin custom-texture format) plus the
+  replacement-video hook for the intro; settings keys shared with the launcher (enhanced_assets, upscale_model,
+  upscale_scale).
