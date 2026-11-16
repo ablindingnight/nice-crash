@@ -61,3 +61,20 @@
 
 extern "C" void port_hbm_text_fix(void* text);
 >>>
+@@@ tp:HBMBase.cpp | TODO sound: HomeButtonSe.brsar (a big-endian NW4R sound archive) is not converted yet; the sound heap is still made (HBMDeleteSound destroys it) but the archive is only opened with NICECRASH_HBMSOUND=1 (sdk/hbmglue.cpp)
+<<<
+    MEMInitAllocatorForFrmHeap(&sSoundAllocator, MEMCreateFrmHeapEx(memBuf, memSize, 0), 32);
+    gpHomeButton->initSound(path);
+}
+===
+    MEMInitAllocatorForFrmHeap(&sSoundAllocator, MEMCreateFrmHeapEx(memBuf, memSize, 0), 32);
+    if (port_hbm_sound_enabled()) gpHomeButton->initSound(path);
+}
+>>>
+@@@ tp:HBMBase.cpp | (same): declaration
+<<<
+extern "C" void port_hbm_text_fix(void* text);
+===
+extern "C" void port_hbm_text_fix(void* text);
+extern "C" int port_hbm_sound_enabled(void);
+>>>

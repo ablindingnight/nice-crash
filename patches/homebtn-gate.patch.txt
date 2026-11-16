@@ -1,4 +1,4 @@
-@@@ homebtn.cpp | PORT-ONLY (not for the decomp), temporary: the HOME menu library is being ported (its layout/animation/font files are still big-endian); until it works, it is only created when NICECRASH_HBM=1, and the HOME button is ignored otherwise (as the stub did)
+@@@ homebtn.cpp | PORT-ONLY (not for the decomp), the real HOME menu can be switched off (NICECRASH_NOHBM=1, sdk/hbmglue.cpp); the HOME button is then ignored
 <<<
     HBMCreate(&lbl_80558860);
     lbl_805600EC = 1;

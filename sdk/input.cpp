@@ -219,7 +219,10 @@ s32 WPADGetInfoAsync(s32 chan, void* info, WPADInfoCallback cb) {
     XState s;
     if (chan != 0 && !(chan > 0 && chan < 4 && PadState(chan, &s))) return WPAD_ERR_NO_CONTROLLER;
     if (info) memset(info, 0, 0x18);  // WPADInfo: no extension, battery etc. zero
-    if (info) ((u8*)info)[0x10] = 4;   // battery level: full
+    if (info) {  // WPADInfo: battery level 0x14 (4 = full), player LED 0x15
+        ((u8*)info)[0x14] = 4;
+        ((u8*)info)[0x15] = (u8)(1 << chan);
+    }
     if (cb) cb(chan, WPAD_ERR_NONE);
     return WPAD_ERR_NONE;
 }

@@ -330,3 +330,12 @@
   %s/%x than they pass, faithful to retail. On x86 a missing %s argument can crash the log call, not just print
   garbage. Patch port-side if any is hit: animstream:238 (pass r->name, ver, 2), fabric:351, mcdialog:407,
   popwarn:636 (retail passes nothing), gmat:443 (dead stub).
+
+## HOME menu (2026-11-15): Nintendo's real HOME Menu
+- tools/gametrial/hbmbuild.py builds all 91 HOME button library units from the pinned decomp (libs/revolution
+  homebuttonLib + libs/msc RVL_SDK/hbm); sdkbuild adds the SDK's MEM heaps; sdk/arc.cpp is a complete host ARC
+  library; sdk/hbmres.cpp swaps the menu's RLYT/RLAN/RFNT/TPL files and home.csv to host byte order on first use.
+- Enter or the pad's Back opens it; the mouse is the Wii Remote pointer, left click = A. Verified by the user
+  (open, Close with the mouse). NICECRASH_NOHBM=1 switches it off.
+- Open: the menu's sound effects (HomeButtonSe.brsar, NW4R sound archive, not converted; NICECRASH_HBMSOUND=1
+  tries the raw path), pad pointer (right stick), "Wii Menu" = quit to desktop on PC.
