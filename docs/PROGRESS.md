@@ -404,8 +404,14 @@
   TEV programs found by a numeric hash.
 - Debug switches: NICECRASH_COPYLOG / COPYDUMP / NOCOPYRAM / NOCOPYTEX / NOEFBCOPY, SKIPTEX=<addr,...>,
   DRAWMAX=<n>, DLLOG=<n>, BIGLOG=<n>, IDXLOG=<n>.
-- **Still wrong:** large surfaces (tree trunks, rock walls) look stretched; no sky dome yet; some frames go
-  mostly black (a transition or a full-screen pass); once a mirrored font sheet covered the screen.
+- **Fixed 2026-11-16 (e7e8749):** the stretched surfaces were triangles reaching behind the camera (the
+  renderer took |w|; vertices now go to GL as homogeneous EFB coordinates with the signed w, so GL clips them).
+  The sky was there all along behind the smear. Blending gained PE_CMODE1 constant destination alpha, subtract,
+  logic ops and formats without alpha (dst alpha = 1, copied alpha = 0xFF): the truck paint and foliage colours
+  come back, and the black vignette and the mirrored font sheet are gone. NICECRASH_BLENDAB=1/2/4 switches
+  dst alpha off / alpha always on / logic ops off for A/B checks.
+- Left: a jagged oval iris on the "Try Again" transition (probably the real wipe at nearest sampling; check
+  against Dolphin), and one black frame at the race restart (a transition).
 
 ## Renderer design notes (enhancement plan, coordinator 2026-11-15; handoff/port_refs/ENHANCE_MY_GAME_2026-11-15.md)
 - Keep room in the GX-to-host renderer (sdk/gxrender.cpp) for: internal resolution scale above 480p (EFB as an
