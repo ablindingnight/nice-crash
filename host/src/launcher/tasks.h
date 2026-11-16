@@ -90,6 +90,13 @@ std::wstring DescribeExit(unsigned code);
 
 void LogLine(const char* fmt, ...);   // the launcher's errors and warnings, when "Save error logs" is on
 std::string BugReport();              // log + settings + build info, with the user's home path and name removed
+std::string Scrub(std::string text);  // removes the user's home path and name
+// Writes a report folder (report.txt, the logs, settings.ini, all scrubbed) under %LOCALAPPDATA%\NiceCrash\reports;
+// returns its path, or "" on failure. Nothing is sent anywhere.
+std::string SaveReport();
+std::string RunLogPath(int runIndex);  // the log file of Runs()[runIndex], or "" if it wasn't kept / rotated away
+long long BuildDiskUse();              // bytes in the build folder; -1 while measuring
+void ForgetDiskUse();                  // measure again next time (after a build)
 bool CopyToClipboard(void* hwnd, const std::string& text);
 void OpenPath(const std::string& path);   // Explorer / the default app
 

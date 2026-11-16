@@ -390,3 +390,8 @@
   design session specified: tilt-blue speed bars, gold NICE, then CRASH with a shadow, a 4-step blue extrusion, a dark
   outline, a white-to-gold face and a top shine, plus the gold underbar and star. The emblem is now 360 px from y 58,
   with the wordmark 350 px wide below it. Text paths use winding fill so overlapping glyph contours don't leave holes.
+- Logs page: each run whose log still exists has an Open link (the newest maps to nicecrash_log.txt, older ones to
+  .1-.4). "Save report" writes %LOCALAPPDATA%\NiceCrash\reports\report_<date>\ (report.txt, the logs, settings.ini,
+  each with the home path and user name removed), opens it, and sends nothing (design 9 bug report). "Copy report"
+  stays. Builds page: disk use of the build folder, measured once in the background. Hints switch to pad glyphs
+  (LB/RB, A) after the last press came from the pad.

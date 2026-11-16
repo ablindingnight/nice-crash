@@ -604,6 +604,7 @@ static DWORD WINAPI CheckThread(void* p) {
             goto out;
         }
         SetStep(BUILD, DONE, L"Built " + W(Refresh().builtWhen));
+        ForgetDiskUse();
     }
 
     // 7. Shaders: the port builds them as the game runs.
@@ -893,7 +894,11 @@ std::string BugReport() {
     } else {
         r += "(no log: \"Save error logs\" is off or the game hasn't run yet)\n";
     }
-    // Remove the player's home folder and name.
+    return Scrub(r);
+}
+
+// The player's home folder and name, removed from anything that may be sent.
+std::string Scrub(std::string r) {
     if (const char* home = getenv("USERPROFILE")) {
         ReplaceAll(r, home, "%USERPROFILE%");
         std::string h2 = home;
@@ -902,6 +907,76 @@ std::string BugReport() {
     }
     if (const char* user = getenv("USERNAME")) if (strlen(user) >= 3) ReplaceAll(r, user, "<user>");
     return r;
+}
+
+static std::string ReadFileText(const std::string& p) {
+    std::string s;
+    FILE* f = fopen(p.c_str(), "rb");
+    if (!f) return s;
+    char b[8192];
+    size_t n;
+    while ((n = fread(b, 1, sizeof b, f)) > 0) s.append(b, n);
+    fclose(f);
+    return s;
+}
+
+static bool WriteFileText(const std::string& p, const std::string& s) {
+    FILE* f = fopen(p.c_str(), "wb");
+    if (!f) return false;
+    bool ok = fwrite(s.data(), 1, s.size(), f) == s.size();
+    return fclose(f) == 0 && ok;
+}
+
+std::string SaveReport() {
+    std::string base = portcfg::Dir() + "\\reports";
+    CreateDirectoryA(base.c_str(), nullptr);
+    time_t t = time(nullptr);
+    char name[64];
+    strftime(name, sizeof name, "report_%Y-%m-%d_%H%M%S", localtime(&t));
+    std::string dir = base + "\\" + name;
+    if (!CreateDirectoryA(dir.c_str(), nullptr)) return "";
+    bool ok = WriteFileText(dir + "\\report.txt", BugReport());
+    for (int i = 0; i <= 4; i++) {
+        std::string src = LogPath() + (i ? "." + std::to_string(i) : "");
+        if (GetFileAttributesA(src.c_str()) == INVALID_FILE_ATTRIBUTES) continue;
+        std::string dst = dir + "\\nicecrash_log" + (i ? "." + std::to_string(i) : "") + ".txt";
+        ok &= WriteFileText(dst, Scrub(ReadFileText(src)));
+    }
+    ok &= WriteFileText(dir + "\\settings.ini", Scrub(settings::FileText()));
+    return ok ? dir : "";
+}
+
+std::string RunLogPath(int runIndex) {
+    std::vector<Run> runs = Runs();
+    if (runIndex < 0 || runIndex >= (int)runs.size() || !runs[runIndex].logged) return "";
+    int k = 0;  // logged runs newer than this one = how many times its log has been rotated
+    for (int i = 0; i < runIndex; i++) k += runs[i].logged ? 1 : 0;
+    if (k > 4) return "";
+    std::string p = LogPath() + (k ? "." + std::to_string(k) : "");
+    return GetFileAttributesA(p.c_str()) != INVALID_FILE_ATTRIBUTES ? p : "";
+}
+
+// Disk use of the build folder, measured once on a worker thread (it can hold tens of thousands of files).
+static long long s_diskUse = -2;  // -2 not started, -1 measuring
+static DWORD WINAPI DiskUseThread(void*) {
+    std::string root = RepoRoot();
+    long long n = DirSize(root.empty() ? Full(ExeDir()) : root + "\\build");
+    Lk lk;
+    s_diskUse = n;
+    return 0;
+}
+long long BuildDiskUse() {
+    Lk lk;
+    if (s_diskUse == -2) {
+        s_diskUse = -1;
+        HANDLE t = CreateThread(nullptr, 0, DiskUseThread, nullptr, 0, nullptr);
+        if (t) CloseHandle(t);
+    }
+    return s_diskUse;
+}
+void ForgetDiskUse() {
+    Lk lk;
+    if (s_diskUse >= 0) s_diskUse = -2;
 }
 
 bool CopyToClipboard(void* hwnd, const std::string& text) {

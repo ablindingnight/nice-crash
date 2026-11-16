@@ -62,6 +62,8 @@ const UINT WM_GAME_EXIT = WM_APP + 1;
 
 double Now() { return (GetTickCount64() - A.t0) / 1000.0; }
 
+bool g_padLast = false;  // the last button came from the pad: hints show pad glyphs
+
 void Toast(const std::wstring& s) {
     A.toast = s;
     A.toastUntil = Now() + 3.5;
@@ -549,7 +551,7 @@ void DiscScreen() {
         Key(L"\u2191", kx, fy + 20, &kw);
         Key(L"\u2193", kx + kw + 4, fy + 20, &kw);
         Text(L"choose", F_BODY_SEMI, 12, kx + 56, fy + 23, col::dim);
-        Key(L"A", kx + 104, fy + 20, &kw);
+        Key(g_padLast ? L"A" : L"ENTER", kx + 104, fy + 20, &kw);
         Text(L"continue", F_BODY_SEMI, 12, kx + 104 + kw + 6, fy + 23, col::dim);
     }
     int pi = g.focusCount;
@@ -1173,6 +1175,12 @@ void PageBuilds() {
         }
     }
     {
+        Row(L"Disk use", L"The game, its build files and the compiler's cache. Rebuilds reuse the cache, so they're faster.",
+            nullptr, 22, &cy);
+        long long n = tasks::BuildDiskUse();
+        Text(n < 0 ? L"Measuring…" : tasks::FormatBytes(n), F_BODY_SEMI, 15, kCtlX, cy + 2, n < 0 ? col::dim : col::fg);
+    }
+    {
         Row(L"Updates", L"Nice Crash has no update host yet, so nothing is checked. When it has one, updates "
                         L"arrive only with your consent and rebuild on this PC.",
             nullptr, 22, &cy);
@@ -1217,25 +1225,38 @@ void PageLogs() {
         Text(L"No runs yet. They show up here after you play.", F_BODY, 14, kMainX, g_rowY, col::dim);
         g_rowY += 30;
     }
-    for (auto& r : runs) {
+    for (size_t i = 0; i < runs.size(); i++) {
+        const tasks::Run& r = runs[i];
         Text(ui::W(r.when), F_MONO, 12.5f, kMainX, g_rowY + 2, col::fg);
         wchar_t len[32];
         swprintf(len, 32, L"%d:%02d", r.seconds / 60, r.seconds % 60);
         Text(len, F_MONO, 12.5f, kMainX + 170, g_rowY + 2, col::dim);
         Color c = r.status == "OK" ? col::ok : r.status == "Crashed" ? col::bad : col::warn;
-        Text(tasks::DescribeExit(r.code), F_BODY_SEMI, 14, kMainX + 240, g_rowY, c);
-        if (!r.logged) Text(L"no log", F_BODY, 13, kMainX + kMainW, g_rowY + 1, col::dim, RIGHT);
+        float dsz = FitSize(tasks::DescribeExit(r.code), F_BODY_SEMI, 14, kMainW - 240 - 70);
+        Text(tasks::DescribeExit(r.code), F_BODY_SEMI, dsz, kMainX + 240, g_rowY, c);
+        std::string log = tasks::RunLogPath((int)i);
+        if (!log.empty()) {
+            if (Link(L"Open", kMainX + kMainW, g_rowY - 1, 14, col::tilt, false, nullptr, RIGHT)) tasks::OpenPath(log);
+        } else {
+            Text(r.logged ? L"rotated out" : L"no log", F_BODY, 13, kMainX + kMainW, g_rowY + 1, col::dim, RIGHT);
+        }
         g_rowY += 26;
     }
     g_rowY += 12;
     float bx = kMainX, bw;
-    bool haveLog = GetFileAttributesA(tasks::LogPath().c_str()) != INVALID_FILE_ATTRIBUTES;
-    if (Button2(L"Open log", bx, g_rowY, &bw, haveLog)) tasks::OpenPath(tasks::LogPath());
-    bx += bw + 24;
     if (Button2(L"Open folder", bx, g_rowY, &bw)) tasks::OpenPath(tasks::LogDir());
     bx += bw + 24;
     if (Button2(L"Copy report", bx, g_rowY, &bw)) {
         if (tasks::CopyToClipboard(A.hwnd, tasks::BugReport())) Toast(L"Report copied. Paste it wherever you send it.");
+    }
+    bx += bw + 24;
+    if (Button2(L"Save report", bx, g_rowY, &bw)) {
+        std::string dir = tasks::SaveReport();
+        if (dir.empty()) Toast(L"Couldn't write the report folder.");
+        else {
+            tasks::OpenPath(dir);
+            Toast(L"Report saved. Nothing was sent; attach the folder wherever you report the problem.");
+        }
     }
     g_rowY += 60;
     EndRows();
@@ -1335,10 +1356,15 @@ void SettingsScreen() {
                                       L"Builds", L"Logs", L"About"};
     Text(titles[A.page], F_DISPLAY, 42, kMainX, 52 + 26 + 10, col::fg);
     {
+        // Keyboard or pad glyphs, by the last device used.
+        const wchar_t* k1 = g_padLast ? L"LB" : L"Q";
+        const wchar_t* k2 = g_padLast ? L"RB" : L"E";
+        float w2 = std::max(24.f, TextWidth(k2, F_DISPLAY_CAPS, 12, 0.06f) + 12);
+        float w1 = std::max(24.f, TextWidth(k1, F_DISPLAY_CAPS, 12, 0.06f) + 12);
         float kx = kMainX + kMainW, kw;
-        Key(L"E", kx - 24, 52 + 26 + 22, &kw);
-        Key(L"Q", kx - 24 - 4 - 24, 52 + 26 + 22, &kw);
-        Text(L"page", F_BODY_SEMI, 12, kx - 60, 52 + 26 + 25, col::dim, RIGHT);
+        Key(k2, kx - w2, 52 + 26 + 22, &kw);
+        Key(k1, kx - w2 - 4 - w1, 52 + 26 + 22, &kw);
+        Text(L"page", F_BODY_SEMI, 12, kx - w2 - 4 - w1 - 12, 52 + 26 + 25, col::dim, RIGHT);
     }
 
     // Rows (scrolling).
@@ -1522,6 +1548,7 @@ void PollPad(float dt) {
     if (GetForegroundWindow() != A.hwnd) { g_padPrev = s.Gamepad.wButtons; return; }
     WORD b = s.Gamepad.wButtons, edge = b & ~g_padPrev;
     g_padPrev = b;
+    if (edge) g_padLast = true;
     if (edge & XINPUT_GAMEPAD_DPAD_UP) PushNav(N_UP);
     if (edge & XINPUT_GAMEPAD_DPAD_DOWN) PushNav(N_DN);
     if (edge & XINPUT_GAMEPAD_DPAD_LEFT) PushNav(N_LEFT);
@@ -1544,6 +1571,7 @@ void PollPad(float dt) {
     else if (dir && (g_stickRepeat -= dt) <= 0) { g_stickRepeat = 0.12f; goto fire; }
     return;
 fire:
+    g_padLast = true;
     if (dir == 1) PushNav(N_UP);
     if (dir == 2) PushNav(N_DN);
     if (dir == 3) PushNav(N_LEFT);
@@ -1665,6 +1693,7 @@ LRESULT CALLBACK WndProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
         }
         break;
     case WM_KEYDOWN:
+        g_padLast = false;
         switch (wp) {
         case VK_UP: PushNav(N_UP); break;
         case VK_DOWN: PushNav(N_DN); break;
