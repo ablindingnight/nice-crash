@@ -68,15 +68,17 @@ def run(zig, src, obj):
 
 
 def main():
-    jobs, only, obj = 6, None, False
+    jobs, only, obj, prep = 6, None, False, True
     a = sys.argv[1:]
     while a:
         x = a.pop(0)
         if x == '--jobs': jobs = int(a.pop(0))
         elif x == '--only': only = set(a.pop(0).split(','))
         elif x == '--obj': obj = True
+        elif x == '--noprep': prep = False  # debugging: keep hand edits in build/gamesrc
     os.makedirs(os.path.join(OUT, 'obj'), exist_ok=True)
-    subprocess.run([sys.executable, '-I', os.path.join(HERE, 'prep.py')], check=True)
+    if prep:
+        subprocess.run([sys.executable, '-I', os.path.join(HERE, 'prep.py')], check=True)
     srcs = sorted(glob.glob(os.path.join(PORT, 'build', 'gamesrc', 'game', '*.c*')))
     if only:
         srcs = [s for s in srcs if os.path.basename(s) in only]

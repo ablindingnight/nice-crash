@@ -236,3 +236,103 @@ extern "C" void port_stack_here(const char* why) {
     for (USHORT i = 0; i < n; i++) PrintFrame(proc, (DWORD64)(uintptr_t)frames[i], i);
     fflush(stderr);
 }
+
+// NICECRASH_FPTRAP=<retrace>: NaN hunting. From that frame on, invalid floating-point operations (0/0, inf-inf,
+// NaN->int, x87 stack underflow) raise an exception; each new faulting instruction is logged once with its stack,
+// the faulting thread's invalid-operation mask is restored for the retry (so it produces the NaN as before), and
+// port_fptrap_rearm (called once per frame by the input code) unmasks again. Debugging aid only.
+static thread_local bool t_fpStep;  // masked for one instruction; unmask again on the single-step
+static LONG WINAPI OnFpTrap(EXCEPTION_POINTERS* ep) {
+    DWORD code = ep->ExceptionRecord->ExceptionCode;
+#ifdef _M_IX86
+    if (code == EXCEPTION_SINGLE_STEP && t_fpStep) {
+        t_fpStep = false;
+        *(DWORD*)(ep->ContextRecord->ExtendedRegisters + 24) &= ~0xBFu;
+        ep->ContextRecord->FloatSave.ControlWord &= ~1u;
+        ep->ContextRecord->FloatSave.StatusWord &= ~0x80FFu;
+        return EXCEPTION_CONTINUE_EXECUTION;
+    }
+#endif
+    if (code != STATUS_FLOAT_MULTIPLE_TRAPS && code != STATUS_FLOAT_INVALID_OPERATION &&
+        code != STATUS_FLOAT_STACK_CHECK && code != STATUS_FLOAT_MULTIPLE_FAULTS)
+        return EXCEPTION_CONTINUE_SEARCH;
+#ifdef _M_IX86
+    CONTEXT* c = ep->ContextRecord;
+    static uintptr_t seen[256];
+    static int nseen;
+    uintptr_t eip = c->Eip;
+    bool fresh = true;
+    for (int i = 0; i < nseen; i++) fresh &= seen[i] != eip;
+    if (fresh && nseen < 256) {
+        seen[nseen++] = eip;
+        {  // the handler itself runs with the trapping thread's FPU state: mask while symbolising
+            unsigned short cw;
+            __asm__ volatile("fnclex; fnstcw %0" : "=m"(cw));
+            cw |= 1;
+            __asm__ volatile("fldcw %0" : : "m"(cw));
+            unsigned int csr;
+            __asm__ volatile("stmxcsr %0" : "=m"(csr));
+            csr |= 0x80u;
+            __asm__ volatile("ldmxcsr %0" : : "m"(csr));
+        }
+        static bool init;
+        HANDLE proc = GetCurrentProcess();
+        if (!init) {
+            SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES);
+            SymInitialize(proc, nullptr, TRUE);
+            init = true;
+        }
+        extern unsigned sdk_vi_retrace_count();
+        fprintf(stderr, "[fptrap] 0x%08lx at retrace %u:\n", code, sdk_vi_retrace_count());
+        {
+            const float* x = (const float*)(c->ExtendedRegisters + 160);  // xmm0..7, low lanes
+            fprintf(stderr, "  xmm:");
+            for (int i = 0; i < 8; i++) fprintf(stderr, " %d=%g", i, x[i * 4]);
+            const unsigned char* ip = (const unsigned char*)c->Eip;
+            fprintf(stderr, "\n  code:");
+            for (int i = 0; i < 8; i++) fprintf(stderr, " %02x", ip[i]);
+            fprintf(stderr, "\n");
+        }
+        CONTEXT ctx = *c;
+        STACKFRAME64 sf{};
+        sf.AddrPC.Offset = ctx.Eip;
+        sf.AddrPC.Mode = AddrModeFlat;
+        sf.AddrFrame.Offset = ctx.Ebp;
+        sf.AddrFrame.Mode = AddrModeFlat;
+        sf.AddrStack.Offset = ctx.Esp;
+        sf.AddrStack.Mode = AddrModeFlat;
+        for (int i = 0; i < 6; i++) {
+            if (!StackWalk64(IMAGE_FILE_MACHINE_I386, proc, GetCurrentThread(), &sf, &ctx, nullptr,
+                             SymFunctionTableAccess64, SymGetModuleBase64, nullptr) || !sf.AddrPC.Offset)
+                break;
+            PrintFrame(proc, sf.AddrPC.Offset, i);
+        }
+        fflush(stderr);
+    }
+    // Mask invalid again for the retry: SSE MXCSR (in the extended registers, offset 24) and the x87 control word;
+    // clear the x87 exception flags so the pending exception is not raised again.
+    *(DWORD*)(c->ExtendedRegisters + 24) |= 0x80;
+    *(DWORD*)(c->ExtendedRegisters + 24) &= ~0x3Fu;
+    c->FloatSave.ControlWord |= 1;
+    c->FloatSave.StatusWord &= ~0x80FFu;
+    c->EFlags |= 0x100;  // trap after the retried instruction, then unmask again
+    t_fpStep = true;
+    return EXCEPTION_CONTINUE_EXECUTION;
+#else
+    return EXCEPTION_CONTINUE_SEARCH;
+#endif
+}
+
+extern "C" void port_fptrap_rearm() {
+    static bool installed;
+    if (!installed) AddVectoredExceptionHandler(1, OnFpTrap), installed = true;
+    unsigned short cw;
+    __asm__ volatile("fnclex; fnstcw %0" : "=m"(cw));
+    cw &= ~1;
+    __asm__ volatile("fldcw %0" : : "m"(cw));
+    unsigned int csr;
+    __asm__ volatile("stmxcsr %0" : "=m"(csr));
+    csr &= ~0x3Fu;
+    csr &= ~0x80u;
+    __asm__ volatile("ldmxcsr %0" : : "m"(csr));
+}

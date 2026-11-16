@@ -10,6 +10,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include "sdk.h"
@@ -228,7 +229,19 @@ s32 WPADGetInfoAsync(s32 chan, void* info, WPADInfoCallback cb) {
     return WPAD_ERR_NONE;
 }
 
+// NICECRASH_FPTRAP=<retrace frame>: NaN hunting (runtime/crash.cpp): re-arm the trap once per frame from then on.
+extern "C" void port_fptrap_rearm();
+static void FpTrapCheck() {
+    static int want = -2;
+    if (want == -2) {
+        const char* s = getenv("NICECRASH_FPTRAP");
+        want = s ? atoi(s) : -1;
+    }
+    if (want >= 0 && (int)sdk_vi_retrace_count() >= want) port_fptrap_rearm();
+}
+
 s32 KPADRead(s32 chan, void* buf, u32 n) {
+    if (chan == 0) FpTrapCheck();
     if (chan < 0 || chan > 3 || !buf || !n) return 0;
     f32 steer = 0, lean = 0;
     u32 hold = 0;

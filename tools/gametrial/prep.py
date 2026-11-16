@@ -17,6 +17,11 @@ RULES = [
     # The GX write-gather pipe at 0xCC008000 -> the host FIFO object (shim/include/port_fifo.h).
     ('wgpipe-union', re.compile(r'\(\*\(volatile\s+WGPipe\s*\*\)\s*0xCC008000\)'), 'port_wgpipe'),
     ('wgpipe-u8', re.compile(r'\(\*\(volatile\s+u8\s*\*\)\s*0xCC008000\)'), 'port_wgpipe.uc'),
+    # libm prototypes the decomp wrote with float parameters (`f64 sqrt(f32)`, Bink's `pow(f32, f64)`): on PPC a
+    # float and a double argument both travel in an FPR, on x86 cdecl a float pushes 4 bytes where libm reads 8, so
+    # the result is garbage (the car integrator's quaternion normalise: 1/sqrt -> inf, 0*inf -> NaN). Real types.
+    ('libm-double-params', re.compile(r'\b(f64|double)(\s+)(sqrt|pow|sin|cos|tan|atan2?|asin|acos|exp|log|log10|fmod|floor|ceil|fabs)\s*\(\s*(?:f32|float)\s*(\)|,)'),
+     r'\1\2\3(f64\4'),
     # The allocation operators must take size_t; on the Wii size_t is unsigned long, on x86 unsigned int.
     ('operator-new-size_t', re.compile(r'operator new(\[\])?\(\s*unsigned long\b'), r'operator new\1(size_t'),
     # 32-bit `long` -> `int`: one type on MWCC (u32 is unsigned long there), two types to clang where the port's
@@ -52,6 +57,59 @@ MWCC_VTABLE = re.compile(r'(?m)^(void\*|u32)\s+(lbl_[0-9A-F]{8})\[(\d+)\]\s*=\s*
                          r'\((?:void\*|u32)\)\s*(\w+)\s*(,.*)?\};')
 
 
+# Bitfields: MWCC (big-endian PowerPC) allocates them from the most significant bit of each storage unit, x86
+# compilers from the least significant. Code that also reads the unit as a whole word (sfline writes a path's
+# `count << 16 | flags`, aiobst reads `count : 16`), colour words split into `a : 8, rgb : 24`, and bitfields over
+# file data (Bink's audio flags) then see other bits. Emulate MWCC: within each storage unit declare the fields in
+# reverse order, with an unnamed pad first when the unit is not full, so every field keeps its MWCC bit position.
+BF_LINE = re.compile(r'^(\s*)((?:unsigned\s+int|signed\s+int|unsigned|signed|u8|s8|u16|s16|u32|s32|int|BOOL))\s+(\w*)\s*:\s*(\d+)\s*;(.*)$')
+BF_WIDTH = {'u8': 8, 's8': 8, 'u16': 16, 's16': 16}
+
+
+def msb_bitfields(t):
+    lines = t.split('\n')
+    out, i, n = [], 0, 0
+    while i < len(lines):
+        m = BF_LINE.match(lines[i])
+        if not m:
+            out.append(lines[i])
+            i += 1
+            continue
+        ty = m.group(2)
+        run = []
+        while i < len(lines):
+            m2 = BF_LINE.match(lines[i])
+            if not m2 or m2.group(2) != ty:
+                break
+            run.append(m2)
+            i += 1
+        width = BF_WIDTH.get(ty, 32)
+        units, cur, used = [], [], 0
+        for f in run:
+            w = int(f.group(4))
+            if used + w > width or w == 0:
+                units.append((cur, used))
+                cur, used = [], 0
+            if w:
+                cur.append(f)
+                used += w
+        units.append((cur, used))
+        for fields, used in units:
+            if not fields:
+                continue
+            ind = fields[0].group(1)
+            if used < width:
+                out.append('%s%s : %d;  // port: MWCC bitfield order (unused low bits)' % (ind, ty, width - used))
+            for f in reversed(fields):
+                out.append('%s%s %s : %s;%s' % (f.group(1), ty, f.group(3), f.group(4), f.group(5)))
+            n += 1
+    return '\n'.join(out), n
+
+
+# MWCC tables whose destructor is NOT at slot 0x08: name -> byte offset of the destructor slot.
+MWCC_DTOR_AT = {'lbl_80332F40': 0x80}  # replay Recorder (playcar): SetGear at 0x08, destructor last
+
+
 def mwcc_vtables(t):
     names = []
 
@@ -59,6 +117,16 @@ def mwcc_vtables(t):
         ty, name, n, dtor, rest = m.groups()
         names.append(name)
         cast = '(%s)' % ty
+        if name in MWCC_DTOR_AT:
+            # The destructor is not at 0x08 (e.g. the replay Recorder: SetGear at 0x08, destructor last at 0x80):
+            # the host pair goes at that slot instead.
+            items = [s.strip() for s in ('%s%s%s' % (cast, dtor, rest or '')).split(',')]
+            k = MWCC_DTOR_AT[name] // 4 - 2
+            fn = re.sub(r'^\([^)]*\)\s*', '', items[k])
+            items[k:k + 1] = ['%s%s_D1' % (cast, name), '%s%s_D0' % (cast, name)]
+            return ('static void %s_D1(void* t) { ((void* (*)(void*, int))%s)(t, 0); }\n'
+                    'static void %s_D0(void* t) { ((void* (*)(void*, int))%s)(t, 1); }\n'
+                    '%s %s[%d] = {0, 0, %s};' % (name, fn, name, fn, ty, name, int(n) + 1, ', '.join(items)))
         return ('static void %s_D1(void* t) { ((void* (*)(void*, int))%s)(t, 0); }\n'
                 'static void %s_D0(void* t) { ((void* (*)(void*, int))%s)(t, 1); }\n'
                 '%s %s[%d] = {0, 0, %s%s_D1, %s%s_D0%s};' % (
@@ -246,6 +314,7 @@ def load_patches():
 def main():
     patches = load_patches()
     applied = 0
+    failed = []
     linkfix = {}
     lf = os.path.join(HERE, 'linkage_fix.txt')
     if os.path.exists(lf):
@@ -272,12 +341,20 @@ def main():
             counts['word-tables'] = counts.get('word-tables', 0) + n
         t, n = neutralise_swaps(t)
         counts['le-swap-helpers'] = counts.get('le-swap-helpers', 0) + n
+        if src.replace(os.sep, '/').find('/src/game/') >= 0:
+            t, n = msb_bitfields(t)
+            counts['msb-bitfields'] = counts.get('msb-bitfields', 0) + n
         for pf, fn, why, old, new in patches:
             if src.replace(os.sep, '/').endswith('/src/game/' + fn) or (
                     fn.startswith('include/') and src.replace(os.sep, '/').endswith('/' + fn)):
                 n = t.count(old)
                 if n != 1:
-                    sys.exit('patch %s for %s matched %d times (want 1): %s' % (pf, fn, n, why))
+                    msg = 'patch %s for %s matched %d times (want 1): %s' % (pf, fn, n, why)
+                    if os.environ.get('PREP_ALLFAIL'):  # pin bumps: list every stale patch, then stop
+                        print(msg)
+                        failed.append(msg)
+                        continue
+                    sys.exit(msg)
                 t = t.replace(old, new)
                 applied += 1
         # Linkage fixes (linkagefix.py): the later C++-scope declaration of a name an extern "C" block declared.
@@ -294,6 +371,8 @@ def main():
         srcroot = os.path.join(ET, 'src')
         rel = os.path.relpath(src, srcroot if src.startswith(srcroot + os.sep) else ET)
         outputs.append((os.path.join(OUT, rel), t))
+    if failed:
+        sys.exit("%d stale patches" % len(failed))
     # Integer/float parameter order (regorder.py): needs every unit, so it runs once all are prepared.
     game = {os.path.basename(d): i for i, (d, _) in enumerate(outputs) if os.sep + 'game' + os.sep in d}
     if os.environ.get('NICECRASH_NOREGORDER'):  # bisecting aid
@@ -301,6 +380,15 @@ def main():
     else:
         texts, n = regorder_adapters({b: outputs[i][1] for b, i in game.items()})
     counts['regorder-adapters'] = n
+    # Structs passed by value where the definition takes a pointer (byvalref.py): the PPC ABI passes aggregates
+    # by address, x86 copies them; declare those parameters `const T&`.
+    import byvalref
+    incs = [t for d, t in outputs if os.sep + 'include' + os.sep in d]
+    fixes, _ = byvalref.scan(texts, incs)
+    texts, n, skipped = byvalref.apply(texts, fixes)
+    counts['byval-to-ref'] = n
+    for name, f in skipped:
+        print('prep: byvalref: %s in %s (C unit) passes a struct by value to a pointer parameter: fix by hand' % (name, f))
     for b, i in game.items():
         outputs[i] = (outputs[i][0], texts[b])
     for dst, t in outputs:

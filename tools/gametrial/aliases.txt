@@ -6,7 +6,7 @@ __ZN10CenterLineC1EPvS0_	__ZN13IdealFollowerC1EiP10CenterLine
 # rigid.cpp RigidBody : Phob, whose base ctor retail calls out of line: __ct__10CollVolumeFv (0x80179D08)
 __ZN4PhobC2Ev	__ZN10CollVolumeC2Ev
 # aidriver.cpp `new AIDriver`: retail calls fn_801938F4 (aicar.cpp, takes and returns the object)
-__ZN8AIDriverC1Ev	_fn_801938F4
+__ZN8AIDriverC1Ev	___ct__8AIDriverFv
 # rigid.cpp's Phob is a view of CollVolume (same slots 0x08..0x44; retail: one class). Its members by slot:
 __ZN4Phob4InitEP8BodyDesc	__ZN10CollVolume4InitEP8CollDesc
 __ZN4Phob5ResetEv	__ZN10CollVolume5ResetEv
@@ -19,3 +19,5 @@ __ZN4Phob4vf34EP7RPacket	__ZN10CollVolume4vf34EP10CollPacket
 __ZN4Phob4vf38Ev	__ZN10CollVolume4vf38EPh
 __ZN4Phob4vf44Ev	_vf44__10CollVolumeFv
 __ZN4PhobD2Ev	__ZN10CollVolumeD2Ev
+__ZN4Phob5XformEv	__ZN10CollVolume9TransformEv
+__ZN4Phob6Xform2Ev	__ZN10CollVolume6UpdateEv

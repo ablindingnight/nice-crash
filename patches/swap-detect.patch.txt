@@ -44,109 +44,6 @@ void fn_801380DC(ResExt* e) {
 ===
     virtual void Slot8C(void) {}                 // port: pure in retail's table; plain here (see patches)
 >>>
-@@@ world.cpp | MEMORY: world's Racer stops at 0xE4 but the car model fills the whole 0x11C-byte record (carmodel.cpp's Racer: lodModel, color, xrayMesh[32], wheelSize[4]; CarTypeMap.f8 = 0x11C). The local in fn_801E8F10 was too small: CarModel wrote the X-ray mesh name past it, over the car list and the return address. Give it its full size (decomp: world.cpp Racer)
-<<<
-    CarDef def;       // offset 0x68
-    s32 index;        // offset 0xE0
-};
-===
-    CarDef def;       // offset 0x68
-    s32 index;        // offset 0xE0
-    u8 portTail[0x11C - 0xE4];  // port: lodModel, color, xrayMesh, wheelSize (carmodel.cpp's Racer)
-};
->>>
-@@@ sphcoll.cpp | VTABLE VIEW: VEx is a call view onto collision shapes, whose slot 0x08 is the destructor. On the host a virtual destructor takes two slots (complete + deleting), so a view starting with a plain v08 is one slot short: VE(p)->v34 (set frame) called vf30 and shapes never got their frame (TubeShape::vf38 read null). Declare the destructor, as the real classes do (decomp: also behaviour-neutral on MWCC)
-<<<
-class VEx {
-public:
-    virtual void v08(void);
-===
-class VEx {
-public:
-    virtual ~VEx(void);  // port: slot 0x08 is the shapes' destructor (two slots on the host)
->>>
-@@@ carbody.cpp | ARGUMENT: retail passes the body's model name (r3 = body + 0x234, CbIdent.model "Boulder") to the car layout lookup fn_802792E4(const char* car); the decomp passed the int at 0x25C, which read as a pointer crashed in strcmp. Pass the name (decomp: CarBody_vf08's carlayout call)
-<<<
-    S32(p, 0x26C) = fn_802792E4(S32(p, 0x25C));
-===
-    S32(p, 0x26C) = fn_802792E4((s32)(p + 0x234));  // port: retail r3 = body + 0x234 (the model name)
->>>
-@@@ playcar.cpp | VTABLE VIEW: VPx is a call view onto the IDriver family and the replay wrapper's inner object, whose slot 0x08 is the destructor (two slots on the host): v10/v18/... reached the wrong slots. Declare the destructor
-<<<
-class VPx {
-public:
-    virtual void v08(void);
-===
-class VPx {
-public:
-    virtual ~VPx(void);  // port: slot 0x08 is the destructor (two slots on the host)
->>>
-@@@ playcar.cpp | VTABLE VIEW: CarCtl (IDriver family, destructor at 0x08): Attach reached the deleting destructor, so sub-drivers never got their car (AIDriver_vf28 read null)
-<<<
-class CarCtl {
-public:
-    virtual void v08(void);
-===
-// port: a view of DeityCar (deity.cpp: Reset at 0x08, no destructor); CarCtl served both it and the drivers
-class VDeityCar {
-public:
-    virtual void Reset(void);
-    virtual void Update(void);
-    virtual u8* State(void);  // 0x10 (playcar's "Info")
-    virtual s32 v14(void);
-    virtual s32 Ideal(void);  // 0x18
-};
-#define VDC(p) ((VDeityCar*)(p))
-class CarCtl {
-public:
-    virtual ~CarCtl(void);  // port: slot 0x08 is the destructor (two slots on the host)
->>>
-@@@ playcar.cpp | DESTRUCTOR FORWARD: fn_80192F58 is the wrapper table's destructor slot (lbl_80332F40) and forwards the MWCC delete flag (r4) to the inner object's destructor; on the host pick the complete or the deleting destructor
-<<<
-void fn_80192F58(u8* p) { VP(PTR(p, 0x4))->v08(); }
-===
-void fn_80192F58(u8* p, int flag) {  // port: forwards the MWCC destructor flag
-    VPx* v = VP(PTR(p, 0x4));
-    if (flag & 1) {
-        delete v;
-    } else {
-        v->~VPx();
-    }
-}
->>>
-@@@ aicar.cpp | VTABLE VIEW: VIface serves two families here: DeityCar (slot 0x08 is Reset, no destructor) and the line followers (destructor at 0x08, two host slots). Keep VIface for DeityCar and give the follower calls their own view (VI(m)->v0C(0) reached the deleting destructor: "MemFree: bad cookie")
-<<<
-class VIface {
-public:
-    virtual void v08(void);
-===
-// port: a view of LineFollower/IdealFollower: destructor at 0x08, SetLine at 0x0C
-class VLineF {
-public:
-    virtual ~VLineF(void);
-    virtual int SetLine(void* line);
-};
-#define VLF(p) ((VLineF*)(p))
-class VIface {
-public:
-    virtual void v08(void);
->>>
-@@@ aicar.cpp | (same): the two followers built in the AIDriver constructor
-<<<
-    VI(m + 0x34)->v0C(0);
-    VI(m)->v0C(0);
-===
-    VLF(m + 0x34)->SetLine(0);
-    VLF(m)->SetLine(0);
->>>
-@@@ aicar.cpp | (same): the followers at 0x168 / 0x19C
-<<<
-    VI(d + 0x19C)->v0C(0);
-    VI(d + 0x168)->v0C(0);
-===
-    VLF(d + 0x19C)->SetLine(0);
-    VLF(d + 0x168)->SetLine(0);
->>>
 @@@ deity.cpp | ROBUSTNESS (port-only): LineFollower::Attach only positions the follower when SetLine sees a new line; if the racing line picked at init (random stream 4) equals the snapped one, it stays unpositioned and the AI driver's first reset reads a null segment (aicar fn_80195D80). Position it as Attach would (SetPosition(p, 0, 0)) when it is still unpositioned; no change when retail's path positioned it
 <<<
     c->line->Attach(fn_80156A40()->Racing(c->index), &p, 0);
@@ -236,18 +133,6 @@ void fn_80136468(ILPos* out, LineFollower* f, f32 m);  // port: explicit result 
 ===
         fn_80136468(&p, f, dist);
 >>>
-@@@ playcar.cpp | VTABLE VIEW: the DeityCar kept at 0x14 (fn_801B2EC0) through its own view: Ideal() at 0x18
-<<<
-    S32(p, 0x18) = c->v18();
-===
-    S32(p, 0x18) = VDC(c)->Ideal();  // port: DeityCar view
->>>
-@@@ playcar.cpp | VTABLE VIEW: (same) its State() at 0x10 ("Info"); through CarCtl it reached v14
-<<<
-    u8* info = ((CarCtl*)PTR(p, 0x14))->Info();
-===
-    u8* info = VDC(PTR(p, 0x14))->State();  // port: DeityCar view
->>>
 @@@ rigid.cpp | VTABLE VIEW: RShape views collision shapes (destructor at 0x08, two host slots): Wake() at 0x14 reached vf10 (SphereGroup::vf10 with a garbage argument)
 <<<
 class RShape {
@@ -258,19 +143,46 @@ class RShape {
 public:
     virtual ~RShape(void);  // port: the shapes' destructor (two slots on the host)
 >>>
-@@@ deity.cpp | VTABLE VIEW: DAI views CSubTaskMgr (subtask.cpp: destructor at 0x08, two host slots): v0C reached the deleting destructor during the race ("MemFree: Subsystem is disabled")
-<<<
-class DAI {
-public:
-    virtual void v08(void);
-===
-class DAI {
-public:
-    virtual ~DAI(void);  // port: CSubTaskMgr's destructor (two slots on the host)
->>>
 @@@ gndtex.cpp | MEMORY: fn_802DBDE8(i, tex) is called with i up to 5; retail's 3-entry lbl_804DB468 (0x804DB468) is followed by the 12-byte @271 (0x804DB474), which takes stages 3-5. On the host the batch list came next and its data pointer was overwritten. Give the array the six slots retail effectively has (decomp: lbl_804DB468 + @271 are one 6-entry table)
 <<<
 GXTex* lbl_804DB468[3];
 ===
 GXTex* lbl_804DB468[6];  // port: 3 + retail's following @271 (stages 3-5)
+>>>
+
+@@@ playcar.cpp | VTABLE VIEW: VPx views PhysDriver and the replay Recorder (SetGear at 0x08, destructor LAST at 0x80; decomp 971aea901). On the host a virtual destructor takes two slots: declare it so v80 lands on the complete/deleting pair (prep.py MWCC_DTOR_AT puts the Recorder table's pair at 0x80)
+<<<
+    virtual void v80(int del);
+};
+
+#define VP(p) ((VPx*)(p))
+===
+    virtual ~VPx(void);  // port: slot 0x80 is the destructor (two slots on the host)
+};
+
+#define VP(p) ((VPx*)(p))
+>>>
+@@@ playcar.cpp | (same): the controller's destructor deletes its driver through the view
+<<<
+            VP(PTR(p, 0x4))->v80(1);
+===
+            delete VP(PTR(p, 0x4));  // port: deleting destructor (MWCC v80(1))
+>>>
+@@@ popwarn.cpp | C++: the table's definition sits inside the `extern "C" {` block opened before fn_80129AEC (decomp 7712ddb18), but its forward declaration is C++; MWCC accepts the mismatch, clang does not. Declare it extern "C" too
+<<<
+extern const ModeEntry lbl_802FA3B4[5];
+===
+extern "C" const ModeEntry lbl_802FA3B4[5];
+>>>
+@@@ deity.cpp | VTABLE VIEW: DCar views the CarBody family (Phob base: Init at 0x08, destructor at 0x0C; two host slots). Through the plain v0C every later slot was one short: Lap() at 0x58 reached 0x54 (SpringCar::vf54 = SetState), which reset the car from a lap record and crashed in LineFollower::Locate. Declare the destructor (decomp: deity.cpp DCar)
+<<<
+class DCar {
+public:
+    virtual void v08(void);
+    virtual void v0C(void);
+===
+class DCar {
+public:
+    virtual void v08(void);
+    virtual ~DCar(void);  // port: slot 0x0C is the destructor (two slots on the host)
 >>>

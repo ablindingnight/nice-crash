@@ -85,7 +85,16 @@ static void Run(const u8* p, size_t len, int depth) {
             u32 addr = be32(p), size = be32(p + 4);
             p += 8;
             g_stats.displayLists++;
-            if (depth < 4 && addr >= 0x80000000u) Run((const u8*)(uintptr_t)addr, size, depth + 1);
+            // Only lists inside mapped Wii memory (MEM1 0x80000000+24 MB, MEM2 0x90000000+64 MB); a bad address is
+            // reported once (the Wii's GPU would read garbage there too, but not fault the program).
+            bool mem1 = addr >= 0x80000000u && addr + size <= 0x81800000u;
+            bool mem2 = addr >= 0x90000000u && addr + size <= 0x94000000u;
+            if (depth < 4 && (mem1 || mem2)) {
+                Run((const u8*)(uintptr_t)addr, size, depth + 1);
+            } else if (depth < 4) {
+                static int bad;
+                if (bad++ < 5) fprintf(stderr, "gxinterp: display list call to unmapped %08x (+%x) skipped\n", addr, size);
+            }
         } else if (op == 0x61) {  // BP register load
             if (end - p < 4) break;
             LoadBP(be32(p));

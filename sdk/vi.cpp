@@ -137,18 +137,27 @@ static void LumLog() {
 }
 
 static void MaybeShot() {
+    // NICECRASH_SHOT may list several shots: "<frame>:<file>[,<frame>:<file>...]", in increasing frame order.
     static int frame = g_retrace;
     static int want = -1;
     static char path[260];
-    if (want == -1) {
-        const char* s = getenv("NICECRASH_SHOT");
-        want = s ? atoi(s) : -2;
-        const char* c = s ? strchr(s, ':') : nullptr;
-        if (c) snprintf(path, sizeof path, "%s", c + 1);
+    static const char* next;
+    if (want == -1) next = getenv("NICECRASH_SHOT"), want = -2;
+    if (want == -2 && next && *next) {
+        want = atoi(next);
+        const char* c = strchr(next, ':');
+        const char* e = strchr(next, ',');
+        if (c && (!e || c < e)) {
+            int len = (int)(e ? e - c - 1 : strlen(c + 1));
+            snprintf(path, sizeof path, "%.*s", len, c + 1);
+        } else {
+            path[0] = 0;
+        }
+        next = e ? e + 1 : nullptr;
     }
     frame = (int)g_retrace;
     if (want < 0 || frame < want || !path[0]) return;
-    want = -3;  // once
+    want = -2;  // this one is done; the next listed shot (if any) is parsed on the following call
     int w = g_w, h = g_h, stride = (w * 3 + 3) & ~3;
     unsigned char* px = (unsigned char*)malloc((size_t)stride * h);
     glPixelStorei(GL_PACK_ALIGNMENT, 4);
