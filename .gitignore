@@ -13,3 +13,4 @@ docs/screenshots/
 *.png
 et_host.ini
 tools/gametrial/out/
+__pycache__/
