@@ -349,3 +349,6 @@
   player's dump" build plan.
 - Drop patches/data-pools (uistyle) and the UICustom::Slot64 arity patch: fixed in the decomp (1c6951de4, e5e14139c).
 - Expect renames (widget/collision vtables, Bink RAD names, CarSound): bridges are re-derived from symbols.txt.
+- ARC: the decomp's matched SDK arc.c (libs/msc/src/RVL_SDK/arc) is complete (the partial copies are an unlinked
+  duplicate in the Bink file). Could replace sdk/arc.cpp via sdkbuild if ARCInitHandle's header/table swap moves to
+  a small pre-step.
