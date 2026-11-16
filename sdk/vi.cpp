@@ -6,11 +6,13 @@
 #include <GL/gl.h>
 #include <cstdio>
 #include <cstdlib>
+#include <climits>
 #include <cstring>
 #include "gxinterp.h"
 #include "xfb.h"
 #include "project.h"
 #include "sdk.h"
+#include "hostcfg.h"
 
 void sdk_cpu_release();
 void sdk_cpu_acquire();
@@ -32,8 +34,20 @@ static bool g_black = true;
 static void* g_nextFb;
 static LARGE_INTEGER g_freq, g_last;
 
+static void ApplyWindowMode(bool windowed);
+static bool g_windowed;
+
 static LRESULT CALLBACK WndProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
+    case WM_SYSKEYDOWN:  // Alt+Enter: windowed <-> borderless full screen
+        if (wp == VK_RETURN && (HIWORD(lp) & KF_ALTDOWN)) {
+            ApplyWindowMode(!g_windowed);
+            return 0;
+        }
+        break;
+    case WM_SYSCHAR:  // no beep for Alt+Enter
+        if (wp == VK_RETURN) return 0;
+        break;
     case WM_SIZE:
         g_w = LOWORD(lp) ? LOWORD(lp) : 1;
         g_h = HIWORD(lp) ? HIWORD(lp) : 1;
@@ -53,11 +67,11 @@ static void CreateGameWindow() {
     wc.hIcon = LoadIconA(GetModuleHandleA(nullptr), MAKEINTRESOURCEA(1));  // assets/icon (title bar, taskbar)
     wc.lpszClassName = "NiceCrashGame";
     RegisterClassA(&wc);
-    g_w = sdk_widescreen() ? 854 : 640;  // the 640-wide EFB is stretched to 16:9, as a widescreen TV does
-    RECT r{0, 0, g_w, g_h};
-    AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, FALSE);
-    g_hwnd = CreateWindowA(wc.lpszClassName, PROJECT_NAME, WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT,
-                           CW_USEDEFAULT, r.right - r.left, r.bottom - r.top, nullptr, nullptr, wc.hInstance, nullptr);
+    // The window as the player set it (settings.ini display.*): windowed at its size, or borderless over the
+    // whole monitor ("fullscreen" is borderless too: no mode switch). The EFB is rendered at the window's size.
+    g_hwnd = CreateWindowA(wc.lpszClassName, PROJECT_NAME, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 640,
+                           480, nullptr, nullptr, wc.hInstance, nullptr);
+    ApplyWindowMode(host_cfg().windowMode == 0);
     g_dc = GetDC(g_hwnd);
     PIXELFORMATDESCRIPTOR pfd{};
     pfd.nSize = sizeof pfd;
@@ -73,9 +87,57 @@ static void CreateGameWindow() {
     // NICECRASH_NOVSYNC=1: swap without waiting for the monitor (the VI retrace is timed on the performance counter;
     // measured 2026-11-16: no frame-rate difference in the race, so the driver default stays).
     typedef BOOL(WINAPI * SwapIntervalFn)(int);
-    if (auto si = (SwapIntervalFn)(void*)wglGetProcAddress("wglSwapIntervalEXT")) { if (getenv("NICECRASH_NOVSYNC")) si(0); }
+    // display.vsync (settings.ini; NICECRASH_NOVSYNC=1 also turns it off).
+    if (auto si = (SwapIntervalFn)(void*)wglGetProcAddress("wglSwapIntervalEXT"))
+        si(getenv("NICECRASH_NOVSYNC") || !host_cfg().vsync ? 0 : 1);
     QueryPerformanceFrequency(&g_freq);
     QueryPerformanceCounter(&g_last);
+}
+
+// The monitor display.monitor names (0 = primary), or the primary one.
+struct MonitorPick {
+    int want, at;
+    RECT r;
+    bool found;
+};
+static BOOL CALLBACK PickMonitor(HMONITOR m, HDC, LPRECT, LPARAM p) {
+    MonitorPick* k = (MonitorPick*)p;
+    if (k->at++ != k->want) return TRUE;
+    MONITORINFO mi{sizeof mi};
+    if (GetMonitorInfoA(m, &mi)) {
+        k->r = mi.rcMonitor;
+        k->found = true;
+    }
+    return FALSE;
+}
+static RECT MonitorRect() {
+    MonitorPick k{host_cfg().monitor, 0, {}, false};
+    if (k.want > 0) EnumDisplayMonitors(nullptr, nullptr, PickMonitor, (LPARAM)&k);
+    if (!k.found) {
+        MONITORINFO mi{sizeof mi};
+        GetMonitorInfoA(MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY), &mi);
+        k.r = mi.rcMonitor;
+    }
+    return k.r;
+}
+
+static void ApplyWindowMode(bool windowed) {
+    g_windowed = windowed;
+    RECT mon = MonitorRect();
+    if (windowed) {
+        const HostCfg& c = host_cfg();
+        RECT r{0, 0, c.windowW, c.windowH};
+        AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, FALSE);
+        int w = r.right - r.left, h = r.bottom - r.top;
+        int x = c.windowX != INT_MIN ? c.windowX : mon.left + (mon.right - mon.left - w) / 2;
+        int y = c.windowY != INT_MIN ? c.windowY : mon.top + (mon.bottom - mon.top - h) / 2;
+        SetWindowLongA(g_hwnd, GWL_STYLE, WS_OVERLAPPEDWINDOW | WS_VISIBLE);
+        SetWindowPos(g_hwnd, HWND_NOTOPMOST, x, y, w, h, SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+    } else {
+        SetWindowLongA(g_hwnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
+        SetWindowPos(g_hwnd, HWND_TOP, mon.left, mon.top, mon.right - mon.left, mon.bottom - mon.top,
+                     SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+    }
 }
 
 static void Pump() {
@@ -238,6 +300,28 @@ void sdk_vi_poll() {
     inside = true;
     g_last.QuadPart = since > 4 * frame ? now.QuadPart : g_last.QuadPart + (LONGLONG)frame;
     Pump();
+    // game.pause_unfocused (launched runs): the game stops while another window has the focus.
+    if (host_cfg().pauseUnfocused && (GetForegroundWindow() != g_hwnd || IsIconic(g_hwnd))) {
+        while (GetForegroundWindow() != g_hwnd || IsIconic(g_hwnd)) {
+            Pump();
+            Sleep(30);
+        }
+        QueryPerformanceCounter(&g_last);  // no catch-up burst afterwards
+    }
+    // graphics.show_fps: the frame rate (display copies per second) in the title bar.
+    if (host_cfg().showFps) {
+        static u32 frames, lastFrames;
+        static LARGE_INTEGER t0;
+        frames += g_copiesSinceRetrace ? 1 : 0;
+        if (!t0.QuadPart) t0 = now;
+        if (now.QuadPart - t0.QuadPart >= g_freq.QuadPart) {
+            char t[96];
+            snprintf(t, sizeof t, "%s - %u fps", PROJECT_NAME, frames - lastFrames);
+            SetWindowTextA(g_hwnd, t);
+            lastFrames = frames;
+            t0 = now;
+        }
+    }
     g_retrace++;
     g_copiesSinceRetrace = 0;
     g_copyCallsSinceRetrace = 0;

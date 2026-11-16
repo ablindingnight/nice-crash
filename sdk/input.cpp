@@ -16,6 +16,7 @@
 #include <cstdlib>
 #include <cstring>
 #include "sdk.h"
+#include "hostcfg.h"
 
 typedef void (*WPADConnectCallback)(s32 chan, s32 result);
 typedef void (*WPADInfoCallback)(s32 chan, s32 result);
@@ -368,6 +369,8 @@ static bool PadState(int chan, XState* s) {
 }
 
 static f32 Axis(SHORT v, int dead) {
+    // controls.deadzone (percent of the travel) replaces XInput's suggested values for the steering stick.
+    dead = 32767 * host_cfg().deadzone / 100;
     int a = v < 0 ? -v : v;
     if (a <= dead) return 0;
     f32 t = (f32)(a - dead) / (32767.0f - dead);
@@ -396,6 +399,7 @@ static u32 PadHold(int chan, f32* steer, f32* lean) {
     if (b & DRIGHT) hold |= BTN_DOWN;
     if ((b & XX) || (b & RB)) hold |= BTN_RIGHT;  // turbo
     *steer = Axis(s.lx, 7849);
+    if (host_cfg().invertSteer) *steer = -*steer;  // controls.invert_steer
     *lean = Axis(s.ly, 7849);
     return hold;
 }
@@ -578,6 +582,7 @@ void WPADDisconnect(s32) {}
 // The game's rumble on remote `chan` -> that pad's motors.
 void WPADControlMotor(s32 chan, u32 on) {
     if (chan < 0 || chan > 3) return;
+    if (on && !host_cfg().rumble) on = 0;  // controls.rumble
     XState unused;
     PadState(chan, &unused);  // starts the pad thread
     EnterCriticalSection(&g_padLock);

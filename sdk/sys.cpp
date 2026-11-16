@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include "sdk.h"
+#include "hostcfg.h"
 
 void sdk_log(const char* fmt, ...) {
     static int on = -1;
@@ -17,14 +18,8 @@ void sdk_log(const char* fmt, ...) {
     va_end(ap);
 }
 
-bool sdk_widescreen() {
-    static int w = -1;
-    if (w < 0) {
-        const char* a = getenv("NICECRASH_ASPECT");
-        w = !(a && a[0] == '4');
-    }
-    return w != 0;
-}
+// display.aspect in settings.ini (the launcher's Display page; NICECRASH_ASPECT overrides): 4:3 or 16:9.
+bool sdk_widescreen() { return host_cfg().widescreen; }
 
 extern "C" {
 

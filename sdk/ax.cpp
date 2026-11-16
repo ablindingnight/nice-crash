@@ -13,6 +13,8 @@
 #include <cstdlib>
 #include <cstring>
 #include "sdk.h"
+#include "hostcfg.h"
+bool sdk_vi_has_focus();
 
 typedef void (*AXCallback)(void);
 typedef void (*AXVoiceCallback)(void* vpb);
@@ -188,12 +190,16 @@ u32 g_wavFrames;
 
 void Fill(WAVEHDR* h) {
     s16* d = (s16*)h->lpData;
+    // audio.master (0-100), and silence while another window has the focus (audio.mute_unfocused, launched runs).
+    const HostCfg& cfg = host_cfg();
+    int gain = cfg.master * 256 / 100;
+    if (cfg.muteUnfocused && !sdk_vi_has_focus()) gain = 0;
     EnterCriticalSection(&g_cs);
     for (int i = 0; i < kBuf; i++) {
         if (g_rd < g_wr) {
             long r = g_rd % kRing;
-            d[i * 2] = g_ring[r * 2];
-            d[i * 2 + 1] = g_ring[r * 2 + 1];
+            d[i * 2] = (s16)(g_ring[r * 2] * gain >> 8);
+            d[i * 2 + 1] = (s16)(g_ring[r * 2 + 1] * gain >> 8);
             g_rd++;
         } else {
             d[i * 2] = d[i * 2 + 1] = 0;  // underrun: silence

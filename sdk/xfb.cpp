@@ -153,6 +153,12 @@ bool xfb_present(u32 addr, bool black, int ww, int wh) {
     glClearColor(0, 0, 0, 1);
     glClear(GL_COLOR_BUFFER_BIT);
     if (!black && it != g_xfbs.end()) {
+        // The picture keeps its shape (16:9 or 4:3) in any window: centred, black bars outside.
+        float want = sdk_widescreen() ? 16.0f / 9.0f : 4.0f / 3.0f, have = (float)ww / (float)(wh ? wh : 1);
+        int vw = ww, vh = wh;
+        if (have > want * 1.01f) vw = (int)(wh * want + 0.5f);
+        else if (have < want / 1.01f) vh = (int)(ww / want + 0.5f);
+        glViewport((ww - vw) / 2, (wh - vh) / 2, vw, vh);
         glMatrixMode(GL_PROJECTION);
         glLoadIdentity();
         glOrtho(0, 1, 0, 1, -1, 1);

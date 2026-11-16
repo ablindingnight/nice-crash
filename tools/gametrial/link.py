@@ -274,7 +274,7 @@ def main():
     import glob as _g
     srcs = ['runtime/port_main.cpp', 'runtime/unimpl.cpp'] + sorted(
         os.path.relpath(p, PORT).replace(os.sep, '/') for p in _g.glob(os.path.join(PORT, 'runtime', '*.cpp')) +
-        _g.glob(os.path.join(PORT, 'sdk', '*.cpp')) + [os.path.join(PORT, 'lib', 'portconfig.cpp'), os.path.join(PORT, 'lib', 'texture.cpp')] if os.path.basename(p) not in ('port_main.cpp', 'unimpl.cpp'))
+        _g.glob(os.path.join(PORT, 'sdk', '*.cpp')) + [os.path.join(PORT, 'lib', 'portconfig.cpp'), os.path.join(PORT, 'lib', 'texture.cpp'), os.path.join(PORT, 'lib', 'settings.cpp')] if os.path.basename(p) not in ('port_main.cpp', 'unimpl.cpp'))
     for src in srcs:
         o = os.path.join(B, 'rt_' + src.replace('/', '_') + '.o')
         r = zig('c++', '-target', 'x86-windows-gnu', '-std=c++17', '-O2', '-fno-omit-frame-pointer', '-g', '-c', '-I', 'lib', '-I', 'sdk', '-fno-sanitize=all', src, '-o', o)
