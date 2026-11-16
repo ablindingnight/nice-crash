@@ -49,6 +49,14 @@ typedef char GLchar_;
 GLFUNCS(DECL)
 #undef DECL
 
+// Blend entry points (named by hand: the system gl.h may declare these names itself).
+typedef void(APIENTRY* BlendFuncSep_t)(GLenum, GLenum, GLenum, GLenum);
+typedef void(APIENTRY* BlendEqSep_t)(GLenum, GLenum);
+typedef void(APIENTRY* BlendColor_t)(GLfloat, GLfloat, GLfloat, GLfloat);
+BlendFuncSep_t p_blendFuncSep;
+BlendEqSep_t p_blendEqSep;
+BlendColor_t p_blendColor;
+
 int g_ok = -1;  // -1 = not tried yet
 
 bool Load() {
@@ -62,6 +70,9 @@ bool Load() {
     }
     GLFUNCS(LOAD)
 #undef LOAD
+    p_blendFuncSep = (BlendFuncSep_t)(void*)wglGetProcAddress("glBlendFuncSeparate");
+    p_blendEqSep = (BlendEqSep_t)(void*)wglGetProcAddress("glBlendEquationSeparate");
+    p_blendColor = (BlendColor_t)(void*)wglGetProcAddress("glBlendColor");
     if (getenv("NICECRASH_NOTEV")) g_ok = 0;
     return g_ok;
 }
@@ -549,3 +560,55 @@ void gxt_draw_arrays(unsigned mode, const void* base, int stride, int n, int nTe
     glDisableClientState(GL_COLOR_ARRAY);
     glDisableClientState(GL_VERTEX_ARRAY);
 }
+
+// PE blending (BP 0x41 PE_CMODE0, 0x42 PE_CMODE1) and the EFB pixel format (BP 0x43): blend factors or subtract,
+// logic op, colour/alpha update, the constant destination alpha and formats without alpha (destination alpha = 1).
+void gxt_blend(u32 cm, u32 cm1, u32 pe) {
+    static const GLenum srcF[8] = {GL_ZERO, GL_ONE, GL_DST_COLOR, GL_ONE_MINUS_DST_COLOR,
+                                   GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_DST_ALPHA, GL_ONE_MINUS_DST_ALPHA};
+    static const GLenum dstF[8] = {GL_ZERO, GL_ONE, GL_SRC_COLOR, GL_ONE_MINUS_SRC_COLOR,
+                                   GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_DST_ALPHA, GL_ONE_MINUS_DST_ALPHA};
+    static const int ab = getenv("NICECRASH_BLENDAB") ? atoi(getenv("NICECRASH_BLENDAB")) : 0;  // debugging: 1 = no dst alpha, 2 = alpha always, 4 = no logic op
+    bool hasAlpha = (pe & 7) == 1 || (ab & 2);
+    if (ab & 1) cm1 = 0;
+    if (ab & 4) cm &= ~2u;  // RGBA6_Z24; RGB8_Z24 and RGB565_Z16 read destination alpha as 1
+    auto fix = [&](GLenum f) {
+        if (hasAlpha) return f;
+        return f == GL_DST_ALPHA ? (GLenum)GL_ONE : f == GL_ONE_MINUS_DST_ALPHA ? (GLenum)GL_ZERO : f;
+    };
+    const GLenum ADD = 0x8006, REVSUB = 0x800B, CONST_ALPHA = 0x8003;
+    bool blend = false;
+    GLenum eq = ADD, s = GL_ONE, d = GL_ZERO;
+    if (cm & 0x800) {  // subtract: dst - src
+        blend = true; eq = REVSUB;
+    } else if (cm & 1) {
+        blend = true; s = fix(srcF[(cm >> 8) & 7]); d = fix(dstF[(cm >> 5) & 7]);
+    }
+    static const GLenum logicOps[16] = {GL_CLEAR, GL_AND, GL_AND_REVERSE, GL_COPY, GL_AND_INVERTED, GL_NOOP,
+                                        GL_XOR, GL_OR, GL_NOR, GL_EQUIV, GL_INVERT, GL_OR_REVERSE,
+                                        GL_COPY_INVERTED, GL_OR_INVERTED, GL_NAND, GL_SET};
+    if (!blend && (cm & 2) && ((cm >> 12) & 15) != 3) {
+        glEnable(GL_COLOR_LOGIC_OP);
+        glLogicOp(logicOps[(cm >> 12) & 15]);
+    } else {
+        glDisable(GL_COLOR_LOGIC_OP);
+    }
+    bool dstAlpha = (cm1 >> 8) & 1;
+    Load();
+    if (!p_blendFuncSep || !p_blendEqSep || !p_blendColor) {  // fixed function only
+        if (blend) { glEnable(GL_BLEND); glBlendFunc(s, d); } else glDisable(GL_BLEND);
+    } else if (dstAlpha && hasAlpha) {  // written alpha = the constant
+        glEnable(GL_BLEND);
+        p_blendColor(0, 0, 0, (cm1 & 0xFF) / 255.0f);
+        p_blendEqSep(eq, ADD);
+        p_blendFuncSep(s, d, CONST_ALPHA, GL_ZERO);
+    } else if (blend) {
+        glEnable(GL_BLEND);
+        p_blendEqSep(eq, eq);
+        p_blendFuncSep(s, d, s, d);
+    } else {
+        glDisable(GL_BLEND);
+    }
+    glColorMask((cm >> 3) & 1, (cm >> 3) & 1, (cm >> 3) & 1, ((cm >> 4) & 1) && hasAlpha);
+}
+

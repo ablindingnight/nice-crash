@@ -12,3 +12,5 @@ void gxt_texcoord(int unit, float s, float t);
 void gxt_color1(const u8 c[4]);
 // Draws batched vertices (layout in gxtev.cpp) with the current program/fixed-function state.
 void gxt_draw_arrays(unsigned mode, const void* base, int stride, int n, int nTex);
+// PE blend state (BP 0x41/0x42/0x43) as GL blend/logic-op/colour-mask state.
+void gxt_blend(u32 cmode0, u32 cmode1, u32 pe_ctrl);

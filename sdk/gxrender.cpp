@@ -379,19 +379,8 @@ void ApplyState() {
     } else {
         glDisable(GL_SCISSOR_TEST);
     }
-    // Blend (BP 0x41 PE_CMODE0).
-    u32 cm = g_gx.bp[0x41];
-    static const GLenum srcF[8] = {GL_ZERO, GL_ONE, GL_DST_COLOR, GL_ONE_MINUS_DST_COLOR,
-                                   GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_DST_ALPHA, GL_ONE_MINUS_DST_ALPHA};
-    static const GLenum dstF[8] = {GL_ZERO, GL_ONE, GL_SRC_COLOR, GL_ONE_MINUS_SRC_COLOR,
-                                   GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_DST_ALPHA, GL_ONE_MINUS_DST_ALPHA};
-    if (cm & 1) {
-        glEnable(GL_BLEND);
-        glBlendFunc(srcF[(cm >> 8) & 7], dstF[(cm >> 5) & 7]);
-    } else {
-        glDisable(GL_BLEND);
-    }
-    glColorMask((cm >> 3) & 1, (cm >> 3) & 1, (cm >> 3) & 1, (cm >> 4) & 1);
+    // Blend (BP 0x41 PE_CMODE0, 0x42 PE_CMODE1, 0x43 pixel format).
+    gxt_blend(g_gx.bp[0x41], g_gx.bp[0x42], g_gx.bp[0x43]);
     // Depth (BP 0x40 PE_ZMODE).
     u32 zm = g_gx.bp[0x40];
     static const GLenum zf[8] = {GL_NEVER, GL_LESS, GL_EQUAL, GL_LEQUAL, GL_GREATER, GL_NOTEQUAL, GL_GEQUAL, GL_ALWAYS};
@@ -415,7 +404,7 @@ void ApplyState() {
 }
 
 // Transform one position by the XF matrix at row `pn`, the projection and the viewport -> EFB x, y, z, w.
-void Transform(const float* p, int pn, float out[4]) {
+void Transform(const float* p, int pn, float out[4], float* clip = nullptr) {
     int m = pn * 4;
     float x = xff(m + 0) * p[0] + xff(m + 1) * p[1] + xff(m + 2) * p[2] + xff(m + 3);
     float y = xff(m + 4) * p[0] + xff(m + 5) * p[1] + xff(m + 6) * p[2] + xff(m + 7);
@@ -434,10 +423,16 @@ void Transform(const float* p, int pn, float out[4]) {
         cz = pr[4] * z + pr[5];
         cw = 1.0f;
     }
-    if (cw == 0) cw = 1e-6f;
-    float nx = cx / cw, ny = cy / cw, nz = cz / cw;
     float sx = xff(0x101A), sy = xff(0x101B), sz = xff(0x101C);
     float ox = xff(0x101D), oy = xff(0x101E), oz = xff(0x101F);
+    if (clip) {  // homogeneous EFB coordinates (x, y, z times w, and the signed w): GL clips behind the eye
+        clip[0] = (ox - 342.0f) * cw + cx * sx;
+        clip[1] = (oy - 342.0f) * cw + cy * sy;
+        clip[2] = oz * cw + cz * sz;
+        clip[3] = cw;
+    }
+    if (cw == 0) cw = 1e-6f;
+    float nx = cx / cw, ny = cy / cw, nz = cz / cw;
     out[0] = ox + nx * sx - 342.0f;
     out[1] = oy + ny * sy - 342.0f;
     out[2] = oz + nz * sz;
@@ -787,10 +782,7 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
             TexCoord(v, texCoord, o.tc[0]);
         }
         float x[4];
-        Transform(v.pos, v.pnmtx, x);
-        float w = x[3] > 0 ? x[3] : -x[3];
-        if (w < 1e-6f) w = 1e-6f;
-        o.pos[0] = x[0] * w; o.pos[1] = x[1] * w; o.pos[2] = x[2] * w; o.pos[3] = w;
+        Transform(v.pos, v.pnmtx, x, o.pos);
     }
     {  // NICECRASH_BIGLOG=<n>: log the first n draws with a vertex far outside the screen (bad positions/matrices)
         static int left = getenv("NICECRASH_BIGLOG") ? atoi(getenv("NICECRASH_BIGLOG")) : 0;
@@ -885,7 +877,7 @@ void gxr_copy(u32 bp52) {
                     r = (u8)(zv >> 16); g = (u8)(zv >> 8); b = (u8)zv; a = 255;
                 } else {
                     const u8* s = &rgba[si * 4];
-                    r = s[0]; g = s[1]; b = s[2]; a = s[3];
+                    r = s[0]; g = s[1]; b = s[2]; a = (g_gx.bp[0x43] & 7) == 1 ? s[3] : 255;  // alpha only in RGBA6
                 }
                 u8 i = r;
                 if (inten && !depth) i = (u8)(0.257f * r + 0.504f * g + 0.098f * b + 16.0f);
@@ -982,5 +974,6 @@ void gxr_copy(u32 bp52) {
         glClearDepth(z / 16777215.0);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         glDisable(GL_SCISSOR_TEST);
+        g_stateDirty = true;  // masks and scissor changed under the batch state
     }
 }
