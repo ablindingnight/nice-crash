@@ -532,7 +532,7 @@ void gxt_color1(const u8 c[4]) { p_glVertexAttrib4f(6, c[0] / 255.0f, c[1] / 255
 
 // One draw of batched vertices (sdk/gxrender.cpp): per vertex, float4 clip position at 0, colour 0 (u8x4) at 16,
 // colour 1 (u8x4, the TEV programs' col1in) at 20 and nTex float2 texture coordinates from 24.
-void gxt_draw_arrays(unsigned mode, const void* base, int stride, int n, int nTex) {
+void gxt_draw_arrays(unsigned mode, const void* base, int stride, int n, int nTex, const unsigned* idx, int nIdx) {
     const unsigned char* b = (const unsigned char*)base;
     bool ext = Load();
     glEnableClientState(GL_VERTEX_ARRAY);
@@ -549,7 +549,15 @@ void gxt_draw_arrays(unsigned mode, const void* base, int stride, int n, int nTe
         glEnableClientState(GL_TEXTURE_COORD_ARRAY);
         glTexCoordPointer(2, GL_FLOAT, stride, b + 24 + i * 8);
     }
-    glDrawArrays(mode, 0, n);
+    if (idx) {
+        // The vertex range given, so the driver need not scan the indices for it.
+        typedef void(APIENTRY * DrawRange_t)(GLenum, GLuint, GLuint, GLsizei, GLenum, const void*);
+        static DrawRange_t drawRange = (DrawRange_t)(void*)wglGetProcAddress("glDrawRangeElements");
+        if (drawRange) drawRange(mode, 0, (GLuint)(n - 1), nIdx, GL_UNSIGNED_INT, idx);
+        else glDrawElements(mode, nIdx, GL_UNSIGNED_INT, idx);
+    } else {
+        glDrawArrays(mode, 0, n);
+    }
     for (int i = 0; i < nTex; i++) {
         if (ext) p_glClientActiveTexture(GL_TEXTURE0_ + i);
         glDisableClientState(GL_TEXTURE_COORD_ARRAY);

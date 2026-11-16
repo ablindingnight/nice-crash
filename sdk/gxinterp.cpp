@@ -207,7 +207,11 @@ void gxi_flush() {
     static std::vector<u8> chunk;
     if (busy) return;
     busy = true;
-    gxr_state_dirty();  // other code may have used OpenGL since the last flush
+    // OpenGL is used outside the draw batch only by copies and the presentation, which release the batch state
+    // themselves (gxr_end_batch); a flush alone no longer forces the state to be set up again (it did ~2400 times
+    // a race frame). NICECRASH_FLUSHDIRTY=1: the old behaviour.
+    static const bool flushDirty = getenv("NICECRASH_FLUSHDIRTY") != nullptr;
+    if (flushDirty) gxr_state_dirty();
     for (int pass = 0; pass < 8; pass++) {
         size_t len;
         const u8* src = sdk_fifo_data(&len);

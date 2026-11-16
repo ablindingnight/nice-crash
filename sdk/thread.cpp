@@ -37,8 +37,27 @@ static int g_nthreads;
 static HostMutex g_mutexes[64];
 static int g_nmutexes;
 
-void sdk_cpu_acquire() { AcquireSRWLockExclusive(&g_cpu); }
-void sdk_cpu_release() { ReleaseSRWLockExclusive(&g_cpu); }
+// Time the Wii CPU is held (the game working, as opposed to waiting): NICECRASH_FRAMETIME in sdk/gxrender.cpp.
+static LARGE_INTEGER g_cpuSince;
+static long long g_cpuBusy;
+void sdk_cpu_acquire() {
+    AcquireSRWLockExclusive(&g_cpu);
+    QueryPerformanceCounter(&g_cpuSince);
+}
+void sdk_cpu_release() {
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    g_cpuBusy += now.QuadPart - g_cpuSince.QuadPart;
+    ReleaseSRWLockExclusive(&g_cpu);
+}
+// Milliseconds the CPU has been held so far (called by the holder).
+double sdk_cpu_busy_ms() {
+    static LARGE_INTEGER f;
+    if (!f.QuadPart) QueryPerformanceFrequency(&f);
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    return (double)(g_cpuBusy + (now.QuadPart - g_cpuSince.QuadPart)) * 1000.0 / (double)f.QuadPart;
+}
 
 // Give the CPU away for `ms` milliseconds (0 = just let others run).
 void sdk_cpu_yield(DWORD ms) {

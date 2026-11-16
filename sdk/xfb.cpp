@@ -38,6 +38,7 @@ CheckFB p_glCheckFramebufferStatus;
 int g_ok = -1;
 GLuint g_fbo, g_color, g_depth;
 int g_w, g_h;
+int g_presW, g_presH;  // window size at the last presentation
 
 struct Xfb {
     GLuint tex = 0;
@@ -128,6 +129,20 @@ bool xfb_present(u32 addr, bool black, int ww, int wh) {
                 it == g_xfbs.end() ? "MISSING" : "ok", it == g_xfbs.end() ? 0 : it->second.serial, g_lastAddr, g_serial, 10);
     if (it == g_xfbs.end()) it = g_xfbs.find(g_lastAddr);  // the game never named one: show the latest copy
     if (it == g_xfbs.end() && !black) return false;
+    // The same picture as the last presentation (the game draws a new frame every second or third retrace): the
+    // window already shows it, so skip the draw and the swap (NICECRASH_PRESENTALL=1 presents every retrace).
+    static u32 lastAddr = ~0u, lastSerial;
+    static bool lastBlack, lastValid;
+    static const bool all = getenv("NICECRASH_PRESENTALL") != nullptr;
+    u32 serial = it != g_xfbs.end() ? it->second.serial : 0, shown = it != g_xfbs.end() ? it->first : 0;
+    if (!all && lastValid && shown == lastAddr && serial == lastSerial && black == lastBlack && ww == g_presW && wh == g_presH)
+        return false;
+    lastValid = true;
+    lastAddr = shown;
+    lastSerial = serial;
+    lastBlack = black;
+    g_presW = ww;
+    g_presH = wh;
     p_glBindFramebuffer(GL_FRAMEBUFFER_, 0);
     glViewport(0, 0, ww, wh);
     glDisable(GL_SCISSOR_TEST);
@@ -171,9 +186,13 @@ bool xfb_target_tex(unsigned tex, int w, int h) {
     if (!fbo) p_glGenFramebuffers(1, &fbo);
     p_glBindFramebuffer(GL_FRAMEBUFFER_, fbo);
     p_glFramebufferTexture2D(GL_FRAMEBUFFER_, GL_COLOR_ATTACHMENT0_, GL_TEXTURE_2D, tex, 0);
-    if (p_glCheckFramebufferStatus(GL_FRAMEBUFFER_) != GL_FRAMEBUFFER_COMPLETE_) {
-        p_glBindFramebuffer(GL_FRAMEBUFFER_, g_fbo);
-        return false;
+    static bool checked;  // RGBA8 colour-only targets: one completeness check is enough
+    if (!checked) {
+        if (p_glCheckFramebufferStatus(GL_FRAMEBUFFER_) != GL_FRAMEBUFFER_COMPLETE_) {
+            p_glBindFramebuffer(GL_FRAMEBUFFER_, g_fbo);
+            return false;
+        }
+        checked = true;
     }
     glViewport(0, 0, w, h);
     return true;

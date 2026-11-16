@@ -231,6 +231,31 @@ const int kCopyBpp[16] = {4, 8, 8, 16, 16, 16, 32, 8, 8, 8, 8, 16, 16, 16, 16, 1
 // Encode a copy (rgba = what the target format samples as, w x h at EFB resolution) into RAM as GX tiles.
 void EncodeCopy(u8* dst, int real, const std::vector<u8>& rgba, int w, int h, u32 strideLines) {
     int bpp = kCopyBpp[real];
+    // Fast paths for whole-block RGBA8 and RGB565 copies (the race's reflection and shadow copies).
+    if ((real == 6 || real == 4) && w % 4 == 0 && h % 4 == 0) {
+        int bx = w / 4, by = h / 4, blockBytes = real == 6 ? 64 : 32;
+        size_t rowBytes = strideLines ? (size_t)strideLines * 32 : (size_t)bx * blockBytes;
+        const u8* src = rgba.data();
+        for (int j = 0; j < by; j++)
+            for (int i = 0; i < bx; i++) {
+                u8* b = dst + j * rowBytes + (size_t)i * blockBytes;
+                for (int y = 0; y < 4; y++) {
+                    const u8* o = src + ((size_t)(j * 4 + y) * w + i * 4) * 4;
+                    for (int x = 0; x < 4; x++, o += 4) {
+                        int k = y * 4 + x;
+                        if (real == 6) {
+                            b[k * 2] = o[3]; b[k * 2 + 1] = o[0];
+                            b[32 + k * 2] = o[1]; b[32 + k * 2 + 1] = o[2];
+                        } else {
+                            u16 v = (u16)((o[0] >> 3) << 11 | (o[1] >> 2) << 5 | (o[2] >> 3));
+                            b[k * 2] = (u8)(v >> 8);
+                            b[k * 2 + 1] = (u8)v;
+                        }
+                    }
+                }
+            }
+        return;
+    }
     int bw = bpp == 4 ? 8 : bpp == 8 ? 8 : 4, bh = bpp == 4 ? 8 : 4;  // block size in texels
     int blockBytes = bpp == 32 ? 64 : 32;
     int bx = (w + bw - 1) / bw, by = (h + bh - 1) / bh;
@@ -506,12 +531,17 @@ static bool PlausibleF32(u32 bits) {
 static bool ArraysHostOrder(u32 lo, const VtxFmt& f, int count, const u8* data, int vat) {
     static const int force = NC_ENV("NICECRASH_ARRAYBE") ? 1 : NC_ENV("NICECRASH_ARRAYLE") ? 2 : 0;
     if (force) return force == 2;
-    static std::unordered_map<u32, bool> known;  // array base -> host order
+    // array base -> host order, and the display frame it was last judged in: judged again once per frame (the
+    // memory can be reused for the other kind of array), not at every draw (12 positions scored per draw was ~20%
+    // of gxr_draw in the race).
+    struct Known { bool host; int frame; };
+    static std::unordered_map<u32, Known> known;
     int pt = (lo >> 9) & 3;
     if (pt < 2) return false;  // positions come through the FIFO: no array to judge
     u32 base = g_gx.cp[0xA0], stride = g_gx.cp[0xB0] & 0xFF;
     auto it = known.find(base);
-    if (f.posFmt != 4) return it != known.end() && it->second;
+    if (it != known.end() && it->second.frame == g_frameNo) return it->second.host;
+    if (f.posFmt != 4) return it != known.end() && it->second.host;
     int off = (lo & 1);
     for (int i = 0; i < 8; i++) off += (lo >> (1 + i)) & 1;
     int vs = gxr_vertex_size(vat);
@@ -526,9 +556,9 @@ static bool ArraysHostOrder(u32 lo, const VtxFmt& f, int count, const u8* data, 
             scoreLE += PlausibleF32(le32(a + c * 4));
         }
     }
-    if (scoreBE == scoreLE) return it != known.end() && it->second;
+    if (scoreBE == scoreLE) return it != known.end() && it->second.host;
     bool hostOrder = scoreLE > scoreBE;
-    known[base] = hostOrder;
+    known[base] = {hostOrder, g_frameNo};
     return hostOrder;
 }
 
@@ -538,16 +568,27 @@ struct BV {
     u8 c0[4], c1[4];
     float tc[8][2];
 };
-static std::vector<BV> g_batch;
+// Each draw's vertices once, packed with only the batch's texture coordinates (stride = BvStride(g_bNTex)): BV's
+// first 24 + 8 * nTex bytes. A full BV is 88 bytes; most batches use one or two coordinate sets.
+static std::vector<u8> g_batch;
+static size_t g_batchN;  // vertices in g_batch
+static std::vector<unsigned> g_batchIdx;  // triangles as indices into g_batch
+static unsigned g_nFlush, g_nApply, g_nDraw;  // per display frame (NICECRASH_FRAMETIME)
 static bool g_stateDirty = true, g_batchValid, g_bTev, g_bTexOn;
 static int g_bNTex;
+static inline int BvStride(int nTex) { return 24 + 8 * (nTex > 0 ? nTex : 0); }
 
 void gxr_state_dirty() { g_stateDirty = true; }
 
 void gxr_flush_batch() {
-    if (g_batch.empty()) return;
-    gxt_draw_arrays(GL_TRIANGLES, g_batch.data(), sizeof(BV), (int)g_batch.size(), g_bNTex);
+    if (!g_batchN) return;
+    g_nFlush++;
+    if (!g_batchIdx.empty())
+        gxt_draw_arrays(GL_TRIANGLES, g_batch.data(), BvStride(g_bNTex), (int)g_batchN, g_bNTex, g_batchIdx.data(),
+                        (int)g_batchIdx.size());
     g_batch.clear();
+    g_batchN = 0;
+    g_batchIdx.clear();
 }
 
 // Draws what is batched and releases the GL state (other code draws next: copies, presentation, the HOME menu).
@@ -611,7 +652,8 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
     };
     for (int n = 0; n < count; n++) {
         Vtx& v = vs[n];
-        memset(&v, 0, sizeof(v));
+        v.pos[0] = v.pos[1] = v.pos[2] = 0.0f;
+        memset(v.tex, 0, sizeof v.tex);
         v.pnmtx = mia & 63;
         for (int i = 0; i < 8; i++) v.texmtx[i] = defTex[i];
         if (lo & 1) v.pnmtx = *p++ & 63;
@@ -658,7 +700,9 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
     u32 order = g_gx.bp[0x28];
     int texMap = order & 7, texCoord = (order >> 3) & 7;
     int nStages = ((g_gx.bp[0x00] >> 10) & 15) + 1, nTexGens = g_gx.bp[0x00] & 15;
+    g_nDraw++;
     if (g_stateDirty || !g_batchValid) {
+        g_nApply++;
         gxr_flush_batch();
         if (g_bTev) gxt_end();
         bool texOk[8] = {};
@@ -757,13 +801,28 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
         }
     }
     // Vertices for the batch: transformed, coloured and texture-mapped on the CPU (as the GX transform unit does).
-    static std::vector<BV> bv;
-    if ((int)bv.size() < count) bv.resize(count);
+    // Triangle kinds write straight into the batch (each vertex once; the triangles are indices); lines and points
+    // use their own array and are drawn at once.
+    int kind = (prim >> 3) & 7;
+    bool tri = kind <= 4;
+    static std::vector<u8> lineV;
+    const int stride = BvStride(g_bNTex);
+    size_t base = g_batchN;
+    u8* bvBytes;
+    if (tri) {
+        g_batch.resize((g_batchN + count) * stride);
+        bvBytes = &g_batch[g_batchN * stride];
+        g_batchN += count;
+    } else {
+        if (lineV.size() < (size_t)count * stride) lineV.resize((size_t)count * stride);
+        bvBytes = lineV.data();
+    }
+    auto bvAt = [&](int n) -> BV& { return *(BV*)(bvBytes + (size_t)n * stride); };  // only the first `stride` bytes
     bool cv1 = g_gx.xf[0x100F] & 1, av1 = g_gx.xf[0x1011] & 1;
     u32 m1 = g_gx.xf[0x100D];
     for (int n = 0; n < count; n++) {
         Vtx& v = vs[n];
-        BV& o = bv[n];
+        BV& o = bvAt(n);
         if (numChans == 0) {
             o.c0[0] = o.c0[1] = o.c0[2] = o.c0[3] = 255;
         } else {
@@ -792,7 +851,7 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
         static int left = NC_ENV("NICECRASH_BIGLOG") ? atoi(NC_ENV("NICECRASH_BIGLOG")) : 0;
         if (left > 0) {
             for (int n = 0; n < count; n++) {
-                float ex = bv[n].pos[0] / bv[n].pos[3], ey = bv[n].pos[1] / bv[n].pos[3];
+                float ex = bvAt(n).pos[0] / bvAt(n).pos[3], ey = bvAt(n).pos[1] / bvAt(n).pos[3];
                 if (ex > -3000 && ex < 3000 && ey > -3000 && ey < 3000) continue;
                 left--;
                 Vtx& v = vs[n];
@@ -807,8 +866,7 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
         }
     }
     // Triangles join the batch; lines and points are drawn on their own.
-    int kind = (prim >> 3) & 7;
-    auto add = [&](int i) { g_batch.push_back(bv[i]); };
+    auto add = [&](int i) { g_batchIdx.push_back((unsigned)(base + i)); };
     switch (kind) {
     case 0: case 1:  // quads
         for (int i = 0; i + 3 < count; i += 4) { add(i); add(i + 1); add(i + 2); add(i); add(i + 2); add(i + 3); }
@@ -828,11 +886,11 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
     default: {
         gxr_flush_batch();
         static const GLenum kLine[3] = {GL_LINES, GL_LINE_STRIP, GL_POINTS};
-        gxt_draw_arrays(kLine[kind - 5], bv.data(), sizeof(BV), count, g_bNTex);
+        gxt_draw_arrays(kLine[kind - 5], bvBytes, stride, count, g_bNTex);
         break;
     }
     }
-    if (g_batch.size() > 60000) gxr_flush_batch();
+    if (g_batchN > 60000) gxr_flush_batch();
 }
 
 // ---- EFB -> texture copies on the GPU ----
@@ -970,7 +1028,12 @@ bool GpuCopy(EfbCopy& c, u32 dst, int real, bool inten, int px0, int py0, int pw
                 p_genBuffers(1, &pbo);
             }
             p_bindBuffer(GL_PIXEL_PACK_BUFFER_, pbo);
-            p_bufferData(GL_PIXEL_PACK_BUFFER_, (ptrdiff_t)tw * th * 4, nullptr, GL_STREAM_READ_);
+            static std::unordered_map<GLuint, int> sizes;  // storage is (re)specified only when the size changes
+            int& sz = sizes[pbo];
+            if (sz != tw * th * 4) {
+                sz = tw * th * 4;
+                p_bufferData(GL_PIXEL_PACK_BUFFER_, (ptrdiff_t)sz, nullptr, GL_STREAM_READ_);
+            }
             glPixelStorei(GL_PACK_ALIGNMENT, 1);
             glReadPixels(0, 0, tw, th, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
             p_bindBuffer(GL_PIXEL_PACK_BUFFER_, 0);
@@ -1108,6 +1171,29 @@ void gxr_copy(u32 bp52) {
         }  // CPU path
     }
     if (toXfb) {
+        // NICECRASH_FRAMETIME=1: every 120 display frames, the game's CPU-held time per frame (work, not waiting) as
+        // a histogram against the 60 fps (16.7 ms) and 30 fps (33.3 ms) budgets.
+        static const bool ft = NC_ENV("NICECRASH_FRAMETIME") != nullptr;
+        if (ft) {
+            double sdk_cpu_busy_ms();
+            static double last = sdk_cpu_busy_ms(), sum;
+            static int n, under16, under33, over;
+            static unsigned fl, ap, dr;
+            fl += g_nFlush; ap += g_nApply; dr += g_nDraw;
+            g_nFlush = g_nApply = g_nDraw = 0;
+            double now = sdk_cpu_busy_ms(), d = now - last;
+            last = now;
+            sum += d;
+            (d < 16.7 ? under16 : d < 33.3 ? under33 : over)++;
+            if (++n == 120) {
+                fprintf(stderr, "[ft] per frame: %u draws, %u state applies, %u GL batches\n", dr / n, ap / n, fl / n);
+                fl = ap = dr = 0;
+                fprintf(stderr, "[ft] retrace %u: work %.1f ms/frame; <16.7 ms %d, <33.3 ms %d, more %d\n",
+                        sdk_vi_retrace_count(), sum / n, under16, under33, over);
+                n = under16 = under33 = over = 0;
+                sum = 0;
+            }
+        }
         // RAM images of GPU copies issued before the previous display copy have finished reading back by now.
         if (!g_pendingCopies.empty()) ResolveCopies(g_frameNo);
         if (xfb_active()) {  // the EFB goes to its XFB; the VI shows the one the game selects at the retrace
