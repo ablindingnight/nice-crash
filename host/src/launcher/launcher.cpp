@@ -1031,6 +1031,21 @@ void PageGraphics() {
            {{"game", L"Game"}, {"bilinear", L"Bilinear"}, {"trilinear", L"Trilinear"}, {"aniso16", L"Aniso 16\u00D7"}},
            L"Game keeps each texture's own setting. The others sharpen textures seen at an angle.");
     ToggleRow(L"Show FPS", "graphics.show_fps");
+    // Reserved for "Enhance my game" (ENHANCE_MY_GAME_2026-11-15.md): local AI upscaling of the player's own intro
+    // video and textures into the cache, never touching the originals. Model/scale picker, a checklist with Cancel,
+    // disk space and "Remove enhanced files" come with the feature (keys graphics.enhanced_assets,
+    // upscale_model, upscale_scale are already in settings.cpp).
+    SubHead(L"Enhance my game");
+    {
+        float cy;
+        Row(L"AI upscaling", L"Sharpens your own intro video and textures on this PC with a free upscaler. The results "
+                            L"go to a separate cache; your extracted files are never changed. Coming in a later version.",
+            nullptr, 44, &cy);
+        Badge(L"Later", kCtlX, cy + 2, col::tilt, false);
+        g.focusCount--;  // the button shares the row's focus slot
+        Button2(L"Enhance…", kMainX + kMainW - (TextWidth(L"ENHANCE…", F_DISPLAY, 17, 0.12f) + 52), cy, nullptr,
+                false);
+    }
     EndRows();
     AsideTitle(L"Graphics", kTop);
     TextWrap(L"These change how the picture is drawn, never how the game plays. Rows marked Next start apply when "

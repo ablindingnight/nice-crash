@@ -37,6 +37,11 @@ const Def kDefs[] = {
     {"graphics.bloom", "1", 0, nullptr},
     {"graphics.show_fps", "0", 0, nullptr},
     {"graphics.renderer", "gl", kRestart, nullptr},
+    // "Enhance my game" (handoff/port_refs/ENHANCE_MY_GAME_2026-11-15.md, a later milestone): reserved so the launcher
+    // and the in-game menu share them from the start. Nothing reads them yet.
+    {"graphics.enhanced_assets", "0", 0, nullptr},       // use the player's locally enhanced files when present
+    {"graphics.upscale_model", "realesrgan", 0, nullptr}, // realesrgan | realcugan
+    {"graphics.upscale_scale", "2", 0, nullptr},         // 2 | 4
     {"audio.master", "80", 0, nullptr},
     {"audio.music", "100", 0, nullptr},
     {"audio.sfx", "100", 0, nullptr},

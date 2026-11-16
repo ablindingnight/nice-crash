@@ -373,3 +373,9 @@
 - `LocateDump`/`DumpGameId` moved into lib/dumpcheck for the importer and launcher.
 - Fonts: Bahnschrift / Segoe UI / Cascadia Mono (Windows) until Barlow, Barlow Condensed and JetBrains Mono (OFL) are
   in assets/fonts; the launcher loads any .ttf there first.
+- Reserved for "Enhance my game" (TC/user, handoff/port_refs/ENHANCE_MY_GAME_2026-11-15.md, a later milestone):
+  keys `graphics.enhanced_assets` (0), `graphics.upscale_model` (realesrgan), `graphics.upscale_scale` (2), and an
+  "Enhance my game" section at the bottom of Settings > Graphics with a disabled "Enhance…" button tagged Later.
+  Still to come: model/scale picker, checklist with Cancel, disk space, "Remove enhanced files", the game's
+  replacement-video and texture-by-hash hooks. Check the Real-ESRGAN / Real-CUGAN / RIFE ncnn-vulkan licences
+  before bundling anything.
