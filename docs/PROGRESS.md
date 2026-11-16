@@ -552,3 +552,8 @@
   Windows' high-quality cubic filter (smoother, not sharper); Real-ESRGAN ncnn-vulkan plugs in at
   build/tools/realesrgan/realesrgan-ncnn-vulkan.exe (enhance.exe --upscaler) once the user approves the download
   and its licence is checked. Credits (credits.bik) and textures by hash are next.
+- Real-ESRGAN (user-approved download 2026-11-16: official xinntao/Real-ESRGAN v0.2.5.0 Windows build, 45,474,481
+  bytes, BSD-3-Clause models + MIT realesrgan-ncnn-vulkan) in build/tools/realesrgan/ (git-ignored). Full intro with
+  realesrgan-x4plus at 2x: 27 minutes on the RTX 3090, 96 MB, plays in the game (1381b2b). Copies for the user:
+  Videos\Nice Crash\Excite Truck intro - original (640x448).mp4 and ... - AI upscaled Real-ESRGAN (1280x896).mp4
+  (video only, no sound).
