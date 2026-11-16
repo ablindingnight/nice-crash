@@ -12,3 +12,12 @@
 
 // Per-user data folder name under %LOCALAPPDATA% (imported-dump config and index). Renamed with the project.
 #define PROJECT_DIRNAME "NiceCrash"
+
+// Versions shown by the launcher (title bar, Home, About, bug reports).
+#define LAUNCHER_VERSION "0.1.0"
+#define NICECRASH_VERSION "0.1.0"
+
+// Flip to 1 at the first release known to work end to end. Until then "Save error logs" (launcher.error_log)
+// defaults to on; after it, new installs default to off and a player's own choice is kept (settings.ini stores
+// only values the player changed).
+#define NICECRASH_KNOWN_WORKING_RELEASE 0

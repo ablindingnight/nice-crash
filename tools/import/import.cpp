@@ -23,48 +23,6 @@
 #include "project.h"
 #include "res.h"
 
-static bool IsFile(const std::string& p) {
-    DWORD a = GetFileAttributesA(p.c_str());
-    return a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY);
-}
-static std::string Full(const std::string& p) {
-    char b[MAX_PATH * 4];
-    DWORD n = GetFullPathNameA(p.c_str(), sizeof b, b, nullptr);
-    std::string r = n ? std::string(b, n) : p;
-    while (r.size() > 3 && (r.back() == '\\' || r.back() == '/')) r.pop_back();
-    return r;
-}
-static std::string Lower(std::string s) {
-    for (auto& c : s) c = (char)tolower((unsigned char)c);
-    return s;
-}
-
-// Find the files\ folder (holding tocres.res) and the main.dol for a dump path.
-static bool Locate(const std::string& dump, std::string& files, std::string& dol, std::string& why) {
-    std::string d = Full(dump);
-    if (IsFile(d)) {
-        std::string ext = Lower(d.substr(d.find_last_of('.') == std::string::npos ? d.size() : d.find_last_of('.')));
-        why = (ext == ".iso" || ext == ".rvz" || ext == ".wbfs" || ext == ".ciso" || ext == ".wia")
-                  ? "disc images (" + ext + ") are not supported yet; extract the disc to a folder first "
-                    "(e.g. Dolphin: right-click the game > Properties > Filesystem > Extract Entire Disc)"
-                  : "not a folder or a known disc image: " + d;
-        return false;
-    }
-    const char* tries[][2] = {{"\\DATA\\files", "\\DATA\\sys\\main.dol"},
-                              {"\\files", "\\sys\\main.dol"},
-                              {"", "\\..\\sys\\main.dol"}};
-    for (auto& t : tries) {
-        std::string f = d + t[0];
-        if (IsFile(f + "\\tocres.res")) {
-            files = f;
-            if (dol.empty()) dol = Full(d + t[1]);
-            return true;
-        }
-    }
-    why = "no tocres.res found under " + d + " (expected DATA\\files, files\\, or the files folder itself)";
-    return false;
-}
-
 int main(int argc, char** argv) {
     std::string dump, dol;
     for (int i = 1; i < argc; i++) {
@@ -79,7 +37,7 @@ int main(int argc, char** argv) {
         return 2;
     }
     std::string files, why;
-    if (!Locate(dump, files, dol, why)) {
+    if (!LocateDump(dump, files, dol, why)) {
         fprintf(stderr, "error: %s\n", why.c_str());
         return 2;
     }

@@ -482,3 +482,60 @@
   _current_locale (locale.c, 0x48 bytes at 0x802FE850) still come from the DOL: compile those two MSL files into
   the runtime or define host equivalents (MSL __Locale layout). The next pin should also drop carbody's 20,
   chalpath's 7 and physcam's 7 DOL labels (7d065634a, afb4d5d32, ee8171f80).
+## Launcher and settings core (2026-11-15, UI handoff steps 1 and 7)
+- `lib/settings.{h,cpp}`: one `%LOCALAPPDATA%\NiceCrash\settings.ini` (sections display, graphics, audio, controls,
+  game, launcher; every key and default from NICE_CRASH_UI_DESIGN.md section 5). Only changed values are stored, so a
+  moved default reaches everyone who never touched it. Comments and unknown keys survive rewrites; writes are atomic
+  (temp + MoveFileEx) and debounced 300 ms; per-prefix change callbacks; `Settings_NeedsRestart`.
+  `NICECRASH_<SECTION>_<KEY>` env vars override (plus `NICECRASH_ASPECT`, `NICECRASH_ERROR_LOG`). Builds 32- and
+  64-bit. The game doesn't read it yet (sdk/ is another session's): the launcher passes `NICECRASH_ASPECT`.
+- `launcher.error_log` defaults to on until `NICECRASH_KNOWN_WORKING_RELEASE` (lib/project.h) flips to 1.
+- `build/NiceCrash.exe` is now the launcher (host/src/launcher/, GDI+, Windows subsystem, per-monitor DPI aware);
+  the phase-0 viewer moved to host/src/viewer.cpp behind `--viewer` and its old flags. Screens: Home (status rows,
+  crash row, PLAY becomes the fix), disc picker (searches Downloads/Desktop/Documents, Browse, drag and drop),
+  first-run checklist (drives import.exe; builds with `python -I tools/gametrial/link.py` when the game exe is
+  missing or on Rebuild), Settings (Game files, Display incl. aspect 4:3 / 16:9 / native, Graphics, Audio, Controls,
+  Language + game rows, Builds, Logs with "Save error logs", About). Keyboard, mouse and XInput.
+- PLAY: flushes settings, starts NiceCrashGame.exe with `NICECRASH_ASPECT`, `NICECRASH_LAUNCHED=1`,
+  `NICECRASH_ERROR_LOG`; with error logs on the game's stderr goes to logs\nicecrash_log.txt (rotated .1-.4). The
+  launcher hides (close_on_play=1) or minimises, records the run in logs\runs.tsv, and shows a crash row next time.
+- `LocateDump`/`DumpGameId` moved into lib/dumpcheck for the importer and launcher.
+- Fonts: Bahnschrift / Segoe UI / Cascadia Mono (Windows) until Barlow, Barlow Condensed and JetBrains Mono (OFL) are
+  in assets/fonts; the launcher loads any .ttf there first.
+- Reserved for "Enhance my game" (TC/user, handoff/port_refs/ENHANCE_MY_GAME_2026-11-15.md, a later milestone):
+  keys `graphics.enhanced_assets` (0), `graphics.upscale_model` (realesrgan), `graphics.upscale_scale` (2), and an
+  "Enhance my game" section at the bottom of Settings > Graphics with a disabled "Enhance…" button tagged Later.
+  Its scope (spec "Menus and trucks"): intro video plus menu/HUD/font and truck paint/decal/tire textures by hash;
+  edge jaggies stay with the renderer settings, and the screen says so.
+  Still to come: model/scale picker, checklist with Cancel, disk space, "Remove enhanced files", the game's
+  replacement-video and texture-by-hash hooks. Check the Real-ESRGAN / Real-CUGAN / RIFE ncnn-vulkan licences
+  before bundling anything.
+- Design 9 additions in the launcher: a free-space check before a build (about 1.5 GB; a build is about 1 GB of
+  objects, zig cache and exe) and, on the last first-run step, "Desktop shortcut" / "Start menu entry" checkboxes
+  (both on, offered only for shortcuts that don't exist yet, made on PLAY or Home; NICECRASH_SHORTCUT_DIR for tests).
+  `graphics.enhanced_assets` is a restart setting, as in the design. The game build's datagen step needs nothing
+  from the launcher: trial.py runs prep.py, which reads NICECRASH_DOL (the launcher passes it).
+- Wordmark: the user picked "C · Speed stack" (design section 2). ui.cpp Wordmark() draws it on Home as the
+  design session specified: tilt-blue speed bars, gold NICE, then CRASH with a shadow, a 4-step blue extrusion, a dark
+  outline, a white-to-gold face and a top shine, plus the gold underbar and star. The emblem is now 360 px from y 58,
+  with the wordmark 350 px wide below it. Text paths use winding fill so overlapping glyph contours don't leave holes.
+- Logs page: each run whose log still exists has an Open link (the newest maps to nicecrash_log.txt, older ones to
+  .1-.4). "Save report" writes %LOCALAPPDATA%\NiceCrash\reports\report_<date>\ (report.txt, the logs, settings.ini,
+  each with the home path and user name removed), opens it, and sends nothing (design 9 bug report). "Copy report"
+  stays. Builds page: disk use of the build folder, measured once in the background. Hints switch to pad glyphs
+  (LB/RB, A) after the last press came from the pad.
+- Fonts bundled (user's OK, 2026-11-15): assets/fonts has Barlow Condensed (Black Italic, ExtraBold Italic, Bold),
+  Barlow (Medium, SemiBold, Bold) and JetBrains Mono Regular, all SIL OFL 1.1, with their OFL texts and a README
+  naming each source. The launcher loads them through a GDI+ private collection. Text now renders with plain
+  antialiasing: grid fitting squeezed Barlow's spaces at small sizes. NICECRASH_FONTLOG=1 lists the bundled families.
+- Home truck run (design 3.2 v11, user's go-ahead): host/src/launcher/truckrun.cpp ports the mockup's script, with its
+  constants: build-up to 230 px/s at the knoll, a launch from the real speed, a backflip scaled by speed, a 30 s gap,
+  then re-entry and a bounce. The far range, foothill and pines are one 55% shape (a GDI+ Region), the truck sits
+  between it and the front hill and is drawn unstretched in wide windows. `display.background_animation`
+  (auto = Windows' animation setting, on, off; Display page) also stops the emblem's star ring; off parks the truck at
+  x≈300. NICECRASH_TRUCKRUN_T=<s> pre-runs it for --ui-shot stills.
+- Launcher rendering cost, 1920x1080: about 75% of a core before (the whole window redrawn 30 times a second), now
+  about 2% idle and 6% with the truck running. It redraws only on input and on screens with live progress; Home
+  repaints only what moves (truck and dust at 30 fps, the star ring at 10 fps). The still backdrop and the emblem's
+  still layers are cached bitmaps, text widths are cached, and drawing outside the repainted area is skipped.
+  NICECRASH_FRAMETIME=<file> logs the average partial-frame time.
