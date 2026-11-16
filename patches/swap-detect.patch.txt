@@ -268,3 +268,9 @@ class DAI {
 public:
     virtual ~DAI(void);  // port: CSubTaskMgr's destructor (two slots on the host)
 >>>
+@@@ gndtex.cpp | MEMORY: fn_802DBDE8(i, tex) is called with i up to 5; retail's 3-entry lbl_804DB468 (0x804DB468) is followed by the 12-byte @271 (0x804DB474), which takes stages 3-5. On the host the batch list came next and its data pointer was overwritten. Give the array the six slots retail effectively has (decomp: lbl_804DB468 + @271 are one 6-entry table)
+<<<
+GXTex* lbl_804DB468[3];
+===
+GXTex* lbl_804DB468[6];  // port: 3 + retail's following @271 (stages 3-5)
+>>>
