@@ -67,6 +67,18 @@ bool Init(const std::wstring& fontDir) {
         while (FindNextFileW(h, &fd));
         FindClose(h);
     }
+    if (getenv("NICECRASH_FONTLOG")) {  // debugging: what the bundled fonts register as
+        int n = s_private->GetFamilyCount(), found = 0;
+        std::vector<FontFamily> fams(n);
+        s_private->GetFamilies(n, fams.data(), &found);
+        for (int i = 0; i < found; i++) {
+            wchar_t name[LF_FACESIZE];
+            fams[i].GetFamilyName(name);
+            printf("font family '%ls': regular %d bold %d italic %d bolditalic %d\n", name,
+                   fams[i].IsStyleAvailable(FontStyleRegular), fams[i].IsStyleAvailable(FontStyleBold),
+                   fams[i].IsStyleAvailable(FontStyleItalic), fams[i].IsStyleAvailable(FontStyleBoldItalic));
+        }
+    }
     struct Cand { const wchar_t* name; int style; bool priv; };
     const int BI = FontStyleBoldItalic, B = FontStyleBold, R = FontStyleRegular, I = FontStyleItalic;
     std::vector<Cand> cands[F_COUNT] = {
@@ -255,7 +267,7 @@ void BeginFrame(Graphics* gr, int w, int h, float t, const Input& in) {
         if (g.focus >= n) g.focus = n - 1;
     }
     gr->SetSmoothingMode(SmoothingModeAntiAlias);
-    gr->SetTextRenderingHint(TextRenderingHintAntiAliasGridFit);
+    gr->SetTextRenderingHint(TextRenderingHintAntiAlias);
     gr->SetPixelOffsetMode(PixelOffsetModeHalf);
     gr->SetCompositingQuality(CompositingQualityHighQuality);
     gr->ResetTransform();

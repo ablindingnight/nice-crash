@@ -395,3 +395,7 @@
   each with the home path and user name removed), opens it, and sends nothing (design 9 bug report). "Copy report"
   stays. Builds page: disk use of the build folder, measured once in the background. Hints switch to pad glyphs
   (LB/RB, A) after the last press came from the pad.
+- Fonts bundled (user's OK, 2026-11-15): assets/fonts has Barlow Condensed (Black Italic, ExtraBold Italic, Bold),
+  Barlow (Medium, SemiBold, Bold) and JetBrains Mono Regular, all SIL OFL 1.1, with their OFL texts and a README
+  naming each source. The launcher loads them through a GDI+ private collection. Text now renders with plain
+  antialiasing: grid fitting squeezed Barlow's spaces at small sizes. NICECRASH_FONTLOG=1 lists the bundled families.
