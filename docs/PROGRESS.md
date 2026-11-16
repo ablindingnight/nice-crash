@@ -337,5 +337,7 @@
   library; sdk/hbmres.cpp swaps the menu's RLYT/RLAN/RFNT/TPL files and home.csv to host byte order on first use.
 - Enter or the pad's Back opens it; the mouse is the Wii Remote pointer, left click = A. Verified by the user
   (open, Close with the mouse). NICECRASH_NOHBM=1 switches it off.
-- Open: the menu's sound effects (HomeButtonSe.brsar, NW4R sound archive, not converted; NICECRASH_HBMSOUND=1
-  tries the raw path), pad pointer (right stick), "Wii Menu" = quit to desktop on PC.
+- Sound effects: sdk/hbmsnd.cpp converts HomeButtonSe.brsar (RSAR info/symbols, RSEQ, RBNK + ADPCM wave infos) in
+  place; the library's own sequence player plays them through the AX mixer (OS message queues added in
+  sdk/thread.cpp). Heard by the user. NICECRASH_NOHBMSOUND=1 silences them.
+- Open: pad pointer (right stick), "Wii Menu" = quit to desktop on PC, remote speaker sounds (SpeakerSe.arc).

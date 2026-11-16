@@ -78,6 +78,8 @@ def rewrite_headers(root):
         t2 = re.sub(r'(virtual ~\w+\(\))\s*=\s*0\s*\{\}', r'\1 {}', t2)
         # Dependent type names inside templates need `typename` (MWCC infers it).
         t2 = re.sub(r'(?<!typename )\bTPrioList::Iterator\b', 'typename TPrioList::Iterator', t2)
+        # Member-function pointers compared by bare name (MWCC): standard C++ takes &Class::member.
+        t2 = re.sub(r'mReadFunc == (ReadNextChar\w+)', r'mReadFunc == &CharStrmReader::\1', t2)
         # In-class `static const int X = (int)(10 * float_const)` needs a constexpr float.
         t2 = re.sub(r'static const f32 (VOLUME_(?:MIN|MAX|RANGE)_DB)\b', r'static constexpr f32 \1', t2)
         # Hardware registers defined at fixed addresses (MWCC `X[] : 0xCD000000`): declarations only on the host.
@@ -156,7 +158,8 @@ def flags(tree):
                 '-I', os.path.join(d, 'include'),
                 '-include', os.path.join(SHIM, 'hbm_prefix.h')]
     # -fdelayed-template-parsing: MWCC resolves template bodies at instantiation (they use classes completed later).
-    return ['-fdelayed-template-parsing', '-DVERSION_R4QJ01', '-DBUILD_VERSION=3', '-I', SHIM, '-I', os.path.join(PORT, 'shim', 'sdk_include'),
+    # -DHBM_ASSERT as in the decomp's cflags_msc_hbm: retail evaluates these asserts (some have side effects).
+    return ['-fdelayed-template-parsing', '-DHBM_ASSERT', '-DVERSION_R4QJ01', '-DBUILD_VERSION=3', '-I', SHIM, '-I', os.path.join(PORT, 'shim', 'sdk_include'),
             '-I', os.path.join(d, 'libs', 'msc', 'include'),
             '-I', os.path.join(OUT, 'msc', 'include'), '-I', os.path.join(OUT, 'msc', 'src'),
             '-include', os.path.join(SHIM, 'hbm_prefix_msc.h')]

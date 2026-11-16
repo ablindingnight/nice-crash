@@ -78,3 +78,17 @@ extern "C" void port_hbm_text_fix(void* text);
 extern "C" void port_hbm_text_fix(void* text);
 extern "C" int port_hbm_sound_enabled(void);
 >>>
+@@@ tp:HBMBase.cpp | the host build compiles nw4hbm asserts out (NW4HBM_DEBUG=0), which would drop this call with its assertion: make the call itself, then assert
+<<<
+        NW4R_DB_ASSERTMSG(3841, mpMemorySoundArchive->Setup(path), "Cannot setup MemorySoundArchive");
+===
+        bool portSetup = mpMemorySoundArchive->Setup(path);
+        NW4R_DB_ASSERTMSG(3841, portSetup, "Cannot setup MemorySoundArchive");
+>>>
+@@@ tp:HBMBase.cpp | (same)
+<<<
+        NW4R_DB_ASSERTMSG(3819, mpDvdSoundArchive->Open(path), "Cannot open \"%s\"", path);
+===
+        bool portOpen = mpDvdSoundArchive->Open(path);
+        NW4R_DB_ASSERTMSG(3819, portOpen, "Cannot open \"%s\"", path);
+>>>

@@ -144,4 +144,60 @@ void OSUnlockMutex(void* mutex) {
     }
 }
 
+// ---- Message queues (used by the HOME menu's sound thread) ----
+// The game's OSMessageQueue: two thread queues (unused on the host), then the ring of messages. A thread that
+// blocks on a full or empty queue gives the CPU away until another thread changes it (as on the Wii).
+struct OSMessageQueue {
+    void* sendQueue[2];
+    void* receiveQueue[2];
+    void** msgArray;  // 0x10
+    s32 msgCount;     // 0x14
+    s32 firstIndex;   // 0x18
+    s32 usedCount;    // 0x1C
+};
+enum { OS_MESSAGE_BLOCK = 1 };
+
+void OSInitMessageQueue(OSMessageQueue* q, void** msgArray, s32 msgCount) {
+    q->sendQueue[0] = q->sendQueue[1] = q->receiveQueue[0] = q->receiveQueue[1] = nullptr;
+    q->msgArray = msgArray;
+    q->msgCount = msgCount;
+    q->firstIndex = 0;
+    q->usedCount = 0;
+}
+
+int OSSendMessage(OSMessageQueue* q, void* msg, s32 flags) {
+    while (q->usedCount >= q->msgCount) {
+        if (!(flags & OS_MESSAGE_BLOCK)) return 0;
+        SleepConditionVariableSRW(&g_changed, &g_cpu, INFINITE, 0);
+    }
+    q->msgArray[(q->firstIndex + q->usedCount) % q->msgCount] = msg;
+    q->usedCount++;
+    WakeAllConditionVariable(&g_changed);
+    return 1;
+}
+
+int OSJamMessage(OSMessageQueue* q, void* msg, s32 flags) {
+    while (q->usedCount >= q->msgCount) {
+        if (!(flags & OS_MESSAGE_BLOCK)) return 0;
+        SleepConditionVariableSRW(&g_changed, &g_cpu, INFINITE, 0);
+    }
+    q->firstIndex = (q->firstIndex + q->msgCount - 1) % q->msgCount;
+    q->msgArray[q->firstIndex] = msg;
+    q->usedCount++;
+    WakeAllConditionVariable(&g_changed);
+    return 1;
+}
+
+int OSReceiveMessage(OSMessageQueue* q, void** msg, s32 flags) {
+    while (q->usedCount == 0) {
+        if (!(flags & OS_MESSAGE_BLOCK)) return 0;
+        SleepConditionVariableSRW(&g_changed, &g_cpu, INFINITE, 0);
+    }
+    if (msg) *msg = q->msgArray[q->firstIndex];
+    q->firstIndex = (q->firstIndex + 1) % q->msgCount;
+    q->usedCount--;
+    WakeAllConditionVariable(&g_changed);
+    return 1;
+}
+
 }  // extern "C"
