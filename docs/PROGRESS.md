@@ -352,3 +352,15 @@
 - ARC: the decomp's matched SDK arc.c (libs/msc/src/RVL_SDK/arc) is complete (the partial copies are an unlinked
   duplicate in the Bink file). Could replace sdk/arc.cpp via sdkbuild if ARCInitHandle's header/table swap moves to
   a small pre-step.
+
+## Tutorial race bring-up (2026-11-15, decomp pin dc71f8797)
+- Reaches the first Tutorial instruction screen ("Drive: 2 Gas, 1 Brake/Reverse",
+  docs/screenshots/tutorial_first_screen.png); the track behind it is still black.
+- After OK, car physics produce NaN positions ("CarPostUpdate: illegal mass position nan"), then a draw crashes:
+  next to chase (likely another vtable view / arity / layout issue in the physics path).
+- Fix classes met so far (all in patches/ or tools/gametrial/aliases.txt; reported to the decomp):
+  vtable views missing the destructor slot (two host slots), same-function-different-name aliases, struct-return
+  ABI (callee pops a hidden pointer on i386), int/float parameter order incl. variadic (regorder), decomp structs
+  smaller than retail (Racer, TrackSample, lbl_804DB468), hand-written LE->BE swaps, renamed data labels.
+- To do: XInputGetState on absent pads enumerates devices every poll (slow): cache absent pads and re-probe every
+  few seconds. DirectInput pads (user request 2026-11-15): add via Windows raw input/DirectInput, no downloads.
