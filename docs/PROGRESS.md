@@ -341,3 +341,11 @@
   place; the library's own sequence player plays them through the AX mixer (OS message queues added in
   sdk/thread.cpp). Heard by the user. NICECRASH_NOHBMSOUND=1 silences them.
 - Open: pad pointer (right stick), "Wii Menu" = quit to desktop on PC, remote speaker sounds (SpeakerSe.arc).
+
+## Next pin bump: to do (noted 2026-11-15)
+- Decomp data tables now `#include "dumpdata/<label>.inc"` (crc.cpp, collisionsound.cpp, unk_80116BD4.c, OSUtf.c,
+  OSFont.c; handoff/DUMPDATA_2026-11-15.md): run the decomp's tools/datagen.py on the player's main.dol into a port
+  include dir before compiling (values are already native, no swap). Fits the approved "game data only from the
+  player's dump" build plan.
+- Drop patches/data-pools (uistyle) and the UICustom::Slot64 arity patch: fixed in the decomp (1c6951de4, e5e14139c).
+- Expect renames (widget/collision vtables, Bink RAD names, CarSound): bridges are re-derived from symbols.txt.
