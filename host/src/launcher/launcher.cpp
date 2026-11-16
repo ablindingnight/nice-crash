@@ -17,6 +17,7 @@
 #include "project.h"
 #include "settings.h"
 #include "tasks.h"
+#include "truckrun.h"
 #include "ui.h"
 
 using namespace ui;
@@ -52,6 +53,8 @@ struct App {
     double toastUntil = 0;
     std::wstring playError;
     bool gameRunning = false;
+    bool runsLoaded = false, lastFailed = false;  // cached run history for Home (reloaded on Go(HOME) and game exit)
+    tasks::Run lastRun;
     // titlebar buttons in window pixels, for hit-testing
     RECT tbGear{}, tbMin{}, tbClose{};
     float tbBottom = 52;
@@ -64,6 +67,43 @@ double Now() { return (GetTickCount64() - A.t0) / 1000.0; }
 
 bool g_padLast = false;  // the last button came from the pad: hints show pad glyphs
 
+// Background animation (design 3.2 and display.background_animation): the Home truck run and the emblem's turning
+// star ring. "auto" follows Windows' "Show animations in Windows" (SPI_GETCLIENTAREAANIMATION).
+bool AnimationOn() {
+    std::string v = Settings_Get("display.background_animation");
+    if (v == "on") return true;
+    if (v == "off") return false;
+    BOOL on = TRUE;
+    SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &on, 0);
+    return on != FALSE;
+}
+
+float g_runL = 0, g_runSx = 1;  // the hills mapping the truck was last drawn with
+float g_animClock = 0;      // seconds of animation shown (stands still while the animation is off or paused)
+double g_animLast = -1;
+float g_animAcc = 0;
+
+// Once per frame: steps the truck run at a fixed 30 fps while Home is showing, the animation is on and the game
+// isn't running (the main loop stops rendering altogether while the window is hidden or minimised).
+void AdvanceAnimation() {
+    double now = Now();
+    float dt = g_animLast < 0 ? 0 : (float)std::min(0.1, now - g_animLast);
+    g_animLast = now;
+    if (!AnimationOn()) {
+        truckrun::Park();
+        g_animAcc = 0;
+        return;
+    }
+    if (A.screen != HOME || tasks::GameRunning()) return;
+    g_animClock += dt;
+    g_animAcc += dt;
+    const float frame = 1.f / 30;
+    while (g_animAcc >= frame) {
+        truckrun::Step(frame);
+        g_animAcc -= frame;
+    }
+}
+
 void Toast(const std::wstring& s) {
     A.toast = s;
     A.toastUntil = Now() + 3.5;
@@ -73,7 +113,10 @@ void Go(Screen s) {
     A.screen = s;
     A.pendingFocus = true;
     A.scroll = 0;
-    if (s == HOME) A.st = tasks::Refresh();
+    if (s == HOME) {
+        A.st = tasks::Refresh();
+        A.runsLoaded = false;
+    }
 }
 
 void GoPage(int p) {
@@ -233,10 +276,15 @@ void HomeScreen() {
     const State& s = A.st;
     PlayAction act = CurrentAction();
     tasks::Run lastRun;
-    bool crashed = tasks::LastRunFailed(&lastRun);
+    if (!A.runsLoaded) {  // the run history only changes when a run ends: read it once, not every frame
+        A.lastFailed = tasks::LastRunFailed(&A.lastRun);
+        A.runsLoaded = true;
+    }
+    bool crashed = A.lastFailed;
+    lastRun = A.lastRun;
 
     // Hero: emblem, wordmark, tagline.
-    float spin = fmodf((float)Now() * 9.f, 360.f);
+    float spin = fmodf(g_animClock * 9.f, 360.f);
     // Design v8: emblem 360 px from y 58, the Speed stack wordmark 350 px wide 22 px up into it, tagline below.
     const float heroCx = 1280 - 56 - 220, emblemTop = 58, emblemSize = 360, wmW = 350;
     Emblem(heroCx - emblemSize / 2, emblemTop, emblemSize, spin);
@@ -1056,6 +1104,8 @@ void PageDisplay() {
         for (size_t i = 0; i < M.monitors.size(); i++) mv.push_back(std::to_string(i));
         PickerRow(L"Monitor", "display.monitor", mv, M.monitors);
     }
+    SegRow(L"Home animation", "display.background_animation", {{"auto", L"Auto"}, {"on", L"On"}, {"off", L"Off"}},
+           L"The truck run and the turning stars on Home. Auto follows Windows' animation setting.");
     EndRows();
     AspectPreview(kTop);
     TextWrap(L"Black bars fill whatever the picture doesn't cover. Menus and the HUD follow the same shape.", F_BODY, 13,
@@ -1313,7 +1363,7 @@ void PageAbout() {
              kAsideX, kTop + 26, kAsideW, col::dim, 1.5f);
     Note(p, kTop + 90);
     // The emblem, small.
-    Emblem(kAsideX + 50, kTop + 170, 200, fmodf((float)Now() * 9.f, 360.f));
+    Emblem(kAsideX + 50, kTop + 170, 200, fmodf(g_animClock * 9.f, 360.f));
 }
 
 const char* kPageSection[P_COUNT] = {nullptr, "display", "graphics", "audio", "controls", "game", nullptr, nullptr, nullptr};
@@ -1427,7 +1477,9 @@ void SettingsScreen() {
 
 // ---------------------------------------------------------------- frame and window
 
+long long g_tStart, g_tBack, g_tScreen;
 void Frame(Gdiplus::Graphics* gr, int w, int h, const Input& in) {
+    LARGE_INTEGER qs; QueryPerformanceCounter(&qs); g_tStart = qs.QuadPart;
     BeginFrame(gr, w, h, (float)Now(), in);
     gr->ResetTransform();
     {
@@ -1436,7 +1488,13 @@ void Frame(Gdiplus::Graphics* gr, int w, int h, const Input& in) {
     }
     gr->TranslateTransform(g.ox, g.oy);
     gr->ScaleTransform(g.scale, g.scale);
-    Backdrop();
+    if (A.screen == HOME) Backdrop([](float L, float sx) {
+        g_runL = L;
+        g_runSx = sx;
+        truckrun::Draw(L, sx);
+    });
+    else Backdrop();
+    LARGE_INTEGER qa; QueryPerformanceCounter(&qa); g_tBack = qa.QuadPart;
     TitleBar();
     switch (A.screen) {
     case HOME: HomeScreen(); break;
@@ -1444,6 +1502,7 @@ void Frame(Gdiplus::Graphics* gr, int w, int h, const Input& in) {
     case FIRSTRUN: FirstRunScreen(); break;
     case SETTINGS: SettingsScreen(); break;
     }
+    LARGE_INTEGER qb; QueryPerformanceCounter(&qb); g_tScreen = qb.QuadPart;
     DrawToast();
     if (A.wantFocus >= 0) { g.focus = A.wantFocus; A.wantFocus = -1; }
     EndFrame();
@@ -1503,12 +1562,57 @@ void ApplyNav(Input& in, int n) {
     }
 }
 
-void Render(HWND hw) {
+bool g_dirty = true;  // something changed (input, size, a message): the next frame repaints everything
+double g_nextFull = 0;
+
+// Screens that change on their own every frame (spinners, timers, a fading toast) repaint fully while they do.
+bool ContinuousFull() {
+    if (A.screen == FIRSTRUN) return true;
+    if (A.screen == DISC && tasks::DiscScanRunning()) return true;
+    if (!A.toast.empty() && Now() < A.toastUntil + 0.1) return true;
+    if (A.screen == SETTINGS && A.page == P_BUILDS && tasks::BuildDiskUse() < 0) return true;
+    return false;
+}
+
+// Window-pixel rectangle from canvas units, padded by 2 px.
+RECT CanvasToWindow(float x0, float y0, float x1, float y1) {
+    RECT r;
+    r.left = (LONG)floorf(g.ox + x0 * g.scale) - 2;
+    r.top = (LONG)floorf(g.oy + y0 * g.scale) - 2;
+    r.right = (LONG)ceilf(g.ox + x1 * g.scale) + 2;
+    r.bottom = (LONG)ceilf(g.oy + y1 * g.scale) + 2;
+    return r;
+}
+
+// What moves on Home right now: the truck and its dust, and the emblem's turning star ring.
+std::vector<RECT> MovingAreas() {
+    std::vector<RECT> r;
+    float x0, y0, x1, y1;
+    if (truckrun::Bounds(g_runL, g_runSx, &x0, &y0, &x1, &y1)) r.push_back(CanvasToWindow(x0, y0, x1, y1));
+    // The star ring turns 9 degrees a second: repainting it 10 times a second looks the same as 30 and costs a third.
+    static int tick = 0;
+    if (tick++ % 3 == 0) {
+        const float heroCx = 1280 - 56 - 220;
+        r.push_back(CanvasToWindow(heroCx - 182, 56, heroCx + 182, 58 + 362));
+    }
+    return r;
+}
+
+// full = repaint the whole window; otherwise only the moving areas (Home animation), before and after this step.
+void Render(HWND hw, bool full = true) {
     RECT rc;
     GetClientRect(hw, &rc);
     int w = std::max(1, (int)rc.right), h = std::max(1, (int)rc.bottom);
     HDC wdc = GetDC(hw);
+    if (BB.w != w || BB.h != h) full = true;
     BB.Ensure(wdc, w, h);
+    std::vector<RECT> dirty;
+    if (!full) dirty = MovingAreas();  // where things were
+    AdvanceAnimation();
+    if (!full) {
+        std::vector<RECT> now = MovingAreas();  // where they are now
+        dirty.insert(dirty.end(), now.begin(), now.end());
+    }
     {
         Input in = g_in;
         // A screen that just opened gets one frame without key input to put its default focus in place.
@@ -1521,11 +1625,46 @@ void Render(HWND hw) {
             g_nav.erase(g_nav.begin());
         }
         Gdiplus::Graphics gr(BB.dc);
+        if (!full) {
+            Gdiplus::Region clip;
+            clip.MakeEmpty();
+            for (auto& r : dirty) clip.Union(Gdiplus::Rect(r.left, r.top, r.right - r.left, r.bottom - r.top));
+            gr.SetClip(&clip);
+        }
+        LARGE_INTEGER q0, q1, fq;
+        QueryPerformanceCounter(&q0);
         Frame(&gr, w, h, in);
+        QueryPerformanceCounter(&q1);
+        QueryPerformanceFrequency(&fq);
+        static double tSum = 0;
+        static int tN = 0;
+        static double tB = 0, tS = 0;
+        if (!full && getenv("NICECRASH_FRAMETIME")) {  // debugging: average partial-frame time
+            tSum += (double)(q1.QuadPart - q0.QuadPart) * 1000 / fq.QuadPart;
+            tB += (double)(g_tBack - g_tStart) * 1000 / fq.QuadPart;
+            tS += (double)(g_tScreen - g_tBack) * 1000 / fq.QuadPart;
+            if (++tN % 100 == 0) {
+                if (FILE* df = fopen(getenv("NICECRASH_FRAMETIME"), "a")) {
+                    fprintf(df, "partial frame %.2f ms (backdrop %.2f, screen %.2f; %d frames)\n", tSum / tN, tB / tN,
+                            tS / tN, tN);
+                    fclose(df);
+                }
+            }
+        }
         if (settling) A.resetFocus = false;  // even if the screen had nothing to focus
     }
-    BitBlt(wdc, 0, 0, w, h, BB.dc, 0, 0, SRCCOPY);
+    if (full) {
+        BitBlt(wdc, 0, 0, w, h, BB.dc, 0, 0, SRCCOPY);
+    } else {
+        for (auto& r : dirty) {
+            RECT c;
+            RECT all{0, 0, w, h};
+            if (IntersectRect(&c, &r, &all))
+                BitBlt(wdc, c.left, c.top, c.right - c.left, c.bottom - c.top, BB.dc, c.left, c.top, SRCCOPY);
+        }
+    }
     ReleaseDC(hw, wdc);
+    g_dirty = false;
     // Clear the one-frame events.
     Input keep;
     keep.mx = g_in.mx;
@@ -1592,6 +1731,13 @@ void MakeDpiAware() {
 }
 
 LRESULT CALLBACK WndProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
+    switch (msg) {  // anything that can change what's on screen asks for a full repaint
+    case WM_MOUSEMOVE: case WM_MOUSELEAVE: case WM_LBUTTONDOWN: case WM_LBUTTONUP: case WM_LBUTTONDBLCLK:
+    case WM_RBUTTONUP: case WM_MOUSEWHEEL: case WM_KEYDOWN: case WM_SIZE: case WM_DPICHANGED: case WM_DROPFILES:
+    case WM_ACTIVATE: case WM_SHOWWINDOW: case WM_SETTINGCHANGE: case WM_APP + 1:
+        g_dirty = true;
+        break;
+    }
     switch (msg) {
     case WM_NCCALCSIZE:
         if (wp) {
@@ -1723,6 +1869,7 @@ LRESULT CALLBACK WndProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
     }
     case WM_GAME_EXIT: {
         A.gameRunning = false;
+        A.runsLoaded = false;
         if (!IsWindowVisible(hw) || Settings_GetInt("launcher.close_on_play")) {
             // "Close the launcher": the run is recorded, so leave now.
             PostQuitMessage(0);
@@ -1783,6 +1930,13 @@ int LauncherShot(const std::string& which, const std::string& out, int w, int h)
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     ui::Init(FontDir());
     A.st = tasks::Refresh();
+    // NICECRASH_TRUCKRUN_T=<seconds>: run the Home truck run that far first (e.g. 9.4 is mid-flip over the pines).
+    if (const char* t = getenv("NICECRASH_TRUCKRUN_T")) {
+        float secs = (float)atof(t);
+        for (float x = 0; x < secs; x += 1.f / 30) truckrun::Step(1.f / 30);
+        g_animClock = secs;
+        printf("truck run after %.1f s: %s, %.0f px/s\n", secs, truckrun::Mode(), truckrun::Speed());
+    }
     const char* pages[] = {"files", "display", "graphics", "audio", "controls", "language", "builds", "logs", "about"};
     if (which == "home") A.screen = HOME;
     else if (which == "disc") A.screen = DISC;
@@ -1894,7 +2048,18 @@ int LauncherMain() {
         last = now;
         if (IsWindowVisible(A.hwnd) && !IsIconic(A.hwnd)) {
             PollPad(dt);
-            Render(A.hwnd);
+            // Repaint everything only when something changed or a screen shows live progress; while Home animates,
+            // repaint just what moves; otherwise draw nothing (an idle launcher costs next to no CPU). A full
+            // repaint every 2 s catches any change that arrived without a message.
+            double t = Now();
+            bool full = g_dirty || !g_nav.empty() || ContinuousFull() || t >= g_nextFull;
+            bool moving = A.screen == HOME && AnimationOn() && !tasks::GameRunning();
+            if (full) {
+                Render(A.hwnd, true);
+                g_nextFull = t + 2;
+            } else if (moving) {
+                Render(A.hwnd, false);
+            }
             MsgWaitForMultipleObjects(0, nullptr, FALSE, 30, QS_ALLINPUT);
         } else {
             MsgWaitForMultipleObjects(0, nullptr, FALSE, 200, QS_ALLINPUT);

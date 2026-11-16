@@ -138,20 +138,25 @@ static float TopPad(Font f, float size) {
     return (1.2f - (asc + desc)) * 0.5f * size;
 }
 
+// Text measurement is the costliest part of a frame, and the same strings come back every frame: cache the widths
+// (canvas units, independent of the window scale since text isn't grid-fitted).
+static float Measure(const std::wstring& s, Font f, float size) {
+    static std::map<std::pair<long long, std::wstring>, float> cache;
+    std::pair<long long, std::wstring> key((long long)f << 32 | (long long)(size * 8 + 0.5f), s);
+    auto it = cache.find(key);
+    if (it != cache.end()) return it->second;
+    if (cache.size() > 20000) cache.clear();
+    RectF r;
+    g.g->MeasureString(s.c_str(), (int)s.size(), GetFont(f, size), PointF(0, 0), Fmt(), &r);
+    cache[key] = r.Width;
+    return r.Width;
+}
+
 float TextWidth(const std::wstring& s, Font f, float size, float tracking) {
     if (s.empty()) return 0;
-    Gdiplus::Font* font = GetFont(f, size);
-    if (tracking == 0) {
-        RectF r;
-        g.g->MeasureString(s.c_str(), (int)s.size(), font, PointF(0, 0), Fmt(), &r);
-        return r.Width;
-    }
+    if (tracking == 0) return Measure(s, f, size);
     float w = 0;
-    for (wchar_t ch : s) {
-        RectF r;
-        g.g->MeasureString(&ch, 1, font, PointF(0, 0), Fmt(), &r);
-        w += r.Width + tracking * size;
-    }
+    for (wchar_t ch : s) w += Measure(std::wstring(1, ch), f, size) + tracking * size;
     return w - tracking * size;
 }
 
@@ -159,6 +164,8 @@ float Text(const std::wstring& s, Font f, float size, float x, float y, const Co
     float w = TextWidth(s, f, size, tracking);
     if (a == CENTER) x -= w / 2;
     else if (a == RIGHT) x -= w;
+    // Outside the area being repainted (a partial frame): nothing to draw.
+    if (!g.g->IsVisible(RectF(x - 4, y - 4, w + 8, size * 1.6f + 8))) return w;
     Gdiplus::Font* font = GetFont(f, size);
     SolidBrush br(c);
     y += TopPad(f, size);
@@ -166,10 +173,8 @@ float Text(const std::wstring& s, Font f, float size, float x, float y, const Co
         g.g->DrawString(s.c_str(), (int)s.size(), font, PointF(x, y), Fmt(), &br);
     } else {
         for (wchar_t ch : s) {
-            RectF r;
-            g.g->MeasureString(&ch, 1, font, PointF(0, 0), Fmt(), &r);
             g.g->DrawString(&ch, 1, font, PointF(x, y), Fmt(), &br);
-            x += r.Width + tracking * size;
+            x += Measure(std::wstring(1, ch), f, size) + tracking * size;
         }
     }
     return w;
@@ -299,18 +304,21 @@ void FillRect(float x, float y, float w, float h, const Color& c) {
     g.g->FillRectangle(&b, x, y, w, h);
 }
 void FillRound(float x, float y, float w, float h, float r, const Color& c) {
+    if (!g.g->IsVisible(RectF(x - 2, y - 2, w + 4, h + 4))) return;
     GraphicsPath p;
     RoundPath(p, x, y, w, h, r);
     SolidBrush b(c);
     g.g->FillPath(&b, &p);
 }
 void StrokeRound(float x, float y, float w, float h, float r, const Color& c, float width) {
+    if (!g.g->IsVisible(RectF(x - 2, y - 2, w + 4, h + 4))) return;
     GraphicsPath p;
     RoundPath(p, x + width / 2, y + width / 2, w - width, h - width, r);
     Pen pen(c, width);
     g.g->DrawPath(&pen, &p);
 }
 void FillRoundGrad(float x, float y, float w, float h, float r, const Color& a, const Color& b, float angle) {
+    if (!g.g->IsVisible(RectF(x - 2, y - 2, w + 4, h + 4))) return;
     GraphicsPath p;
     RoundPath(p, x, y, w, h, r);
     LinearGradientBrush br(RectF(x - 1, y - 1, w + 2, h + 2), a, b, angle);
@@ -321,6 +329,7 @@ void Line(float x0, float y0, float x1, float y1, const Color& c, float width) {
     g.g->DrawLine(&pen, x0, y0, x1, y1);
 }
 void Circle(float cx, float cy, float r, const Color& c) {
+    if (!g.g->IsVisible(RectF(cx - r - 1, cy - r - 1, r * 2 + 2, r * 2 + 2))) return;
     SolidBrush b(c);
     g.g->FillEllipse(&b, cx - r, cy - r, r * 2, r * 2);
 }
@@ -466,6 +475,7 @@ static const IconDef kIcons[] = {
 };
 
 void Icon(const char* name, float x, float y, float size, const Color& c, float stroke) {
+    if (!g.g->IsVisible(RectF(x - 2, y - 2, size + 4, size + 4))) return;
     const IconDef* d = nullptr;
     for (auto& i : kIcons)
         if (!strcmp(i.name, name)) d = &i;
@@ -528,6 +538,7 @@ bool PlayButton(const std::wstring& label, float x, float y, float w, float h, b
     int f = TakeFocus(x, y, w, h);
     bool hov = Hover(x, y, w, h);
     float cx = x + w / 2, cy = y + h / 2;
+    if (!g.g->IsVisible(RectF(x - 50, y - 30, w + 100, h + 70))) return Activated(f, x, y, w, h);  // not repainted
     PushSkew(cx, cy, -14);
     // drop-shadow(0 10px 24px boost 45%), approximated by soft layers that follow the slanted shape.
     for (int i = 8; i >= 1; i--) {
@@ -788,10 +799,85 @@ bool Checkbox(bool* on, const std::wstring& label, float x, float y, int idx) {
 
 // ---------------------------------------------------------------- art
 
-void Backdrop() {
+// Design v11 pines (mockups/launcher_home.html #pines), in hills coordinates.
+static const char* kPines =
+    "M1132.0 84.0 L1139.6 97.6 L1136.7 97.6 L1144.6 110.8 L1140.4 110.8 L1148.8 120.8 L1133.7 120.8 L1133.7 128.0 L1130.3 128.0 L1130.3 120.8 L1115.2 120.8 L1123.6 110.8 L1119.4 110.8 L1127.3 97.6 L1124.4 97.6 Z "
+    "M1158.0 96.0 L1163.7 106.2 L1161.5 106.2 L1167.5 116.1 L1164.3 116.1 L1170.6 123.6 L1159.3 123.6 L1159.3 130.0 L1156.7 130.0 L1156.7 123.6 L1145.4 123.6 L1151.7 116.1 L1148.5 116.1 L1154.5 106.2 L1152.3 106.2 Z "
+    "M1214.0 82.0 L1222.7 97.6 L1219.4 97.6 L1228.5 112.8 L1223.7 112.8 L1233.3 124.3 L1215.9 124.3 L1215.9 132.0 L1212.1 132.0 L1212.1 124.3 L1194.7 124.3 L1204.3 112.8 L1199.5 112.8 L1208.6 97.6 L1205.3 97.6 Z "
+    "M1246.0 93.0 L1252.4 104.6 L1250.0 104.6 L1256.7 115.8 L1253.1 115.8 L1260.3 124.3 L1247.4 124.3 L1247.4 131.0 L1244.6 131.0 L1244.6 124.3 L1231.7 124.3 L1238.9 115.8 L1235.3 115.8 L1242.0 104.6 L1239.6 104.6 Z "
+    "M392.0 92.0 L398.4 103.6 L396.0 103.6 L402.7 114.8 L399.1 114.8 L406.3 123.3 L393.4 123.3 L393.4 130.0 L390.6 130.0 L390.6 123.3 L377.7 123.3 L384.9 114.8 L381.3 114.8 L388.0 103.6 L385.6 103.6 Z "
+    "M414.0 99.0 L418.9 107.8 L417.1 107.8 L422.2 116.4 L419.5 116.4 L424.9 122.9 L415.1 122.9 L415.1 129.0 L412.9 129.0 L412.9 122.9 L403.1 122.9 L408.5 116.4 L405.8 116.4 L410.9 107.8 L409.1 107.8 Z ";
+
+static void StillLayer(float L, float R, float Wd, float top, float bottom);
+static void Tread(float L, float R, float Wd);
+
+void Backdrop(const std::function<void(float, float)>& mid) {
     float L = g.viewL - 2, R = g.viewR + 2, Wd = R - L;
-    // Sky (nc_theme.css .frame): sky-top 0% -> sky-mid 64%.
     float top = -g.oy / g.scale - 2, bottom = (g.winH - g.oy) / g.scale + 2;
+    // The still layer (sky, glow, far range with the foothill and pines) is drawn once per window size into a
+    // cached bitmap (design 3.2 cost rule); each frame blits it, then draws the truck, the front hill and the rest.
+    static Bitmap* stillBmp = nullptr;
+    static CachedBitmap* still = nullptr;
+    static int stillW = 0, stillH = 0;
+    if (!still || stillW != g.winW || stillH != g.winH) {
+        delete still;
+        delete stillBmp;
+        stillW = g.winW;
+        stillH = g.winH;
+        stillBmp = new Bitmap(stillW, stillH, PixelFormat32bppPARGB);
+        Graphics bg(stillBmp);
+        bg.SetSmoothingMode(SmoothingModeAntiAlias);
+        bg.SetPixelOffsetMode(PixelOffsetModeHalf);
+        bg.SetCompositingQuality(CompositingQualityHighQuality);
+        bg.TranslateTransform(g.ox, g.oy);
+        bg.ScaleTransform(g.scale, g.scale);
+        Graphics* keep = g.g;
+        g.g = &bg;
+        StillLayer(L, R, Wd, top, bottom);
+        g.g = keep;
+        still = new CachedBitmap(stillBmp, g.g);
+    }
+    {
+        // Copy only the part being repainted (a partial frame clips to the moving areas), straight, with no blending.
+        GraphicsState s = g.g->Save();
+        g.g->ResetTransform();
+        g.g->SetCompositingMode(CompositingModeSourceCopy);
+        g.g->SetInterpolationMode(InterpolationModeNearestNeighbor);
+        g.g->SetPixelOffsetMode(PixelOffsetModeNone);
+        Region clip;
+        g.g->GetClip(&clip);
+        Matrix id;
+        int n = clip.GetRegionScansCount(&id);
+        std::vector<Rect> rects(std::max(1, n));
+        INT got = n;
+        if (n > 0 && n <= 64 && clip.GetRegionScans(&id, rects.data(), &got) == Ok) {
+            for (int i = 0; i < got; i++) {
+                Rect r = rects[i];
+                r.Intersect(Rect(0, 0, stillW, stillH));
+                if (r.Width > 0 && r.Height > 0) g.g->DrawImage(stillBmp, r, r.X, r.Y, r.Width, r.Height, UnitPixel);
+            }
+        } else {
+            g.g->DrawImage(stillBmp, Rect(0, 0, stillW, stillH), 0, 0, stillW, stillH, UnitPixel);
+        }
+        g.g->Restore(s);
+    }
+    {
+        static GraphicsPath* nearHills = SvgPath("M0 214 C 180 180, 320 236, 520 204 S 880 168, 1060 206 S 1220 196, "
+                                                 "1280 188 L1280 270 L0 270 Z");
+        if (mid) mid(L, Wd / 1280);  // canvas transform; hills x maps to L + x * sx, y to 460 + y
+        GraphicsState st = g.g->Save();
+        g.g->TranslateTransform(L, 460);
+        g.g->ScaleTransform(Wd / 1280, 1);
+        SolidBrush f2(col::hill);
+        g.g->FillPath(&f2, nearHills);
+        g.g->Restore(st);
+        if (bottom > 720) FillRect(L, 719, Wd, bottom - 719, col::hill);
+    }
+    Tread(L, R, Wd);
+}
+
+static void StillLayer(float L, float R, float Wd, float top, float bottom) {
+    // Sky (nc_theme.css .frame): sky-top 0% -> sky-mid 64%.
     FillRect(L, top, Wd, bottom - top, col::skyMid);
     LinearGradientBrush sky(PointF(0, std::min(0.f, top)), PointF(0, 461), col::skyTop, col::skyMid);
     g.g->FillRectangle(&sky, L, top, Wd, 461 - top);
@@ -819,24 +905,37 @@ void Backdrop() {
         glowEllipse(1024, 600, 480, 250, 0.32f, 0.1f);        // warmer behind the emblem (mockup's glow)
         Pop();
     }
-    // Ridgeline hills (viewBox 1280x260, stretched to the window width).
+    // Ridgeline hills (viewBox 1280x260, stretched to the window width). Design v11: the far range, the foothill the
+    // truck drives (with its knoll) and the pines are ONE shape at 55%, so overlaps never darken; then the truck run
+    // (mid), then the solid front hill.
     {
+        static Region* range = nullptr;
+        if (!range) {
+            GraphicsPath* farHills = SvgPath("M0 170 L120 120 L210 150 L330 88 L430 140 L520 110 L640 160 L760 96 L860 132 "
+                                             "L980 70 L1090 128 L1180 100 L1280 140 L1280 270 L0 270 Z");
+            GraphicsPath* foothill = SvgPath("M0 128 C 120 116, 220 136, 340 122 S 560 106, 700 120 C 800 128, 880 128, 960 118 "
+                                             "C 1000 116, 1050 108, 1080 92 C 1086 89, 1094 90, 1100 96 C 1118 114, 1200 130, "
+                                             "1280 126 L1280 270 L0 270 Z");
+            GraphicsPath* pines = SvgPath(kPines);
+            range = new Region(farHills);
+            range->Union(foothill);
+            range->Union(pines);
+            delete farHills;
+            delete foothill;
+            delete pines;
+        }
         GraphicsState st = g.g->Save();
         g.g->TranslateTransform(L, 460);
         g.g->ScaleTransform(Wd / 1280, 1);
-        GraphicsPath* farHills = SvgPath("M0 170 L120 120 L210 150 L330 88 L430 140 L520 110 L640 160 L760 96 L860 132 L980 70 "
-                                    "L1090 128 L1180 100 L1280 140 L1280 270 L0 270 Z");
-        GraphicsPath* nearHills = SvgPath("M0 214 C 180 180, 320 236, 520 204 S 880 168, 1060 206 S 1220 196, 1280 188 "
-                                     "L1280 270 L0 270 Z");
-        SolidBrush f1(Alpha(col::hill, 0.55f)), f2(col::hill);
-        g.g->FillPath(&f1, farHills);
-        g.g->FillPath(&f2, nearHills);
-        delete farHills;
-        delete nearHills;
+        SolidBrush f1(Alpha(col::hill, 0.55f));
+        g.g->FillRegion(&f1, range);
         g.g->Restore(st);
-        if (bottom > 720) FillRect(L, 719, Wd, bottom - 719, col::hill);
     }
-    // Tyre tread strip along the bottom edge.
+    (void)bottom;
+}
+
+// Tyre tread strip along the bottom edge.
+static void Tread(float L, float R, float Wd) {
     {
         PushClip(L, 706, Wd, 14);
         SolidBrush b(Alpha(col::gold, 0.2f));
@@ -900,6 +999,7 @@ static float AddTextPath(GraphicsPath& path, const std::wstring& s, Font f, floa
 }
 
 void Wordmark(float x, float y, float w) {
+    if (!g.g->IsVisible(RectF(x - 10, y - 10, w + 20, w * 120 / 440 + 20))) return;  // letter outlines are costly
     // Design "C · Speed stack" (user's pick, 2026-11-15), drawn in a 440x120 box scaled to width w.
     GraphicsState st = g.g->Save();
     g.g->TranslateTransform(x, y);
@@ -960,11 +1060,8 @@ void Wordmark(float x, float y, float w) {
     g.g->Restore(st);
 }
 
-void Emblem(float x, float y, float s, float spin) {
-    GraphicsState st = g.g->Save();
-    g.g->TranslateTransform(x, y);
-    g.g->ScaleTransform(s / 400, s / 400);
-    // Halo.
+// The emblem in its 400-unit box, in three layers: under the turning ring (the halo), the ring itself, and over it.
+static void EmblemUnder() {
     {
         GraphicsPath p;
         p.AddEllipse(10.f, 15.f, 380.f, 380.f);
@@ -976,6 +1073,9 @@ void Emblem(float x, float y, float s, float spin) {
         pg.SetSurroundColors(&sc, &one);
         g.g->FillPath(&pg, &p);
     }
+}
+
+static void EmblemRing(float spin) {
     // Spinning dotted ring with three stars.
     {
         GraphicsState s2 = g.g->Save();
@@ -991,6 +1091,9 @@ void Emblem(float x, float y, float s, float spin) {
         Star(40, 206, 6, Alpha(col::gold, 0.7f));
         g.g->Restore(s2);
     }
+}
+
+static void EmblemOver() {
     // Tilt ring, a horizon tipped 12 degrees.
     {
         GraphicsState s2 = g.g->Save();
@@ -1023,7 +1126,75 @@ void Emblem(float x, float y, float s, float spin) {
     Circle(80, 306, 3.5f, d);
     Circle(112, 332, 3, d);
     Circle(70, 326, 2.5f, d);
+}
+
+// The still layers are drawn once into window-sized-pixel bitmaps (the halo's soft gradient alone takes tens of ms
+// at 1080p) and blitted each frame; only the turning ring is drawn live.
+void Emblem(float x, float y, float s, float spin) {
+    if (!g.g->IsVisible(RectF(x, y, s, s))) return;
+    struct Layers {
+        Bitmap* under = nullptr;
+        Bitmap* over = nullptr;
+        int bx = 0, by = 0;
+    };
+    static std::map<std::vector<int>, Layers> cache;
+    Matrix m;
+    g.g->GetTransform(&m);
+    REAL e[6];
+    m.GetElements(e);
+    PointF corners[2] = {PointF(x, y), PointF(x + s, y + s)};
+    m.TransformPoints(corners, 2);
+    int bx = (int)floorf(corners[0].X) - 2, by = (int)floorf(corners[0].Y) - 2;
+    int bw = (int)ceilf(corners[1].X) - bx + 4, bh = (int)ceilf(corners[1].Y) - by + 4;
+    std::vector<int> key = {bx, by, bw, bh, (int)(e[0] * 1000), (int)(e[3] * 1000)};
+    Layers& L = cache[key];
+    if (!L.under) {
+        if (cache.size() > 8) {  // window resized a few times: drop the old ones
+            for (auto& kv : cache)
+                if (&kv.second != &L) { delete kv.second.under; delete kv.second.over; }
+            Layers keep = L;
+            cache.clear();
+            cache[key] = keep;
+        }
+        Layers& C = cache[key];
+        C.bx = bx;
+        C.by = by;
+        for (int i = 0; i < 2; i++) {
+            Bitmap* b = new Bitmap(bw, bh, PixelFormat32bppPARGB);
+            Graphics bg(b);
+            bg.SetSmoothingMode(SmoothingModeAntiAlias);
+            bg.SetPixelOffsetMode(PixelOffsetModeHalf);
+            bg.SetCompositingQuality(CompositingQualityHighQuality);
+            bg.SetTransform(&m);
+            bg.TranslateTransform((REAL)-bx, (REAL)-by, MatrixOrderAppend);
+            bg.TranslateTransform(x, y);
+            bg.ScaleTransform(s / 400, s / 400);
+            Graphics* keepG = g.g;
+            g.g = &bg;
+            if (i == 0) EmblemUnder();
+            else EmblemOver();
+            g.g = keepG;
+            (i == 0 ? C.under : C.over) = b;
+        }
+    }
+    Layers& C = cache[key];
+    auto blit = [&](Bitmap* b) {
+        GraphicsState s0 = g.g->Save();
+        g.g->ResetTransform();
+        g.g->SetInterpolationMode(InterpolationModeNearestNeighbor);
+        g.g->SetPixelOffsetMode(PixelOffsetModeNone);
+        g.g->SetCompositingQuality(CompositingQualityHighSpeed);  // a 1:1 copy: plain blending is enough
+        g.g->DrawImage(b, Rect(C.bx, C.by, (INT)b->GetWidth(), (INT)b->GetHeight()), 0, 0, (INT)b->GetWidth(),
+                       (INT)b->GetHeight(), UnitPixel);
+        g.g->Restore(s0);
+    };
+    blit(C.under);
+    GraphicsState st = g.g->Save();
+    g.g->TranslateTransform(x, y);
+    g.g->ScaleTransform(s / 400, s / 400);
+    EmblemRing(spin);
     g.g->Restore(st);
+    blit(C.over);
 }
 
 }  // namespace ui

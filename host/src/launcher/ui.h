@@ -12,6 +12,7 @@ using std::max;
 using std::min;
 }  // namespace Gdiplus
 #include <gdiplus.h>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -141,8 +142,9 @@ bool Slider(int* v, int lo, int hi, int step, float x, float y, float w, int foc
 bool Picker(const std::vector<std::wstring>& labels, int* sel, float x, float y, float w, int focusIdx);
 bool Checkbox(bool* on, const std::wstring& label, float x, float y, int focusIdx);
 
-// The window background: sky, glow, hills and the tread strip.
-void Backdrop();
+// The window background: sky, glow, hills and the tread strip. `mid` (optional) draws between the far range and the
+// front hill, with the canvas transform; the hills' x maps to canvas L + x * sx and their y to 460 + y.
+void Backdrop(const std::function<void(float L, float sx)>& mid = nullptr);
 // The emblem: tilt ring, star, truck (our own art, theme_sheet.html shapes). Box size s at (x, y).
 void Emblem(float x, float y, float s, float spinDeg);
 void Truck(float x, float y, float w, float h);  // the truck symbol fitted in a box

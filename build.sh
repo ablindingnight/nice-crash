@@ -19,6 +19,6 @@ echo "built $B/import.exe"
 (cd "$HERE/assets/icon" && MSYS_NO_PATHCONV=1 "$Z" rc /fo ../../build/nicecrash.res nicecrash.rc)
 H="$HERE/host/src"
 cxx -o "$B/NiceCrash.exe" "$H/main.cpp" "$H/viewer.cpp" "$H/launcher/launcher.cpp" "$H/launcher/ui.cpp" \
-  "$H/launcher/tasks.cpp" "$B/nicecrash.res" -lopengl32 -lgdi32 -luser32 -lgdiplus -lole32 -lshell32 -lwinmm \
+  "$H/launcher/tasks.cpp" "$H/launcher/truckrun.cpp" "$B/nicecrash.res" -lopengl32 -lgdi32 -luser32 -lgdiplus -lole32 -lshell32 -lwinmm \
   -Wl,--subsystem,windows
 echo "built $B/NiceCrash.exe"

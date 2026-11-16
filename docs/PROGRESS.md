@@ -399,3 +399,14 @@
   Barlow (Medium, SemiBold, Bold) and JetBrains Mono Regular, all SIL OFL 1.1, with their OFL texts and a README
   naming each source. The launcher loads them through a GDI+ private collection. Text now renders with plain
   antialiasing: grid fitting squeezed Barlow's spaces at small sizes. NICECRASH_FONTLOG=1 lists the bundled families.
+- Home truck run (design 3.2 v11, user's go-ahead): host/src/launcher/truckrun.cpp ports the mockup's script, with its
+  constants: build-up to 230 px/s at the knoll, a launch from the real speed, a backflip scaled by speed, a 30 s gap,
+  then re-entry and a bounce. The far range, foothill and pines are one 55% shape (a GDI+ Region), the truck sits
+  between it and the front hill and is drawn unstretched in wide windows. `display.background_animation`
+  (auto = Windows' animation setting, on, off; Display page) also stops the emblem's star ring; off parks the truck at
+  x≈300. NICECRASH_TRUCKRUN_T=<s> pre-runs it for --ui-shot stills.
+- Launcher rendering cost, 1920x1080: about 75% of a core before (the whole window redrawn 30 times a second), now
+  about 2% idle and 6% with the truck running. It redraws only on input and on screens with live progress; Home
+  repaints only what moves (truck and dust at 30 fps, the star ring at 10 fps). The still backdrop and the emblem's
+  still layers are cached bitmaps, text widths are cached, and drawing outside the repainted area is skipped.
+  NICECRASH_FRAMETIME=<file> logs the average partial-frame time.

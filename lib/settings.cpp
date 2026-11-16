@@ -31,6 +31,7 @@ const Def kDefs[] = {
     {"display.vsync", "1", 0, nullptr},
     {"display.frame_rate", "59.94", 0, nullptr},
     {"display.monitor", "0", kRestart, nullptr},
+    {"display.background_animation", "auto", 0, nullptr},  // launcher Home: auto | on | off
     {"graphics.internal_scale", "window", 0, nullptr},
     {"graphics.msaa", "4", kRestart, nullptr},
     {"graphics.texture_filter", "game", 0, nullptr},
