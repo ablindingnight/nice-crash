@@ -352,3 +352,24 @@
 - ARC: the decomp's matched SDK arc.c (libs/msc/src/RVL_SDK/arc) is complete (the partial copies are an unlinked
   duplicate in the Bink file). Could replace sdk/arc.cpp via sdkbuild if ARCInitHandle's header/table swap moves to
   a small pre-step.
+
+## Launcher and settings core (2026-11-15, UI handoff steps 1 and 7)
+- `lib/settings.{h,cpp}`: one `%LOCALAPPDATA%\NiceCrash\settings.ini` (sections display, graphics, audio, controls,
+  game, launcher; every key and default from NICE_CRASH_UI_DESIGN.md section 5). Only changed values are stored, so a
+  moved default reaches everyone who never touched it. Comments and unknown keys survive rewrites; writes are atomic
+  (temp + MoveFileEx) and debounced 300 ms; per-prefix change callbacks; `Settings_NeedsRestart`.
+  `NICECRASH_<SECTION>_<KEY>` env vars override (plus `NICECRASH_ASPECT`, `NICECRASH_ERROR_LOG`). Builds 32- and
+  64-bit. The game doesn't read it yet (sdk/ is another session's): the launcher passes `NICECRASH_ASPECT`.
+- `launcher.error_log` defaults to on until `NICECRASH_KNOWN_WORKING_RELEASE` (lib/project.h) flips to 1.
+- `build/NiceCrash.exe` is now the launcher (host/src/launcher/, GDI+, Windows subsystem, per-monitor DPI aware);
+  the phase-0 viewer moved to host/src/viewer.cpp behind `--viewer` and its old flags. Screens: Home (status rows,
+  crash row, PLAY becomes the fix), disc picker (searches Downloads/Desktop/Documents, Browse, drag and drop),
+  first-run checklist (drives import.exe; builds with `python -I tools/gametrial/link.py` when the game exe is
+  missing or on Rebuild), Settings (Game files, Display incl. aspect 4:3 / 16:9 / native, Graphics, Audio, Controls,
+  Language + game rows, Builds, Logs with "Save error logs", About). Keyboard, mouse and XInput.
+- PLAY: flushes settings, starts NiceCrashGame.exe with `NICECRASH_ASPECT`, `NICECRASH_LAUNCHED=1`,
+  `NICECRASH_ERROR_LOG`; with error logs on the game's stderr goes to logs\nicecrash_log.txt (rotated .1-.4). The
+  launcher hides (close_on_play=1) or minimises, records the run in logs\runs.tsv, and shows a crash row next time.
+- `LocateDump`/`DumpGameId` moved into lib/dumpcheck for the importer and launcher.
+- Fonts: Bahnschrift / Segoe UI / Cascadia Mono (Windows) until Barlow, Barlow Condensed and JetBrains Mono (OFL) are
+  in assets/fonts; the launcher loads any .ttf there first.

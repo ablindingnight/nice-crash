@@ -12,3 +12,12 @@ struct DumpCheck {
 // discFiles: the DATA partition's files/ folder. The DOL is looked for at dolPath if given, else at
 // <discFiles>/../sys/main.dol (the extracted-partition layout).
 DumpCheck CheckDump(const std::string& discFiles, const std::string& dolPath);
+
+// Finds the files\ folder (holding tocres.res) and main.dol for a dump path. Accepted layouts:
+//   <dump>\DATA\files + <dump>\DATA\sys   (whole-disc extraction)
+//   <dump>\files + <dump>\sys             (one partition)
+//   <dump> = the files\ folder itself     (main.dol from ..\sys)
+// dol is filled only if empty. On failure, why says what's wrong in words for the player.
+bool LocateDump(const std::string& dump, std::string& files, std::string& dol, std::string& why);
+// The six-character game ID from <files>\..\sys\boot.bin ("REXE01"), or "" if unreadable.
+std::string DumpGameId(const std::string& files);

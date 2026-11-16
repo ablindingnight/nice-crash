@@ -3,6 +3,7 @@
 #include "dumpcheck.h"
 #include <windows.h>
 #include <bcrypt.h>
+#include <cctype>
 #include <cstdio>
 #include <vector>
 #include "project.h"
@@ -43,4 +44,58 @@ DumpCheck CheckDump(const std::string& discFiles, const std::string& dolPath) {
     r.sha1 = Sha1File(r.dolPath);
     r.verified = r.sha1 == DUMP_DOL_SHA1;
     return r;
+}
+
+static bool IsFile(const std::string& p) {
+    DWORD a = GetFileAttributesA(p.c_str());
+    return a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY);
+}
+static std::string Full(const std::string& p) {
+    char b[MAX_PATH * 4];
+    DWORD n = GetFullPathNameA(p.c_str(), sizeof b, b, nullptr);
+    std::string r = n ? std::string(b, n) : p;
+    while (r.size() > 3 && (r.back() == '\\' || r.back() == '/')) r.pop_back();
+    return r;
+}
+static std::string Lower(std::string s) {
+    for (auto& c : s) c = (char)tolower((unsigned char)c);
+    return s;
+}
+
+bool LocateDump(const std::string& dump, std::string& files, std::string& dol, std::string& why) {
+    std::string d = Full(dump);
+    if (IsFile(d)) {
+        size_t dot = d.find_last_of('.');
+        std::string ext = Lower(d.substr(dot == std::string::npos ? d.size() : dot));
+        why = (ext == ".iso" || ext == ".rvz" || ext == ".wbfs" || ext == ".ciso" || ext == ".wia")
+                  ? "disc images (" + ext + ") are not supported yet; extract the disc to a folder first "
+                    "(e.g. Dolphin: right-click the game > Properties > Filesystem > Extract Entire Disc)"
+                  : "not a folder or a known disc image: " + d;
+        return false;
+    }
+    const char* tries[][2] = {{"\\DATA\\files", "\\DATA\\sys\\main.dol"},
+                              {"\\files", "\\sys\\main.dol"},
+                              {"", "\\..\\sys\\main.dol"}};
+    for (auto& t : tries) {
+        std::string f = d + t[0];
+        if (IsFile(f + "\\tocres.res")) {
+            files = f;
+            if (dol.empty()) dol = Full(d + t[1]);
+            return true;
+        }
+    }
+    why = "no tocres.res found under " + d + " (expected DATA\\files, files\\, or the files folder itself)";
+    return false;
+}
+
+std::string DumpGameId(const std::string& files) {
+    FILE* f = fopen((files + "\\..\\sys\\boot.bin").c_str(), "rb");
+    if (!f) return "";
+    char id[7] = {};
+    size_t n = fread(id, 1, 6, f);
+    fclose(f);
+    if (n != 6) return "";
+    for (int i = 0; i < 6; i++)
+        if (!isalnum((unsigned char)id[i])) return "";
+    return id;
 }
