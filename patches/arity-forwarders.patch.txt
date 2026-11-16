@@ -1,6 +1,0 @@
-@@@ mrender.cpp | ARITY: fn_802C8E00(color, strip, x, y, z, u, v) forwards its caller's vertex to tristrip's fn_801E4F3C by leaving the argument registers untouched (the call casts it to int(void); a real call is not code-neutral, 18 -> 51 instructions). On x86 the arguments must be passed on, in tristrip's order (x, y, z, u, v, color, strip): gtext's button icons, every immediate-mode quad
-<<<
-    if (lbl_8055FC8F && !((int (*)(void))fn_801E4F3C)()) {
-===
-    if (lbl_8055FC8F && !((int (*)(f32, f32, f32, f32, f32, u32, int))fn_801E4F3C)(x, y, z, u, v, color, strip)) {
->>>

@@ -31,13 +31,6 @@ void fn_801380DC(ResExt* e) {
 void fn_801380DC(ResExt* e) {
     return;  // port: little-endian host, data already native
 >>>
-@@@ fabric.cpp | C++: MWCC takes the address of a temporary; keep the value in a local first (same reads)
-<<<
-    PVec p = *(const PVec*)&NodeVec3(vn, "offset");
-===
-    ValVec3 portOffset = NodeVec3(vn, "offset");
-    PVec p = *(const PVec*)&portOffset;
->>>
 @@@ include/game/uiwidget.h | C++: retail's gText table has a pure slot 0x8C, but gText objects are built (by-name ctor); a pure declaration makes the class abstract and clang compiles its deleting destructor to a trap (ud2). Declare it plain; the body is defined in widgets.cpp (never called)
 <<<
     virtual void Slot8C(void) = 0;               // 0x8C: pure in retail's table (meaning unknown)
@@ -60,88 +53,6 @@ void fn_801380DC(ResExt* e) {
         }
     }
     LineFollower* l = c->line;
->>>
-@@@ idealline.cpp | ABI (struct return): defined as `ILPos fn_80136594(f, p)`, but every caller (aiobst, betarace, cammgr) passes the result slot explicitly, as the PPC ABI does (r3). On i386 the callee pops a hidden struct-return pointer (ret $4), so those callers lost 4 bytes of stack and returned into heap data. Take the slot as a parameter, as the callers do (same writes)
-<<<
-ILPos fn_80136594(LineFollower* f, V2* p) {
-    ILPos r;
-    f->Locate(p, 0, &r, 0);
-    return r;
-}
-===
-void fn_80136594(ILPos* out, LineFollower* f, V2* p) {  // port: explicit result slot (see patches)
-    ILPos r;  // as the original; aiobst/betarace declare an 8-byte slot (seg, t), so only those are stored
-    f->Locate(p, 0, &r, 0);
-    out->seg = r.seg;
-    out->t = r.t;
-}
->>>
-@@@ idealline.cpp | ABI (struct return), as fn_80136594: physcam/xlobj call fn_80136414 with an explicit result slot (PPC r3); on i386 the struct-returning callee pops a hidden pointer. Take the slot explicitly (their slots are 12 bytes: full ILPos)
-<<<
-ILPos fn_80136414(const LineFollower* f, u32 x) {
-    IdealPoint* s = &f->line->points[x >> 16];
-    f32 t = (x & 0xFFFF) / 65535.0f;
-    return ILPos(s, t, 0);
-}
-===
-void fn_80136414(ILPos* out, const LineFollower* f, u32 x) {  // port: explicit result slot
-    IdealPoint* s = &f->line->points[x >> 16];
-    f32 t = (x & 0xFFFF) / 65535.0f;
-    *out = ILPos(s, t, 0);
-}
->>>
-@@@ idealline.cpp | (same) fn_80136468: cammgr/physcam/trackmap pass the result slot (12 bytes)
-<<<
-ILPos fn_80136468(LineFollower* f, f32 m) {
-===
-void fn_80136468(ILPos* out, LineFollower* f, f32 m) {  // port: explicit result slot
->>>
-@@@ idealline.cpp | (same)
-<<<
-    if (!l) {
-        return ILPos();
-    }
-    mode = f->il.mode;
-===
-    if (!l) {
-        *out = ILPos();
-        return;
-    }
-    mode = f->il.mode;
->>>
-@@@ idealline.cpp | (same)
-<<<
-        t = (m - s->dist) / s->len;
-    }
-    return ILPos(s, t, mode);
-}
-===
-        t = (m - s->dist) / s->len;
-    }
-    *out = ILPos(s, t, mode);
-}
->>>
-@@@ placecar.cpp | (same): placecar declared fn_80136468 with a C++ struct return; use the explicit slot like every other caller
-<<<
-ILPos fn_80136468(LineFollower* f, f32 m);
-===
-void fn_80136468(ILPos* out, LineFollower* f, f32 m);  // port: explicit result slot
->>>
-@@@ placecar.cpp | (same)
-<<<
-        p = fn_80136468(f, dist);
-===
-        fn_80136468(&p, f, dist);
->>>
-@@@ rigid.cpp | VTABLE VIEW: RShape views collision shapes (destructor at 0x08, two host slots): Wake() at 0x14 reached vf10 (SphereGroup::vf10 with a garbage argument)
-<<<
-class RShape {
-public:
-    virtual void vf08(void);
-===
-class RShape {
-public:
-    virtual ~RShape(void);  // port: the shapes' destructor (two slots on the host)
 >>>
 @@@ gndtex.cpp | MEMORY: fn_802DBDE8(i, tex) is called with i up to 5; retail's 3-entry lbl_804DB468 (0x804DB468) is followed by the 12-byte @271 (0x804DB474), which takes stages 3-5. On the host the batch list came next and its data pointer was overwritten. Give the array the six slots retail effectively has (decomp: lbl_804DB468 + @271 are one 6-entry table)
 <<<
@@ -168,21 +79,25 @@ GXTex* lbl_804DB468[6];  // port: 3 + retail's following @271 (stages 3-5)
 ===
             delete VP(PTR(p, 0x4));  // port: deleting destructor (MWCC v80(1))
 >>>
-@@@ popwarn.cpp | C++: the table's definition sits inside the `extern "C" {` block opened before fn_80129AEC (decomp 7712ddb18), but its forward declaration is C++; MWCC accepts the mismatch, clang does not. Declare it extern "C" too
+@@@ cammgr.cpp | ABI (struct return): idealline's fn_80136594 returns its 12-byte ILPos by value (i386: hidden result pointer the callee pops); cammgr keeps the PPC out-pointer form (tagged PORT in the decomp: a by-value form is not code-identical there). Call the by-value function and copy the result into the caller's slot
 <<<
-extern const ModeEntry lbl_802FA3B4[5];
+void fn_80136594(CamTrackPos* out, CamTrack* trk, const CamXZ* xz);  // PORT: idealline returns the ILPos by value (a by-value form here is not code-identical)
 ===
-extern "C" const ModeEntry lbl_802FA3B4[5];
+struct PortILPos12 { u32 w[3]; };
+PortILPos12 port_ro_fn_80136594(CamTrack* trk, const CamXZ* xz) __asm__("_fn_80136594");
+static inline void fn_80136594(CamTrackPos* out, CamTrack* trk, const CamXZ* xz) {  // port: by-value call
+    PortILPos12 r = port_ro_fn_80136594(trk, xz);
+    memcpy(out, &r, sizeof(*out) < sizeof(r) ? sizeof(*out) : sizeof(r));
+}
 >>>
-@@@ deity.cpp | VTABLE VIEW: DCar views the CarBody family (Phob base: Init at 0x08, destructor at 0x0C; two host slots). Through the plain v0C every later slot was one short: Lap() at 0x58 reached 0x54 (SpringCar::vf54 = SetState), which reset the car from a lap record and crashed in LineFollower::Locate. Declare the destructor (decomp: deity.cpp DCar)
+@@@ xlobj.cpp | ABI (struct return), as cammgr: xlobj calls idealline's fn_80136414 with an explicit 12-byte result slot (PORT form in the decomp); call the by-value function and copy
 <<<
-class DCar {
-public:
-    virtual void v08(void);
-    virtual void v0C(void);
+void fn_80136414(struct XSample* out, void* it, int idx);
 ===
-class DCar {
-public:
-    virtual void v08(void);
-    virtual ~DCar(void);  // port: slot 0x0C is the destructor (two slots on the host)
+struct PortILPos12 { u32 w[3]; };
+PortILPos12 port_ro_fn_80136414(void* it, int idx) __asm__("_fn_80136414");
+static inline void fn_80136414(struct XSample* out, void* it, int idx) {  // port: by-value call (12-byte slot)
+    PortILPos12 r = port_ro_fn_80136414(it, idx);
+    __builtin_memcpy(out, &r, sizeof(r));
+}
 >>>
