@@ -441,7 +441,11 @@ static DWORD WINAPI Profiler(void*) {
         for (auto& s : samples) {
             if (s.tid != pt.first) continue;
             const std::string& n = nameOf(s.pc);
-            if (idle(n)) { self_["(idle) " + n]++; continue; }
+            if (idle(n)) {
+                self_["(idle) " + n]++;
+                incl["(idle) " + (s.exe ? nameOf(s.exe) : std::string("(no exe frame)"))]++;
+                continue;
+            }
             busy++;
             self_[n]++;
             incl[s.exe ? nameOf(s.exe) : "(no exe frame)"]++;

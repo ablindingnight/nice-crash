@@ -19,6 +19,7 @@ int gxr_vertex_size(int vat);
 void gxr_draw(int prim, int vat, int count, const u8* data);
 void gxr_copy(u32 bp52);
 void gxr_state_dirty();  // a BP register changed: the next draw sets the GL state up again
+void gxr_resolve_copies();  // write the RAM images of pending GPU copies now (draw done, GXDrawDone)
 void gxr_end_batch();    // draw the batched vertices and release the GL state
 void gxr_tlut_load(u32 bp64, u32 bp65);
 

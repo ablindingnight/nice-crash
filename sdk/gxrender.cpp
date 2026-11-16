@@ -962,6 +962,10 @@ void ResolveCopies(int before) {
     g_pendingCopies.resize(keep);
 }
 
+void gxr_resolve_copies() {
+    if (!g_pendingCopies.empty()) ResolveCopies(-1);
+}
+
 void QuadFromEfb(float u0, float u1, float vTop, float vBot) {
     glBegin(GL_QUADS);
     glTexCoord2f(u0, vTop); glVertex2f(0, 0);

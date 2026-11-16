@@ -24,6 +24,7 @@ static HGLRC g_rc;
 static int g_w = 640, g_h = 480;
 static VIRetraceCallback g_pre, g_post;
 static u32 g_retrace;
+static u32 g_copyCallsSinceRetrace;  // GXCopyDisp calls since the last retrace (frame pacing)
 static u32 g_copiesSinceRetrace;  // display copies since the last retrace (frame pacing, GXFlush)
 extern "C" void sdk_vi_note_copy() { g_copiesSinceRetrace++; }  // sdk/gxrender.cpp, at each display copy
 static u32 sdk_vi_copies_since_retrace() { return g_copiesSinceRetrace; }
@@ -239,6 +240,7 @@ void sdk_vi_poll() {
     Pump();
     g_retrace++;
     g_copiesSinceRetrace = 0;
+    g_copyCallsSinceRetrace = 0;
     if (g_pre) g_pre(g_retrace);
     Present();
     sdk_ax_tick();
@@ -260,8 +262,14 @@ void VIWaitForRetrace(void) {
 
 // GX synchronisation the SDK implements with GPU interrupts: on the host the interpreter runs synchronously, so
 // "draw done" is true as soon as the FIFO has been interpreted.
-void GXDrawDone(void) { gxi_flush(); }
-void GXWaitDrawDone(void) { gxi_flush(); }
+void GXDrawDone(void) {
+    gxi_flush();
+    gxr_resolve_copies();
+}
+void GXWaitDrawDone(void) {
+    gxi_flush();
+    gxr_resolve_copies();
+}
 // Frame pacing: the GPU finishes a frame's display copy no sooner than the next retrace (the game keeps it a frame
 // behind with breakpoints, and the VI shows one XFB per retrace). The host interprets the FIFO at once, which let
 // menus render ~10 frames per retrace, some of them empty (black flashes). So the first flush after a display copy
@@ -275,9 +283,22 @@ bool sdk_fifo_capturing();
 void GXFlush(void) {
     __sdk_unused_GXFlush();
     if (sdk_fifo_capturing()) return;
-    static int pace = getenv("NICECRASH_NOPACE") == nullptr;
-    if (pace && sdk_vi_copies_since_retrace() > 0) VIWaitForRetrace();
+    // NICECRASH_FLUSHPACE=1: the old pacing (the first flush after a display copy waited for the retrace; it could
+    // land in the middle of the next frame and hold the race at 30 fps).
+    static const bool flushPace = getenv("NICECRASH_FLUSHPACE") != nullptr && getenv("NICECRASH_NOPACE") == nullptr;
+    if (flushPace && sdk_vi_copies_since_retrace() > 0) VIWaitForRetrace();
     gxi_flush();
+}
+
+// Frame pacing: the GPU shows at most one new picture per retrace. A second display copy requested in the same
+// retrace interval (the title and menus would otherwise run ~100 frames a retrace) waits for the next retrace;
+// a frame that already waited (the race syncs to the retrace itself) is not held back. NICECRASH_NOPACE=1: off.
+void __sdk_unused_GXCopyDisp(void* dest, u8 clear);  // GXBool
+void GXCopyDisp(void* dest, u8 clear) {
+    static const bool pace = getenv("NICECRASH_NOPACE") == nullptr && getenv("NICECRASH_FLUSHPACE") == nullptr;
+    if (pace && g_copyCallsSinceRetrace > 0) VIWaitForRetrace();
+    g_copyCallsSinceRetrace++;
+    __sdk_unused_GXCopyDisp(dest, clear);
 }
 
 }  // extern "C"

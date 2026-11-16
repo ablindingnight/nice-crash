@@ -51,7 +51,12 @@ static void LoadBP(u32 v) {
         *(volatile u16*)(uintptr_t)(0xCC001000u + 7 * 2) = token;  // PE token register, read by GXReadDrawSync
         if (reg == 0x48 && g_tokenCb) g_tokenCb(token);
     }
-    if (reg == 0x45 && (v & 2) && g_doneCb) g_doneCb();  // PE "draw done" (finish interrupt)
+    // PE "draw done" (finish interrupt): every copy's RAM image is in place by then, as on the Wii (the game may
+    // read a copy with the CPU once it sees draw done).
+    if (reg == 0x45 && (v & 2)) {
+        gxr_resolve_copies();
+        if (g_doneCb) g_doneCb();
+    }
     if (reg == 0x65) gxr_tlut_load(g_gx.bp[0x64], g_gx.bp[0x65]);  // load TLUT from memory into TMEM
     if (reg == 0x52) {  // PE copy execute: bit 14 = copy to XFB (display copy) vs texture copy
         g_stats.copies++;

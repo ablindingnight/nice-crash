@@ -466,3 +466,15 @@
   batches per frame; =2 one line per frame), NICECRASH_PROF=<start s>:<seconds> (sampling profiler, per thread;
   NICECRASH_PROFLINES=<function> by source line), NICECRASH_NOVSYNC, NICECRASH_PRESENTALL, NICECRASH_FLUSHDIRTY.
   Do not measure fps with NICECRASH_LUMLOG on: it reads the whole frame back at every presentation.
+
+## 60 fps (2026-11-16)
+- **Every screen now runs at 60 fps** (title, menus, Tutorial screens, race: 300 frames per 300 retraces; the race
+  timer counts real seconds). The race had been held at 30 by the port's own pacing, not by work: the first
+  GXFlush after a display copy waited for the retrace, which could land in the middle of the next frame.
+  Pacing now sits in GXCopyDisp (sdk/vi.cpp, an SDK host override): a second display copy in one retrace waits
+  for the next; a frame that already waited is not held back. NICECRASH_FLUSHPACE=1 = the old pacing,
+  NICECRASH_NOPACE=1 = none (title/menus then run ~100 frames a retrace).
+- GPU copies' RAM images are written at draw done (PE finish, GXDrawDone/GXWaitDrawDone) as on the Wii: at 60 fps
+  the game read a copy back with the CPU before the one-frame-late write, and the truck lost its paint.
+- Re-pinned to 3d609449a (64eabca): shape vtables and Spot from source, world/xlobj patches dropped; data labels
+  read from the DOL 119 -> 44.

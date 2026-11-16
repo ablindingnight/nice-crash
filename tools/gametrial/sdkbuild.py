@@ -78,7 +78,9 @@ HOST_OVERRIDES = ['GXDrawDone', 'GXWaitDrawDone', 'GXFlush', 'GXSetDrawSyncCallb
                   # Display lists: the host FIFO captures into the list's memory (sdk/gxfifo.cpp wraps these).
                   'GXBeginDisplayList', 'GXEndDisplayList',
                   # Direct EFB pixel access (0x08000000 uncached): the host EFB is an OpenGL framebuffer (sdk/vi.cpp).
-                  'GXPeekARGB', 'GXPokeARGB', 'GXPeekZ', 'GXPokeZ']
+                  'GXPeekARGB', 'GXPokeARGB', 'GXPeekZ', 'GXPokeZ',
+                  # Frame pacing: at most one display copy per retrace (sdk/vi.cpp).
+                  'GXCopyDisp']
 
 
 def replace_asm_helpers(t):
