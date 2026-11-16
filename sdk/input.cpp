@@ -48,6 +48,7 @@ u32 sdk_vi_retrace_count();
 bool sdk_vi_has_focus();
 bool sdk_vi_pointer(float* x, float* y);
 bool sdk_vi_mouse_button();
+extern "C" u8 fn_802ECC10(void);  // game/homebtn.cpp: the HOME menu is up
 
 static WPADConnectCallback g_connectCb[4];
 static u32 g_prevHold;
@@ -247,10 +248,46 @@ s32 KPADRead(s32 chan, void* buf, u32 n) {
     if (hold & STICK_LEFT) steer = -1;
     if (hold & STICK_RIGHT) steer = 1;
     hold &= ~(u32)(STICK_UP | STICK_DOWN | STICK_LEFT | STICK_RIGHT);
-    // The mouse is remote 1's pointer (the HOME menu points and presses A); a left click is A.
+    // The pointer (the HOME menu points and presses A). Each pad's right stick moves its remote's pointer; on
+    // remote 1 the mouse does too, and whichever moved last wins. A left click is A; in the HOME menu the pad's A
+    // is the remote's A as well (elsewhere it stays button 2).
+    static f32 padX[4], padY[4];
+    static bool padPointing[4], mouseLast;
+    static float lastMouseX = -9, lastMouseY = -9;
     f32 px = 0, py = 0;
-    bool pointing = chan == 0 && sdk_vi_pointer(&px, &py);
-    if (chan == 0 && sdk_vi_mouse_button()) hold |= BTN_A;
+    bool pointing = false;
+    XState pad;
+    bool havePad = (sdk_vi_has_focus() || chan != 0) && PadState(chan, &pad);
+    if (havePad) {
+        f32 rx = Axis(pad.rx, 8689), ry = Axis(pad.ry, 8689);
+        if (rx != 0 || ry != 0) {
+            const f32 speed = 0.035f;  // full deflection crosses the screen in about a second
+            padX[chan] = fminf(1.0f, fmaxf(-1.0f, padX[chan] + rx * speed));
+            padY[chan] = fminf(1.0f, fmaxf(-1.0f, padY[chan] - ry * speed));  // stick up = pointer up
+            padPointing[chan] = true;
+            if (chan == 0) mouseLast = false;
+        }
+        if (fn_802ECC10() && (pad.buttons & 0x1000)) hold |= BTN_A;  // XINPUT_GAMEPAD_A
+    }
+    if (chan == 0) {
+        f32 mx, my;
+        if (sdk_vi_pointer(&mx, &my)) {
+            if (mx != lastMouseX || my != lastMouseY) mouseLast = true;
+            lastMouseX = mx;
+            lastMouseY = my;
+            if (mouseLast || !padPointing[0]) {
+                px = mx;
+                py = my;
+                pointing = true;
+            }
+        }
+        if (sdk_vi_mouse_button()) hold |= BTN_A;
+    }
+    if (!pointing && padPointing[chan] && havePad) {
+        px = padX[chan];
+        py = padY[chan];
+        pointing = true;
+    }
     XState probe;
     if (chan != 0 && !PadState(chan, &probe)) return 0;  // no pad: no remote
     static u32 prev[4];
