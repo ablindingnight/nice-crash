@@ -173,6 +173,33 @@ DECL = re.compile(r'\bextern\s+(?:"C"\s+)?((?:(?:const|volatile|unsigned|signed)
                   r'(?:const\s+)?(\**)\s*(?:const\s+)?([A-Za-z_]\w*)\s*(\[[^\]]*\])?\s*;')
 
 
+FIELD = re.compile(r'^(?:(?:const|volatile)\s+)*([A-Za-z_][\w ]*?)\s*(\**)\s*(?:const\s+)?[A-Za-z_]\w*\s*(?:\[\s*\d+\s*\])?$')
+
+
+def word_structs(t):
+    """Structs in this source made only of 4-byte fields (32-bit scalars, floats, pointers, arrays of them):
+    tables of them are swapped word by word (pointer words are fixed separately), e.g. popwarn's ModeEntry
+    {s32 a; const char* lyt; s32 count;}, whose start index read 0x03000000 instead of 3."""
+    out = {}
+    pat = r'(?:typedef\s+)?struct\s+(\w*)\s*\{([^{}]*)\}\s*(\w*)\s*;'
+    for m in re.finditer(pat, t):
+        body = re.sub(r'/\*.*?\*/|//[^\n]*', '', m.group(2), flags=re.S)
+        fields = [x.strip() for x in body.split(';') if x.strip()]
+        if not fields or any('(' in x or ':' in x for x in fields):
+            continue
+        ok = True
+        for x in fields:
+            fm = FIELD.match(x)
+            if not fm or not (fm.group(2) or ELEM_SIZES.get(fm.group(1).strip()) == 4):
+                ok = False
+                break
+        if ok:
+            for name in (m.group(1), m.group(3)):
+                if name:
+                    out[name] = 4
+    return out
+
+
 def decl_elem_sizes():
     """Element size of each extern data declaration in the prepared game source (1 = bytes, never swapped), so
     DOL-backed labels are byte-swapped per element. Conflicting declarations or struct types give None."""
@@ -183,10 +210,11 @@ def decl_elem_sizes():
         if not os.path.isfile(f):  # e.g. the directory include/Runtime.PPCEABI.H
             continue
         t = open(f, encoding='utf-8', errors='replace').read()
+        words = word_structs(t)
         for m in DECL.finditer(t):
             ty = re.sub(r'\b(const|volatile)\s+', '', m.group(1)).strip()
             name = m.group(3)
-            e = 4 if m.group(2) else ELEM_SIZES.get(ty)
+            e = 4 if m.group(2) else ELEM_SIZES.get(ty, words.get(ty))
             if name in out and out[name] != e:
                 e = None
             out[name] = e
