@@ -19,6 +19,7 @@
 #include "texture.h"
 #include "gxtev.h"
 #include "xfb.h"
+#include "hostcfg.h"
 
 #ifndef GL_CLAMP_TO_EDGE
 #define GL_CLAMP_TO_EDGE 0x812F
@@ -373,6 +374,11 @@ bool BindTexMap(int m) {
         glBindTexture(GL_TEXTURE_2D, t.id);
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+        if (host_cfg().texFilter >= 2) {  // trilinear / anisotropic: mip levels made on the GPU
+            typedef void(APIENTRY * GenMip_t)(GLenum);
+            static GenMip_t genMip = (GenMip_t)(void*)wglGetProcAddress("glGenerateMipmap");
+            if (genMip) genMip(GL_TEXTURE_2D);
+        }
         t.sum = sum;
         t.w = w;
         t.h = h;
@@ -383,7 +389,12 @@ bool BindTexMap(int m) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrap[(mode0 >> 2) & 3]);
     GLint mag = (mode0 >> 4) & 1 && !NC_ENV("NICECRASH_NEAREST") ? GL_LINEAR : GL_NEAREST;
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, mag);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, mag);
+    // graphics.texture_filter: game = the game's filter both ways; bilinear smooths minification; trilinear and
+    // aniso16 add mip levels (and 16x anisotropy for the ground at an angle). Magnification stays the game's (pixel
+    // art in menus keeps its crisp edges).
+    int tf = host_cfg().texFilter;
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, tf == 0 ? mag : tf == 1 ? GL_LINEAR : 0x2703 /* LINEAR_MIPMAP_LINEAR */);
+    if (tf == 3) glTexParameterf(GL_TEXTURE_2D, 0x84FE /* MAX_ANISOTROPY */, 16.0f);
     return true;
 }
 
@@ -1109,6 +1120,7 @@ void gxr_copy(u32 bp52) {
     static const bool noEfbCopy = NC_ENV("NICECRASH_NOEFBCOPY") != nullptr;
     if (!toXfb && !noEfbCopy && xfb_active() && pw > 0 && ph > 0) {
         xfb_bind_efb(ww, wh);
+        xfb_resolve();  // multisampled EFB (graphics.msaa) -> the texture the copy reads
         int tpf = (bp52 >> 3) & 15, real = (tpf >> 1) | ((tpf & 1) << 3);
         bool inten = (bp52 >> 15) & 1, half = (bp52 >> 9) & 1;
         bool depth = (g_gx.bp[0x43] & 7) == 3;  // PE_CONTROL pixel format Z24: a depth copy

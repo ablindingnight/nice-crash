@@ -263,9 +263,16 @@ void sdk_vi_present_now() {
     MaybeShot();
     SwapBuffers(g_dc);
 }
+// The EFB's size in pixels: the window's (graphics.internal_scale = window), or 480 x n lines at the window's shape.
 void sdk_vi_window_size(int* w, int* h) {
-    *w = g_w;
-    *h = g_h;
+    int s = host_cfg().internalScale;
+    if (!s) {
+        *w = g_w;
+        *h = g_h;
+        return;
+    }
+    *h = 480 * s;
+    *w = (int)(480.0 * s * g_w / (g_h ? g_h : 1) + 0.5);
 }
 
 static void Present() {

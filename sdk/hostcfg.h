@@ -17,5 +17,8 @@ struct HostCfg {
     int deadzone;         // controls.deadzone: percent of the stick's travel
     bool invertSteer;
     bool launched;        // started by the launcher (NICECRASH_LAUNCHED=1)
+    int msaa;             // graphics.msaa: 0/1 off, 2, 4, 8 samples
+    int internalScale;    // graphics.internal_scale: 0 = the window's size, 1-4 = 480 lines x n
+    int texFilter;        // graphics.texture_filter: 0 game, 1 bilinear, 2 trilinear, 3 anisotropic 16x
 };
 const HostCfg& host_cfg();

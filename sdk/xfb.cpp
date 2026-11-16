@@ -12,6 +12,7 @@
 #include "env.h"
 #include "sdk.h"
 #include "xfb.h"
+#include "hostcfg.h"
 
 namespace {
 
@@ -34,9 +35,22 @@ FBTex p_glFramebufferTexture2D;
 RBStorage p_glRenderbufferStorage;
 FBRB p_glFramebufferRenderbuffer;
 CheckFB p_glCheckFramebufferStatus;
+typedef void(APIENTRY* RBStorageMS)(GLenum, GLsizei, GLenum, GLsizei, GLsizei);
+typedef void(APIENTRY* BlitFB)(GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLbitfield, GLenum);
+RBStorageMS p_glRenderbufferStorageMultisample;
+BlitFB p_glBlitFramebuffer;
+#define GL_READ_FRAMEBUFFER_ 0x8CA8
+#define GL_DRAW_FRAMEBUFFER_ 0x8CA9
+#define GL_MAX_SAMPLES_ 0x8D57
+#define GL_RGBA8_ 0x8058
 
 int g_ok = -1;
-GLuint g_fbo, g_color, g_depth;
+GLuint g_fbo, g_color, g_depth;  // the EFB as the readers see it (copies, the XFB): colour texture + depth
+// graphics.msaa: the game draws into a multisampled framebuffer, resolved into g_fbo before anything reads the
+// EFB (xfb_resolve: texture copies, display copies).
+GLuint g_msFbo, g_msColor, g_msDepth;
+int g_samples;
+bool g_msDirty;
 int g_w, g_h;
 int g_presW, g_presH;  // window size at the last presentation
 
@@ -59,6 +73,9 @@ bool Load() {
     p_glRenderbufferStorage = (RBStorage)(void*)wglGetProcAddress("glRenderbufferStorage");
     p_glFramebufferRenderbuffer = (FBRB)(void*)wglGetProcAddress("glFramebufferRenderbuffer");
     p_glCheckFramebufferStatus = (CheckFB)(void*)wglGetProcAddress("glCheckFramebufferStatus");
+    p_glRenderbufferStorageMultisample =
+        (RBStorageMS)(void*)wglGetProcAddress("glRenderbufferStorageMultisample");
+    p_glBlitFramebuffer = (BlitFB)(void*)wglGetProcAddress("glBlitFramebuffer");
     g_ok = p_glGenFramebuffers && p_glGenRenderbuffers && p_glBindFramebuffer && p_glBindRenderbuffer &&
            p_glFramebufferTexture2D && p_glRenderbufferStorage && p_glFramebufferRenderbuffer &&
            p_glCheckFramebufferStatus;
@@ -95,8 +112,53 @@ void xfb_bind_efb(int w, int h) {
             g_ok = 0;
             return;
         }
+        // The multisampled drawing target (graphics.msaa), at the card's limit at most.
+        g_samples = host_cfg().msaa;
+        if (g_samples > 1 && p_glRenderbufferStorageMultisample && p_glBlitFramebuffer) {
+            GLint maxS = 0;
+            glGetIntegerv(GL_MAX_SAMPLES_, &maxS);
+            if (g_samples > maxS) g_samples = maxS;
+        } else {
+            g_samples = 0;
+        }
+        if (g_samples > 1) {
+            if (!g_msFbo) {
+                p_glGenFramebuffers(1, &g_msFbo);
+                p_glGenRenderbuffers(1, &g_msColor);
+                p_glGenRenderbuffers(1, &g_msDepth);
+            }
+            p_glBindRenderbuffer(GL_RENDERBUFFER_, g_msColor);
+            p_glRenderbufferStorageMultisample(GL_RENDERBUFFER_, g_samples, GL_RGBA8_, w, h);
+            p_glBindRenderbuffer(GL_RENDERBUFFER_, g_msDepth);
+            p_glRenderbufferStorageMultisample(GL_RENDERBUFFER_, g_samples, GL_DEPTH24_STENCIL8_, w, h);
+            p_glBindFramebuffer(GL_FRAMEBUFFER_, g_msFbo);
+            p_glFramebufferRenderbuffer(GL_FRAMEBUFFER_, GL_COLOR_ATTACHMENT0_, GL_RENDERBUFFER_, g_msColor);
+            p_glFramebufferRenderbuffer(GL_FRAMEBUFFER_, GL_DEPTH_STENCIL_ATTACHMENT_, GL_RENDERBUFFER_, g_msDepth);
+            if (p_glCheckFramebufferStatus(GL_FRAMEBUFFER_) != GL_FRAMEBUFFER_COMPLETE_) {
+                fprintf(stderr, "[xfb] %dx MSAA framebuffer incomplete: anti-aliasing off\n", g_samples);
+                g_samples = 0;
+            } else {
+                static bool told;
+                if (!told) fprintf(stderr, "[xfb] EFB %dx%d, %dx MSAA\n", w, h, g_samples);
+                told = true;
+            }
+        }
     }
+    g_msDirty = g_samples > 1;  // drawing follows
+    p_glBindFramebuffer(GL_FRAMEBUFFER_, g_samples > 1 ? g_msFbo : g_fbo);
+}
+
+void xfb_resolve() {
+    if (g_samples <= 1 || !g_msDirty) {
+        if (g_fbo) p_glBindFramebuffer(GL_FRAMEBUFFER_, g_fbo);
+        return;
+    }
+    p_glBindFramebuffer(GL_READ_FRAMEBUFFER_, g_msFbo);
+    p_glBindFramebuffer(GL_DRAW_FRAMEBUFFER_, g_fbo);
+    p_glBlitFramebuffer(0, 0, g_w, g_h, 0, 0, g_w, g_h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    p_glBlitFramebuffer(0, 0, g_w, g_h, 0, 0, g_w, g_h, GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT, GL_NEAREST);
     p_glBindFramebuffer(GL_FRAMEBUFFER_, g_fbo);
+    g_msDirty = false;
 }
 
 void xfb_copy(u32 addr, int lines) {
@@ -105,7 +167,7 @@ void xfb_copy(u32 addr, int lines) {
     Xfb& x = g_xfbs[addr];
     if (NC_ENV("NICECRASH_XFBLOG")) fprintf(stderr, "[xfb] copy %08x lines %d%c", addr, lines, 10);
     if (!x.tex) glGenTextures(1, &x.tex);
-    p_glBindFramebuffer(GL_FRAMEBUFFER_, g_fbo);
+    xfb_resolve();  // binds g_fbo
     glBindTexture(GL_TEXTURE_2D, x.tex);
     if (x.w != g_w || x.h != g_h) {
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, g_w, g_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
@@ -181,7 +243,7 @@ bool xfb_present(u32 addr, bool black, int ww, int wh) {
 }
 
 void xfb_rebind_efb() {
-    if (g_ok > 0 && g_fbo) p_glBindFramebuffer(GL_FRAMEBUFFER_, g_fbo);
+    if (g_ok > 0 && g_fbo) p_glBindFramebuffer(GL_FRAMEBUFFER_, g_samples > 1 ? g_msFbo : g_fbo);
 }
 
 unsigned xfb_efb_color() { return g_color; }

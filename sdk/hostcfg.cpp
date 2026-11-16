@@ -32,6 +32,13 @@ static HostCfg Load() {
     if (c.deadzone < 0) c.deadzone = 0;
     if (c.deadzone > 50) c.deadzone = 50;
     c.invertSteer = Settings_GetInt("controls.invert_steer") != 0;
+    c.msaa = Settings_GetInt("graphics.msaa");
+    if (c.msaa != 2 && c.msaa != 4 && c.msaa != 8) c.msaa = 0;
+    const char* is = Settings_Get("graphics.internal_scale");
+    c.internalScale = !strcmp(is, "window") ? 0 : atoi(is);
+    if (c.internalScale < 0 || c.internalScale > 4) c.internalScale = 0;
+    const char* tf = Settings_Get("graphics.texture_filter");
+    c.texFilter = !strcmp(tf, "bilinear") ? 1 : !strcmp(tf, "trilinear") ? 2 : !strcmp(tf, "aniso16") ? 3 : 0;
     return c;
 }
 
