@@ -199,6 +199,11 @@ static void Present() {
     gxi_flush();  // drain the FIFO: draws land in the EFB, display copies in their XFBs (sdk/xfb.cpp)
     // The TV shows the XFB the game selected (VISetNextFrameBuffer), once per retrace, as the VI does.
     if (xfb_active() && g_dc) {
+        // The retrace can land in the middle of the game's frame: draw what is batched and release the game's GL
+        // state (TEV program, logic op) so the presentation quad is drawn plainly; the next draw re-applies it all.
+        // (Before this, every third race frame came out black: presented while a TEV program and logic op were live.)
+        gxr_end_batch();
+        glDisable(GL_COLOR_LOGIC_OP);
         u32 addr = g_nextFb ? (u32)(uintptr_t)g_nextFb : gxi_last_copy_dst();
         if (xfb_present(addr, g_black && getenv("NICECRASH_HONOR_BLACK"), g_w, g_h)) {
             LumLog();
