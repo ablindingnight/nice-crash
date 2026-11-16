@@ -4,7 +4,7 @@ goes to docs/SOURCE_NOTES.md as a write-up for the decomp sessions instead.
 
 Each rule: (name, regex, replacement). Counts per rule are printed so we can see what the port depends on.
 """
-import glob, os, re, sys
+import glob, os, re, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PORT = os.path.normpath(os.path.join(HERE, '..', '..'))
@@ -46,7 +46,9 @@ NL = chr(10)
 # calling the MWCC destructor with flag 0/1, and make every `= lbl_X;` vptr store point at slot 0 (lbl_X + 2).
 # Entries are free functions taking `this` first, which works because game methods are cdecl on the host (the
 # Cygwin triple in trial.py). Every table found so far starts with a destructor (this, flag); checked by hand.
-MWCC_VTABLE = re.compile(r'(?m)^(void\*|u32)\s+(lbl_[0-9A-F]{8})\[(\d+)\]\s*=\s*\{\s*0\s*,\s*0\s*,\s*'
+# The two header words may be written with casts ({(void*)0, (void*)0, ...}).
+MWCC_VTABLE = re.compile(r'(?m)^(void\*|u32)\s+(lbl_[0-9A-F]{8})\[(\d+)\]\s*=\s*\{\s*(?:\((?:void\*|u32)\)\s*)?0\s*,\s*'
+                         r'(?:\((?:void\*|u32)\)\s*)?0\s*,\s*'
                          r'\((?:void\*|u32)\)\s*(\w+)\s*(,.*)?\};')
 
 
@@ -255,7 +257,8 @@ def main():
         t, n = neutralise_swaps(t)
         counts['le-swap-helpers'] = counts.get('le-swap-helpers', 0) + n
         for pf, fn, why, old, new in patches:
-            if src.replace(os.sep, '/').endswith('/src/game/' + fn):
+            if src.replace(os.sep, '/').endswith('/src/game/' + fn) or (
+                    fn.startswith('include/') and src.replace(os.sep, '/').endswith('/' + fn)):
                 n = t.count(old)
                 if n != 1:
                     sys.exit('patch %s for %s matched %d times (want 1): %s' % (pf, fn, n, why))
@@ -303,6 +306,31 @@ def main():
     print('%-24s %d' % ('patches', applied))
     for k, v in counts.items():
         print('%-24s %d' % (k, v))
+    dumpdata()
+
+
+def dumpdata():
+    """Data tables the decomp no longer carries (`#include "dumpdata/<label>.inc"`): generated from the player's
+    own main.dol by the decomp's tools/datagen.py into build/dumpinc/dumpdata (on trial.py's include path)."""
+    tool = os.path.join(decomp.root(), 'tools', 'datagen.py')
+    if not os.path.exists(tool):
+        return
+    dol = os.environ.get('NICECRASH_DOL')
+    if not dol:
+        ini = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'NiceCrash', 'dump.ini')
+        if os.path.exists(ini):
+            for line in open(ini, encoding='utf-8'):
+                if line.startswith('dol='):
+                    dol = line[4:].strip()
+    if not dol or not os.path.exists(dol):
+        sys.exit("prep: the dumpdata tables need the player's main.dol (NICECRASH_DOL or dump.ini)")
+    out = os.path.join(PORT, 'build', 'dumpinc', 'dumpdata')
+    r = subprocess.run([sys.executable, '-I', tool, '--version', 'REXE01', '--dol', dol,
+                        '--symbols', os.path.join(decomp.root(), 'config', 'REXE01', 'symbols.txt'), '--out', out],
+                       capture_output=True, text=True)
+    if r.returncode:
+        sys.exit('prep: datagen failed:\n' + r.stdout[-2000:] + r.stderr[-2000:])
+    print('%-24s %d' % ('dumpdata tables', len(os.listdir(out))))
 
 
 if __name__ == '__main__':

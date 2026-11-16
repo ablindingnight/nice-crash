@@ -200,6 +200,18 @@ def word_structs(t):
     return out
 
 
+# Same retail function, different names in different units' views of a class (each unit declares its own
+# CollShape; vtable slot 0x40 is SetSurface in sphcoll/betarace and SetId in obstacles/trackobj/tree/ball).
+# tools/gametrial/aliases.txt: `undefined symbol<TAB>defined symbol`, # comments.
+ALIASES = {}
+_alias_file = os.path.join(HERE, 'aliases.txt')
+if os.path.exists(_alias_file):
+    for _l in open(_alias_file, encoding='utf-8'):
+        _p = _l.split('#', 1)[0].split()
+        if len(_p) == 2:
+            ALIASES[_p[0]] = _p[1]
+
+
 def decl_elem_sizes():
     """Element size of each extern data declaration in the prepared game source (1 = bytes, never swapped), so
     DOL-backed labels are byte-swapped per element. Conflicting declarations or struct types give None."""
@@ -409,6 +421,18 @@ def main():
                 target = next(iter(cands))
         if not target and kind != 'object':
             target = mwcc_member_target(sym)
+        if not target and kind != 'object' and sym.startswith('__Z'):
+            # The reverse: a C++ member called by Itanium name whose only definition is a plain function under its
+            # MWCC name (widgets.cpp `Finish__9MenuStateFi(void* this, ...)`, called as MenuState::Finish(int) by
+            # loadscrn). Same address in retail; bind when exactly one MWCC-named function of that class matches.
+            leaf, scopes = itanium_leaf(sym)
+            if len(scopes) == 1 and not leaf.startswith('~') and leaf != scopes[0]:
+                pre = '_%s__%d%sF' % (leaf, len(scopes[0]), scopes[0])
+                hits = [d for d in defs if d.startswith(pre)]
+                if len(hits) == 1:
+                    target = hits[0]
+        if not target and sym in ALIASES and ALIASES[sym] in defs:
+            target = ALIASES[sym]  # tools/gametrial/aliases.txt: same retail function under another unit's name
         if not target and kind != 'object':
             # An address name (fn_802228B0) whose function the decomp has since named (a class ctor, ...): both
             # are the same retail address, so bind to whatever symbols.txt now calls it.

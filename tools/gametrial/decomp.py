@@ -13,7 +13,7 @@ LIVE = os.path.normpath(os.path.join(PORT, '..', 'excite-truck'))
 REF_FILE = os.path.join(HERE, 'decomp_ref.txt')
 # Exported paths (libs/revolution: the HOME button library, tools/gametrial/hbmbuild.py). A snapshot missing one
 # (an older export) gets it added.
-PATHS = ['src', 'include', 'config', 'libs/revolution', 'libs/tp_include', 'libs/msc']
+PATHS = ['src', 'include', 'config', 'libs/revolution', 'libs/tp_include', 'libs/msc', 'tools/datagen.py']
 
 
 def ref():
@@ -27,7 +27,7 @@ def root():
     if r == 'live':
         return LIVE
     out = os.path.join(PORT, 'build', 'decomp', r[:12])
-    paths = [p for p in PATHS if not os.path.isdir(os.path.join(out, p))]
+    paths = [p for p in PATHS if not os.path.exists(os.path.join(out, p))]
     if paths:
         tar = subprocess.run(['git', '-C', LIVE, 'archive', '--format=tar', r, *paths],
                              capture_output=True, creationflags=0x08000000)
