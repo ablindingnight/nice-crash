@@ -371,6 +371,35 @@
 - To do: XInputGetState on absent pads enumerates devices every poll (slow): cache absent pads and re-probe every
   few seconds. DirectInput pads (user request 2026-11-15): add via Windows raw input/DirectInput, no downloads.
 
+## 3D track rendering (2026-11-16, commits 139e9f3, 6259c94)
+- **Run now:** the Tutorial race draws the 3D scene: textured terrain lit by the real lightmap, the truck (Boulder)
+  whole, trees and grass, HUD and minimap, at 60 fps (1000 retraces in 16 s; was 111 s before batching).
+  docs/screenshots/tutorial_3d_truck.png (git-ignored, local).
+- **Vertex array byte order:** model files (.mod) carry GX-ready big-endian arrays (their CPU header fields are
+  little-endian and swapped by the Wii); arrays the game builds on the CPU (heightfield terrain, water, glare)
+  are host order. sdk/gxrender.cpp decides per draw from the float positions (plausible in one order only),
+  cached per array; host-order RGBA8 colours are word-reversed. NICECRASH_ARRAYBE/ARRAYLE force one.
+- **CPU-read model vertices** (patches/model-cpu-vertices): skinned, morphing and bone-delta surfaces (drsurf
+  Skin2, morph loops, wind sway) read the big-endian model floats natively; converted to host order at load.
+- **Narrow returns** (tools/gametrial/retwidth.py, 128 declarations): `s32 f()` declared for a `u8 f()`
+  definition reads garbage above AL on x86 (MWCC leaves the value extended in r3). texture.cpp's u8 priority
+  getters declared s32 in model.cpp made priorities 0xFF32, which overran the model draw bins and wiped the
+  draw queue (no models drawn at all).
+- **Display lists:** GXBeginDisplayList/GXEndDisplayList capture into the list memory; GXFlush writes the
+  pending (dirty) state first, as the Wii's does (GXEndDisplayList -> GXGetCPUFifo -> GXFlush), so the
+  vertex-format lists drsurf builds at load set the vertex descriptor.
+- **FIFO interpreter:** draw-done/token callbacks no longer re-enter the flush; parse a stable copy; keep a
+  command cut off at the end; overflow-safe display list bounds; indexed XF loads (0x20-0x38).
+- **EFB -> texture copies:** host texture at window resolution plus the GX-tiled RAM copy (drtex blends some on
+  the CPU); clears cover the copied rectangle only. Sky env map, lightmap (swlmap), reflection and shadow mask.
+  SDK getters GXGetTexObjData / GXGetTlutObjNumEntries / GXInitTexObjFilter were stubs (copies went to 0).
+- **Batching:** draws with unchanged BP state share one vertex-array draw; textures checksummed once per frame;
+  TEV programs found by a numeric hash.
+- Debug switches: NICECRASH_COPYLOG / COPYDUMP / NOCOPYRAM / NOCOPYTEX / NOEFBCOPY, SKIPTEX=<addr,...>,
+  DRAWMAX=<n>, DLLOG=<n>, BIGLOG=<n>, IDXLOG=<n>.
+- **Still wrong:** large surfaces (tree trunks, rock walls) look stretched; no sky dome yet; some frames go
+  mostly black (a transition or a full-screen pass); once a mirrored font sheet covered the screen.
+
 ## Renderer design notes (enhancement plan, coordinator 2026-11-15; handoff/port_refs/ENHANCE_MY_GAME_2026-11-15.md)
 - Keep room in the GX-to-host renderer (sdk/gxrender.cpp) for: internal resolution scale above 480p (EFB as an
   offscreen target sized by a scale factor; EFB copies/peeks must scale coordinates), MSAA 2x/4x/8x (multisampled
