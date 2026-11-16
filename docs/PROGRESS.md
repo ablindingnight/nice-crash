@@ -342,7 +342,7 @@
   sdk/thread.cpp). Heard by the user. NICECRASH_NOHBMSOUND=1 silences them.
 - Open: pad pointer (right stick), "Wii Menu" = quit to desktop on PC, remote speaker sounds (SpeakerSe.arc).
 
-## Next pin bump: to do (noted 2026-11-15)
+## Next pin bump (noted 2026-11-15; DONE 2026-11-16 at 835b0f847, see "Pin 835b0f847" below)
 - Decomp data tables now `#include "dumpdata/<label>.inc"` (crc.cpp, collisionsound.cpp, unk_80116BD4.c, OSUtf.c,
   OSFont.c; handoff/DUMPDATA_2026-11-15.md): run the decomp's tools/datagen.py on the player's main.dol into a port
   include dir before compiling (values are already native, no swap). Fits the approved "game data only from the
@@ -434,3 +434,35 @@
   about once a second and polls every ~2 ms; the game thread only copies cached states (this also covers the
   old "cache absent XInput pads" item). Rumble: XInput pads only.
 - Not tested with a real DirectInput pad (none attached here); keyboard and scripted input checked.
+
+## Pin 835b0f847 (2026-11-16, a6ef08d)
+- 396 decomp commits newer; all 362 units compile; stubs 323 -> 111 functions. Title, Tutorial and race run.
+- Dropped patches (fixed in the decomp): arity-loading, trailer-tmtx, arc-host. AIDriver alias dropped.
+- New port-side fixes: prep rule hw-regs-extern (OSHardware/ipcHardware arrays reach C++ units through
+  revolution/OS.h); patches gx-wgpipe-header (the SDK's WGPIPE = host FIFO in C++: kernel.cpp now uses the SDK's
+  GX inlines), sdk-header-exit, world-anon-extern, xlobj-vec3-typedef; trial.py adds the BTE header folders
+  (-idirafter, as MWCC's -ir) and configure.py's per-unit -D flags (rjoy, sysconfig); C units allow implicit
+  declarations. linkagefix.py also fixes the earlier declaration when the later one is already extern "C"
+  (rebuild linkage_fix.txt from empty after a pin bump: its entries are line numbers).
+- runtime/weak_inlines.cpp: Spot::From, GameUI vf58-vf68/vfF8/vfFC, zone Sound::Active/Play (checked against
+  retail bytes). Priority list for the decomp sent to the coordinator (collision-shape dtors, GameUI/Spot shared
+  headers, 119 data labels the port still reads from the DOL).
+- Left: sdk_mp3 (TMCCMP3*, MP3_Delete: SD-card music) is not in the port's SDK build yet.
+
+## Race flicker and speed (2026-11-16, 6014084, a05d131, 94982af)
+- **Flicker fixed:** every third race frame was black: the retrace presented while the game's TEV program and
+  logic op were still bound. Present() now ends the batch and turns logic op off first.
+- **Speed: 20 -> 30 fps steady in the race** (title and menus 60). EFB->texture copies run on the GPU (conversion
+  shader; RAM image read back through a PBO one frame later; depth copies and NICECRASH_CPUCOPY=1 stay on the
+  CPU); indexed batches with packed vertices; array byte order judged once per frame; renderer getenv calls
+  cached (sdk/env.h); port runtime/sdk at -O2; unchanged pictures not presented again. The jagged oval on the
+  Tutorial instruction screen came from the CPU copy path and is gone.
+- **Where it stands:** a race frame is ~26k GX draws, ~2.2k GL batches, ~160k vertices: 15.5-17 ms of work, and
+  even 16 ms frames take two retraces, so 60 fps needs roughly 12-13 ms. The game's own code is ~1 ms; the rest
+  is the CPU vertex decode/transform/texgen (gxr_draw) and the driver. Next step for 60: vertex transform and
+  texgen in the vertex shader (upload decoded positions + matrix indices, XF matrices as uniforms) and a
+  specialised vertex decoder per vertex format.
+- Tools: NICECRASH_FRAMETIME=1 (work per display frame vs the 16.7/33.3 ms budgets, draws/state applies/GL
+  batches per frame; =2 one line per frame), NICECRASH_PROF=<start s>:<seconds> (sampling profiler, per thread;
+  NICECRASH_PROFLINES=<function> by source line), NICECRASH_NOVSYNC, NICECRASH_PRESENTALL, NICECRASH_FLUSHDIRTY.
+  Do not measure fps with NICECRASH_LUMLOG on: it reads the whole frame back at every presentation.

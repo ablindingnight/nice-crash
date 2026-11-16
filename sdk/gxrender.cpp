@@ -1185,6 +1185,8 @@ void gxr_copy(u32 bp52) {
             last = now;
             sum += d;
             (d < 16.7 ? under16 : d < 33.3 ? under33 : over)++;
+            static const bool each = NC_ENV("NICECRASH_FRAMETIME")[0] == '2';  // =2: one line per frame
+            if (each) fprintf(stderr, "[ft1] retrace %u work %.1f\n", sdk_vi_retrace_count(), d);
             if (++n == 120) {
                 fprintf(stderr, "[ft] per frame: %u draws, %u state applies, %u GL batches\n", dr / n, ap / n, fl / n);
                 fl = ap = dr = 0;
