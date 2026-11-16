@@ -729,12 +729,17 @@ static DWORD WINAPI EnhanceThread(void*) {
         SetStep(FRAMES, DONE, L"", 1);
     }
     {
+        // graphics.upscale_model: realesrgan = realesrgan-x4plus (sharpest, ~1.3 s a frame on an RTX 3090),
+        // fast = realesr-animevideov3 at the chosen scale (~0.5 s a frame).
+        bool fast = !strcmp(Settings_Get("graphics.upscale_model"), "fast");
+        std::string model = fast ? "realesr-animevideov3-x" + std::to_string(scale) : "realesrgan-x4plus";
         SetStep(SCALE, ACTIVE, up.empty() ? L"Scaling with Windows' high-quality filter (no AI upscaler installed)."
-                                          : L"AI upscaling with Real-ESRGAN.", 0);
+                               : fast     ? L"AI upscaling with Real-ESRGAN (fast model)."
+                                          : L"AI upscaling with Real-ESRGAN (best quality: this takes a while).", 0);
         std::wstring cmd = Quote(W(ExeDir() + "enhance.exe")) + L" --frames " + Quote(W(frames)) +
                            L" --name uisingle --scale " + std::to_wstring(scale) + L" --out " +
                            Quote(W(out + "\\uisingle.mp4"));
-        if (!up.empty()) cmd += L" --upscaler " + Quote(W(up));
+        if (!up.empty()) cmd += L" --upscaler " + Quote(W(up)) + L" --model " + W(model);
         int code = RunCapture(cmd, ExeDir(), {}, [&](const std::string& l) {
             AddLog(l);
             unsigned a = 0, b = 0;

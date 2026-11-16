@@ -74,12 +74,23 @@ static bool Load(IWICImagingFactory* f, const std::string& path, UINT w, UINT h,
     return SUCCEEDED(hr);
 }
 
-static int Run(const std::string& cmd) {
+// Runs the upscaler from its own folder (it finds models\ there); prints progress from the PNGs it has written.
+static int RunUpscaler(const std::string& cmd, const std::string& cwd, const std::string& outDir,
+                       const std::string& name, size_t total, size_t before) {
     STARTUPINFOA si{sizeof si};
     PROCESS_INFORMATION pi{};
     std::string c = cmd;
-    if (!CreateProcessA(nullptr, &c[0], nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) return -1;
-    WaitForSingleObject(pi.hProcess, INFINITE);
+    if (!CreateProcessA(nullptr, &c[0], nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, cwd.c_str(), &si, &pi))
+        return -1;
+    size_t last = (size_t)-1;
+    while (WaitForSingleObject(pi.hProcess, 1000) == WAIT_TIMEOUT) {
+        size_t n = Frames(outDir, name, "png").size();
+        if (n != last) {
+            printf("progress %zu %zu upscale\n", before + n, total);
+            fflush(stdout);
+            last = n;
+        }
+    }
     DWORD code = 1;
     GetExitCodeProcess(pi.hProcess, &code);
     CloseHandle(pi.hProcess);
@@ -102,6 +113,14 @@ int main(int argc, char** argv) {
         else if (k == "--model") model = v;
         else if (k == "--bitrate") mbit = atoi(v.c_str());
     }
+    auto full = [](std::string& p) {  // the upscaler runs from its own folder: every path absolute
+        if (p.empty()) return;
+        char b[MAX_PATH];
+        if (GetFullPathNameA(p.c_str(), MAX_PATH, b, nullptr)) p = b;
+    };
+    full(frames);
+    full(out);
+    full(upscaler);
     if (frames.empty() || scale < 1 || scale > 4) {
         fprintf(stderr, "usage: enhance.exe --frames <dir> --name <movie> [--scale 2] [--out file.mp4] [--upscaler exe]\n");
         return 2;
@@ -118,30 +137,9 @@ int main(int argc, char** argv) {
         fprintf(stderr, "enhance: no %s_*.bmp frames in %s\n", name.c_str(), frames.c_str());
         return 3;
     }
-    // Optional AI upscale: the upscaler writes PNGs at its own scale into <frames>\up; they are fitted to the
-    // target size when read.
-    std::string srcDir = frames;
-    const char* srcExt = "bmp";
-    if (!upscaler.empty()) {
-        std::string up = frames + "\\up";
-        CreateDirectoryA(up.c_str(), nullptr);
-        printf("progress 0 %zu upscale\n", in.size());
-        fflush(stdout);
-        std::string cmd = "\"" + upscaler + "\" -i \"" + frames + "\" -o \"" + up + "\" -s " + std::to_string(scale) +
-                          " -n " + model + " -f png";
-        int rc = Run(cmd);
-        if (rc != 0) {
-            fprintf(stderr, "enhance: the upscaler failed (exit %d): %s\n", rc, cmd.c_str());
-            return 4;
-        }
-        srcDir = up;
-        srcExt = "png";
-    }
-    std::vector<std::string> src = Frames(srcDir, name, srcExt);
-    if (src.size() != in.size()) {
-        fprintf(stderr, "enhance: %zu frames in, %zu after upscaling\n", in.size(), src.size());
-        return 5;
-    }
+    // Optional AI upscale, in batches of 100 frames (4x PNGs of the whole movie would need ~16 GB): each batch is
+    // upscaled into <frames>_up, encoded, and deleted before the next.
+    const size_t kBatch = 100;
 
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     IWICImagingFactory* wic = nullptr;
@@ -199,9 +197,41 @@ int main(int argc, char** argv) {
         return 10;
     }
     LONGLONG dur = (LONGLONG)(10000000.0 * fd / fn);
-    for (size_t i = 0; i < src.size(); i++) {
-        if (!Load(wic, src[i], w, h, px, nullptr, nullptr)) {
-            fprintf(stderr, "enhance: cannot read %s\n", src[i].c_str());
+    std::string bin = frames + "_in", bout = frames + "_up";
+    int upScale = model.find("x4plus") != std::string::npos ? 4 : scale;  // x4plus only works at 4x
+    std::string updir = upscaler.substr(0, upscaler.find_last_of("\\/") + 1);
+    std::vector<std::string> src;  // the current batch's images, in frame order
+    size_t batch0 = 0;
+    for (size_t i = 0; i < in.size(); i++) {
+        if (src.empty() || i == batch0 + src.size()) {  // next batch
+            batch0 = i;
+            size_t n = std::min(kBatch, in.size() - i);
+            if (upscaler.empty()) {
+                src.assign(in.begin() + i, in.begin() + i + n);
+            } else {
+                for (const std::string& d : {bin, bout}) {  // empty batch folders
+                    for (auto& f : Frames(d, name, d == bin ? "bmp" : "png")) DeleteFileA(f.c_str());
+                    CreateDirectoryA(d.c_str(), nullptr);
+                }
+                for (size_t k = 0; k < n; k++) {
+                    std::string leaf = in[i + k].substr(in[i + k].find_last_of('\\') + 1);
+                    if (!CreateHardLinkA((bin + "\\" + leaf).c_str(), in[i + k].c_str(), nullptr))
+                        CopyFileA(in[i + k].c_str(), (bin + "\\" + leaf).c_str(), FALSE);
+                }
+                std::string cmd = "\"" + upscaler + "\" -i \"" + bin + "\" -o \"" + bout + "\" -s " +
+                                  std::to_string(upScale) + " -n " + model + " -f png";
+                int rc = RunUpscaler(cmd, updir, bout, name, in.size(), i);
+                src = Frames(bout, name, "png");
+                if (rc != 0 || src.size() != n) {
+                    fprintf(stderr, "enhance: the upscaler failed (exit %d, %zu of %zu frames): %s\n", rc, src.size(),
+                            n, cmd.c_str());
+                    return 4;
+                }
+            }
+        }
+        const std::string& img = src[i - batch0];
+        if (!Load(wic, img, w, h, px, nullptr, nullptr)) {
+            fprintf(stderr, "enhance: cannot read %s\n", img.c_str());
             return 11;
         }
         IMFMediaBuffer* buf = nullptr;
@@ -223,8 +253,8 @@ int main(int argc, char** argv) {
             fprintf(stderr, "enhance: encoding frame %zu failed (0x%08lx)\n", i, hr);
             return 12;
         }
-        if (i % 25 == 0 || i + 1 == src.size()) {
-            printf("progress %zu %zu encode\n", i + 1, src.size());
+        if (upscaler.empty() && (i % 25 == 0 || i + 1 == in.size())) {
+            printf("progress %zu %zu encode\n", i + 1, in.size());
             fflush(stdout);
         }
     }
@@ -232,7 +262,14 @@ int main(int argc, char** argv) {
     sink->Release();
     MFShutdown();
     wic->Release();
+    if (!upscaler.empty()) {
+        for (const std::string& d : {bin, bout}) {
+            for (auto& f : Frames(d, name, d == bin ? "bmp" : "png")) DeleteFileA(f.c_str());
+            RemoveDirectoryA(d.c_str());
+        }
+    }
     if (FAILED(hr)) return 13;
-    printf("wrote %s (%ux%u, %zu frames, %d Mbit/s)\n", out.c_str(), w, h, src.size(), mbit);
+    printf("wrote %s (%ux%u, %zu frames, %d Mbit/s%s%s)\n", out.c_str(), w, h, in.size(), mbit,
+           upscaler.empty() ? "" : ", ", upscaler.empty() ? "" : model.c_str());
     return 0;
 }

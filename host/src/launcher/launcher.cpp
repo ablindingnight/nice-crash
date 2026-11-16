@@ -1132,7 +1132,7 @@ void PageGraphics() {
         float cy;
         std::wstring help = have ? L"Enhanced on this PC (" + tasks::FormatBytes(tasks::EnhancedBytes()) +
                                        L"). Menus, HUD and truck paint come later."
-                                 : L"Sharpens your own intro on this PC in about two minutes. Your files are never changed.";
+                                 : L"Sharpens your own intro on this PC with AI (see AI model below for the time). Your files are never changed.";
         Row(L"Intro video", help, nullptr, 48, &cy);
         g.focusCount--;  // the button shares the row's focus slot
         float bw = TextWidth(have ? L"ENHANCE AGAIN" : L"ENHANCE…", F_DISPLAY, 17, 0.12f) + 52;
@@ -1145,6 +1145,9 @@ void PageGraphics() {
             if (Button2(L"Remove", kMainX + kMainW - bw - 16 - rw, cy)) tasks::RemoveEnhanced();
         }
     }
+    SegRow(L"AI model", "graphics.upscale_model", {{"realesrgan", L"Best quality"}, {"fast", L"Fast"}},
+           L"Real-ESRGAN, on your graphics card. Best quality takes about an hour for the intro on a fast card; Fast "
+           L"about 20 minutes and looks a little softer.");
     SegRow(L"Upscale", "graphics.upscale_scale", {{"2", L"2×"}, {"4", L"4×"}},
            L"Applies the next time you enhance. 4× takes longer and uses more disk space.");
     ToggleRow(L"Use enhanced files", "graphics.enhanced_assets",
