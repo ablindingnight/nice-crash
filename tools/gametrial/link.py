@@ -406,6 +406,12 @@ def main():
     for sym, name, kind, unit, sec, addr, size, cat in rows:
         if sym in ('_port_dolfix_table', '_port_dolptr_table'):
             continue  # generated below
+        lm = re.match(r'^_lbl_([0-9A-F]{8})$', sym)
+        if lm and kind not in ('function', 'object'):
+            # A data label the decomp has since renamed (symbols.txt no longer lists it, e.g. physcam's
+            # lbl_8055F54C): it is still that Wii address. Treat it as asm-only data there, not as a function stub
+            # (a stub put it in .text, and physcam's store wrote into code).
+            kind, addr, size, sec = 'object', lm.group(1), '4', '.data'
         mbase = sym.lstrip('_').split('__F')[0] if not sym.startswith('__Z') else None
         target = None
         if kind != 'object' and mbase and len(by_base.get(mbase, ())) == 1:
