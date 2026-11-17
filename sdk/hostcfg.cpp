@@ -34,6 +34,11 @@ static HostCfg Load() {
     if (c.deadzone < 0) c.deadzone = 0;
     if (c.deadzone > 50) c.deadzone = 50;
     c.invertSteer = Settings_GetInt("controls.invert_steer") != 0;
+    const char* sc = Settings_Get("controls.steer_curve");
+    c.steerCurve = !strcmp(sc, "linear") ? 1 : !strcmp(sc, "sharp") ? 2 : 0;
+    c.tiltSens = Settings_GetInt("controls.tilt_sensitivity") / 100.0f;
+    if (c.tiltSens < 0) c.tiltSens = 0;
+    if (c.tiltSens > 2) c.tiltSens = 2;
     c.msaa = Settings_GetInt("graphics.msaa");
     if (c.msaa != 2 && c.msaa != 4 && c.msaa != 8) c.msaa = 0;
     const char* is = Settings_Get("graphics.internal_scale");

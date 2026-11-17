@@ -17,6 +17,8 @@ struct HostCfg {
     bool rumble;
     int deadzone;         // controls.deadzone: percent of the stick's travel
     bool invertSteer;
+    int steerCurve;       // controls.steer_curve: 0 smooth (the original), 1 linear (keys turn at once), 2 sharp
+    float tiltSens;       // controls.tilt_sensitivity: 0..2 (percent / 100), scales steering
     bool launched;        // started by the launcher (NICECRASH_LAUNCHED=1)
     int msaa;             // graphics.msaa: 0/1 off, 2, 4, 8 samples
     int internalScale;    // graphics.internal_scale: 0 = the window's size, 1-4 = 480 lines x n

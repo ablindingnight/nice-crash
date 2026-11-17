@@ -503,6 +503,8 @@ static u32 PadHold(int chan, f32* steer, f32* lean) {
     if (b & DRIGHT) hold |= BTN_DOWN;
     if ((b & XX) || (b & RB) || s.rt > 64) hold |= BTN_RIGHT;  // turbo: R2 (user's choice), also X and RB
     *steer = Axis(s.lx, 7849);
+    if (host_cfg().steerCurve == 2)  // controls.steer_curve sharp: more turn from small stick movements
+        *steer = *steer < 0 ? -powf(-*steer, 0.6f) : powf(*steer, 0.6f);
     if (host_cfg().invertSteer) *steer = -*steer;  // controls.invert_steer
     // Lean (tilting the remote forward/back): the right stick, or the left stick's forward/back, whichever is
     // pushed further.
@@ -571,7 +573,8 @@ static u32 CurrentHold(f32* tilt) {
         static f32 steer;
         static u32 lastFrame;
         f32 want = (r ? 1.0f : 0.0f) - (l ? 1.0f : 0.0f);
-        f32 step = 0.11f * (f32)(now != lastFrame ? now - lastFrame : 0);
+        // controls.steer_curve: smooth (the original) ramps in over ~0.15 s; linear and sharp turn at once.
+        f32 step = (host_cfg().steerCurve == 0 ? 0.11f : 1.0f) * (f32)(now != lastFrame ? now - lastFrame : 0);
         if (step > 1.0f) step = 1.0f;
         lastFrame = now;
         steer = want > steer ? (steer + step < want ? steer + step : want) : (steer - step > want ? steer - step : want);
@@ -641,6 +644,8 @@ s32 KPADRead(s32 chan, void* buf, u32 n) {
     if (sdk_vi_has_focus() || chan != 0) hold |= PadHold(chan, &ps, &pl);
     else ps = pl = 0;
     if (ps != 0) steer = ps;
+    // controls.tilt_sensitivity: how far the remote turns for the same stick or key (100% = the original).
+    steer = fmaxf(-1.0f, fminf(1.0f, steer * host_cfg().tiltSens));
     lean = pl;
     // Scripted stick (NICECRASH_INPUT STICKUP/STICKDOWN/STICKLEFT/STICKRIGHT): full deflection, for tests.
     if (hold & STICK_UP) lean = 1;
