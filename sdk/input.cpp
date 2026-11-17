@@ -60,6 +60,7 @@ static u32 g_prevHold;
 struct Scripted {
     u32 frame;
     u32 bits;
+    u32 len = 6;  // frames held ("frame+len:buttons")
 };
 static Scripted g_script[64];
 static int g_nscript = -1;
@@ -86,6 +87,8 @@ static void LoadScript() {
         if (!c) continue;
         *c = 0;
         g_script[g_nscript].frame = (u32)atoi(tok);
+        const char* plus = strchr(tok, '+');  // "4000+1500:2" holds 2 for 1500 retraces
+        g_script[g_nscript].len = plus ? (u32)atoi(plus + 1) : 6;
         g_script[g_nscript].bits = ButtonBits(c + 1);
         g_nscript++;
     }
@@ -409,7 +412,7 @@ static u32 CurrentHold(f32* tilt) {
     u32 hold = 0;
     u32 now = sdk_vi_retrace_count();
     for (int i = 0; i < g_nscript; i++)
-        if (now >= g_script[i].frame && now < g_script[i].frame + 6) hold |= g_script[i].bits;
+        if (now >= g_script[i].frame && now < g_script[i].frame + g_script[i].len) hold |= g_script[i].bits;
     *tilt = 0;
     if (sdk_vi_has_focus()) {
         bool shift = Key(VK_SHIFT);

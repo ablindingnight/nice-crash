@@ -522,6 +522,10 @@ struct GXLight {
 struct LightSetup {
     GXLight light[8];
     bool any;  // some channel has lighting enabled
+    u32 ctl[2][2];               // per channel: colour and alpha control (XF 0x100E/0x1010 + ch)
+    float matReg[2][4], ambReg[2][4];
+    int cachedMtx = -1;          // EyeSpace: the matrices of the last pnmtx, as floats
+    float pm[12], nm[9];
 };
 inline void Unpack(u32 c, float o[4]) {
     o[0] = (c >> 24) / 255.0f;
@@ -534,6 +538,13 @@ void LoadLights(LightSetup& L, int numChans) {
     for (int c = 0; c < numChans && c < 2; c++)
         if (((g_gx.xf[0x100E + c] >> 1) & 1) || ((g_gx.xf[0x1010 + c] >> 1) & 1)) L.any = true;
     if (!L.any) return;
+    L.cachedMtx = -1;  // XF may have changed since the last draw
+    for (int c = 0; c < 2; c++) {
+        L.ctl[c][0] = g_gx.xf[0x100E + c];
+        L.ctl[c][1] = g_gx.xf[0x1010 + c];
+        Unpack(g_gx.xf[0x100C + c], L.matReg[c]);
+        Unpack(g_gx.xf[0x100A + c], L.ambReg[c]);
+    }
     for (int i = 0; i < 8; i++) {
         int b = 0x600 + i * 16;
         GXLight& l = L.light[i];
@@ -552,20 +563,23 @@ inline void Norm3(float a[3]) {
     if (l > 0) a[0] /= l, a[1] /= l, a[2] /= l;
 }
 // Eye-space position and normal of a vertex (position matrix row pnmtx; normal matrix at 0x400 + (pnmtx & 31) * 3).
-void EyeSpace(const Vtx& v, float ep[3], float en[3]) {
-    int m = v.pnmtx * 4;
-    for (int r = 0; r < 3; r++)
-        ep[r] = xff(m + r * 4) * v.pos[0] + xff(m + r * 4 + 1) * v.pos[1] + xff(m + r * 4 + 2) * v.pos[2] + xff(m + r * 4 + 3);
-    int n = 0x400 + (v.pnmtx & 31) * 3;
-    for (int r = 0; r < 3; r++) en[r] = xff(n + r * 3) * v.nrm[0] + xff(n + r * 3 + 1) * v.nrm[1] + xff(n + r * 3 + 2) * v.nrm[2];
+void EyeSpace(LightSetup& L, const Vtx& v, float ep[3], float en[3]) {
+    if (L.cachedMtx != v.pnmtx) {
+        L.cachedMtx = v.pnmtx;
+        for (int k = 0; k < 12; k++) L.pm[k] = xff(v.pnmtx * 4 + k);
+        for (int k = 0; k < 9; k++) L.nm[k] = xff(0x400 + (v.pnmtx & 31) * 3 + k);
+    }
+    const float* m = L.pm;
+    for (int r = 0; r < 3; r++) ep[r] = m[r * 4] * v.pos[0] + m[r * 4 + 1] * v.pos[1] + m[r * 4 + 2] * v.pos[2] + m[r * 4 + 3];
+    const float* n = L.nm;
+    for (int r = 0; r < 3; r++) en[r] = n[r * 3] * v.nrm[0] + n[r * 3 + 1] * v.nrm[1] + n[r * 3 + 2] * v.nrm[2];
     Norm3(en);
 }
 // One channel (0/1) for one vertex: colour control `cc`, alpha control `ac`; vtx = the vertex colour.
 void LightChannel(const LightSetup& L, int ch, const u8 vtx[4], const float ep[3], const float en[3], u8 out[4]) {
-    u32 ctl[2] = {g_gx.xf[0x100E + ch], g_gx.xf[0x1010 + ch]};  // colour, alpha
-    float matReg[4], ambReg[4], vc[4] = {vtx[0] / 255.0f, vtx[1] / 255.0f, vtx[2] / 255.0f, vtx[3] / 255.0f};
-    Unpack(g_gx.xf[0x100C + ch], matReg);
-    Unpack(g_gx.xf[0x100A + ch], ambReg);
+    const u32* ctl = L.ctl[ch];  // colour, alpha
+    const float *matReg = L.matReg[ch], *ambReg = L.ambReg[ch];
+    float vc[4] = {vtx[0] / 255.0f, vtx[1] / 255.0f, vtx[2] / 255.0f, vtx[3] / 255.0f};
     for (int part = 0; part < 2; part++) {  // 0: RGB, 1: A
         u32 c = ctl[part];
         int k0 = part ? 3 : 0, k1 = part ? 4 : 3;
@@ -997,7 +1011,7 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
         BV& o = bvAt(n);
         if (lights.any) {  // GX lighting (LightChannel); unlit channels give the same as below
             float ep[3], en[3];
-            EyeSpace(v, ep, en);
+            EyeSpace(lights, v, ep, en);
             if (numChans >= 1) LightChannel(lights, 0, v.col[0], ep, en, o.c0);
             else o.c0[0] = o.c0[1] = o.c0[2] = o.c0[3] = 255;
             if (numChans >= 2) LightChannel(lights, 1, v.col[1], ep, en, o.c1);
@@ -1289,7 +1303,7 @@ void gxr_copy(u32 bp52) {
     static const bool noEfbCopy = NC_ENV("NICECRASH_NOEFBCOPY") != nullptr;
     if (!toXfb && !noEfbCopy && xfb_active() && pw > 0 && ph > 0) {
         xfb_bind_efb(ww, wh);
-        xfb_resolve();  // multisampled EFB (graphics.msaa) -> the texture the copy reads
+        xfb_resolve((g_gx.bp[0x43] & 7) == 3);  // multisampled EFB (graphics.msaa) -> what the copy reads
         int tpf = (bp52 >> 3) & 15, real = (tpf >> 1) | ((tpf & 1) << 3);
         bool inten = (bp52 >> 15) & 1, half = (bp52 >> 9) & 1;
         bool depth = (g_gx.bp[0x43] & 7) == 3;  // PE_CONTROL pixel format Z24: a depth copy

@@ -148,7 +148,7 @@ void xfb_bind_efb(int w, int h) {
     p_glBindFramebuffer(GL_FRAMEBUFFER_, g_samples > 1 ? g_msFbo : g_fbo);
 }
 
-void xfb_resolve() {
+void xfb_resolve(bool depth) {
     if (g_samples <= 1 || !g_msDirty) {
         if (g_fbo) p_glBindFramebuffer(GL_FRAMEBUFFER_, g_fbo);
         return;
@@ -156,7 +156,9 @@ void xfb_resolve() {
     p_glBindFramebuffer(GL_READ_FRAMEBUFFER_, g_msFbo);
     p_glBindFramebuffer(GL_DRAW_FRAMEBUFFER_, g_fbo);
     p_glBlitFramebuffer(0, 0, g_w, g_h, 0, 0, g_w, g_h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
-    p_glBlitFramebuffer(0, 0, g_w, g_h, 0, 0, g_w, g_h, GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT, GL_NEAREST);
+    // Depth only when a depth copy reads it (resolving the multisampled depth/stencil at every copy crashed the
+    // driver: 0xC0000409 fast fails at the Tutorial's loading, about half the runs with 4x MSAA).
+    if (depth) p_glBlitFramebuffer(0, 0, g_w, g_h, 0, 0, g_w, g_h, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
     p_glBindFramebuffer(GL_FRAMEBUFFER_, g_fbo);
     g_msDirty = false;
 }
