@@ -145,6 +145,7 @@ inline void ReadColor(const u8* p, int fmt, u8 out[4], bool le) {
 
 struct Vtx {
     float pos[3];
+    float nrm[3];  // object-space normal (lighting, normal texgen), (0, 0, 1) when the format has none
     u8 col[2][4];
     float tex[8][2];
     int pnmtx;
@@ -510,6 +511,109 @@ void Transform(const float* p, int pn, float out[4], float* clip = nullptr) {
     out[3] = cw;
 }
 
+// ---- GX lighting (XF 0x100A-0x1011 channel registers, lights at 0x600 + 16n) ----
+// Per vertex, as the transform unit does it (Dolphin's LightingShaderGen is the reference for the attenuation forms):
+// colour = material * clamp(ambient + sum over the enabled lights of attenuation * diffuse * light colour).
+struct GXLight {
+    float col[4];             // RGBA 0..1
+    float cosA[3], distK[3];  // angle and distance attenuation coefficients
+    float pos[3], dir[3];     // eye space (the game loads them transformed)
+};
+struct LightSetup {
+    GXLight light[8];
+    bool any;  // some channel has lighting enabled
+};
+inline void Unpack(u32 c, float o[4]) {
+    o[0] = (c >> 24) / 255.0f;
+    o[1] = ((c >> 16) & 0xFF) / 255.0f;
+    o[2] = ((c >> 8) & 0xFF) / 255.0f;
+    o[3] = (c & 0xFF) / 255.0f;
+}
+void LoadLights(LightSetup& L, int numChans) {
+    L.any = false;
+    for (int c = 0; c < numChans && c < 2; c++)
+        if (((g_gx.xf[0x100E + c] >> 1) & 1) || ((g_gx.xf[0x1010 + c] >> 1) & 1)) L.any = true;
+    if (!L.any) return;
+    for (int i = 0; i < 8; i++) {
+        int b = 0x600 + i * 16;
+        GXLight& l = L.light[i];
+        Unpack(g_gx.xf[b + 3], l.col);
+        for (int k = 0; k < 3; k++) {
+            l.cosA[k] = xff(b + 4 + k);
+            l.distK[k] = xff(b + 7 + k);
+            l.pos[k] = xff(b + 10 + k);
+            l.dir[k] = xff(b + 13 + k);
+        }
+    }
+}
+inline float Dot3(const float a[3], const float b[3]) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+inline void Norm3(float a[3]) {
+    float l = sqrtf(Dot3(a, a));
+    if (l > 0) a[0] /= l, a[1] /= l, a[2] /= l;
+}
+// Eye-space position and normal of a vertex (position matrix row pnmtx; normal matrix at 0x400 + (pnmtx & 31) * 3).
+void EyeSpace(const Vtx& v, float ep[3], float en[3]) {
+    int m = v.pnmtx * 4;
+    for (int r = 0; r < 3; r++)
+        ep[r] = xff(m + r * 4) * v.pos[0] + xff(m + r * 4 + 1) * v.pos[1] + xff(m + r * 4 + 2) * v.pos[2] + xff(m + r * 4 + 3);
+    int n = 0x400 + (v.pnmtx & 31) * 3;
+    for (int r = 0; r < 3; r++) en[r] = xff(n + r * 3) * v.nrm[0] + xff(n + r * 3 + 1) * v.nrm[1] + xff(n + r * 3 + 2) * v.nrm[2];
+    Norm3(en);
+}
+// One channel (0/1) for one vertex: colour control `cc`, alpha control `ac`; vtx = the vertex colour.
+void LightChannel(const LightSetup& L, int ch, const u8 vtx[4], const float ep[3], const float en[3], u8 out[4]) {
+    u32 ctl[2] = {g_gx.xf[0x100E + ch], g_gx.xf[0x1010 + ch]};  // colour, alpha
+    float matReg[4], ambReg[4], vc[4] = {vtx[0] / 255.0f, vtx[1] / 255.0f, vtx[2] / 255.0f, vtx[3] / 255.0f};
+    Unpack(g_gx.xf[0x100C + ch], matReg);
+    Unpack(g_gx.xf[0x100A + ch], ambReg);
+    for (int part = 0; part < 2; part++) {  // 0: RGB, 1: A
+        u32 c = ctl[part];
+        int k0 = part ? 3 : 0, k1 = part ? 4 : 3;
+        float mat[4], res[4];
+        for (int k = k0; k < k1; k++) mat[k] = (c & 1) ? vc[k] : matReg[k];
+        if (!((c >> 1) & 1)) {
+            for (int k = k0; k < k1; k++) res[k] = mat[k];
+        } else {
+            float lacc[4];
+            for (int k = k0; k < k1; k++) lacc[k] = ((c >> 6) & 1) ? vc[k] : ambReg[k];
+            u32 mask = ((c >> 2) & 15) | (((c >> 11) & 15) << 4);
+            int difFn = (c >> 7) & 3;
+            bool attnOn = (c >> 9) & 1, spot = (c >> 10) & 1;
+            for (int i = 0; i < 8; i++) {
+                if (!((mask >> i) & 1)) continue;
+                const GXLight& l = L.light[i];
+                float ld[3] = {l.pos[0] - ep[0], l.pos[1] - ep[1], l.pos[2] - ep[2]};
+                float dist2 = Dot3(ld, ld), dist = sqrtf(dist2);
+                if (dist > 0) ld[0] /= dist, ld[1] /= dist, ld[2] /= dist;
+                float attn = 1.0f;
+                if (attnOn) {
+                    if (spot) {
+                        float a = Dot3(ld, l.dir);
+                        a = a > 0 ? a : 0;
+                        float num = l.cosA[0] + l.cosA[1] * a + l.cosA[2] * a * a;
+                        float den = l.distK[0] + l.distK[1] * dist + l.distK[2] * dist2;
+                        attn = (num > 0 ? num : 0) / (den != 0 ? den : 1e-6f);
+                    } else {  // specular: the light's direction holds the half-angle vector
+                        float a = Dot3(en, ld) >= 0 ? Dot3(en, l.dir) : 0;
+                        a = a > 0 ? a : 0;
+                        float num = l.cosA[0] + l.cosA[1] * a + l.cosA[2] * a * a;
+                        float den = l.distK[0] + l.distK[1] * a + l.distK[2] * a * a;
+                        attn = (num > 0 ? num : 0) / (den != 0 ? den : 1e-6f);
+                    }
+                }
+                float dif = 1.0f;
+                if (difFn) {
+                    dif = Dot3(ld, en);
+                    if (difFn == 2 && dif < 0) dif = 0;
+                }
+                for (int k = k0; k < k1; k++) lacc[k] += attn * dif * l.col[k];
+            }
+            for (int k = k0; k < k1; k++) res[k] = mat[k] * (lacc[k] < 0 ? 0 : lacc[k] > 1 ? 1 : lacc[k]);
+        }
+        for (int k = k0; k < k1; k++) out[k] = (u8)(res[k] * 255.0f + 0.5f);
+    }
+}
+
 void TexCoord(const Vtx& v, int gen, float out[2]) {
     u32 info = g_gx.xf[0x1040 + gen];
     int row = (info >> 7) & 31;
@@ -520,16 +624,30 @@ void TexCoord(const Vtx& v, int gen, float out[2]) {
         in[1] = v.tex[row - 5][1];
     } else if (row == 0) {
         in[0] = v.pos[0]; in[1] = v.pos[1]; in[2] = v.pos[2];
+    } else if (row == 1) {  // the normal (environment / reflection maps)
+        in[0] = v.nrm[0]; in[1] = v.nrm[1]; in[2] = v.nrm[2];
     }
     int m = v.texmtx[gen] * 4;
     float s = xff(m + 0) * in[0] + xff(m + 1) * in[1] + xff(m + 2) * in[2] + xff(m + 3) * in[3];
     float t = xff(m + 4) * in[0] + xff(m + 5) * in[1] + xff(m + 6) * in[2] + xff(m + 7) * in[3];
-    if (stq) {
-        float q = xff(m + 8) * in[0] + xff(m + 9) * in[1] + xff(m + 10) * in[2] + xff(m + 11) * in[3];
-        if (q != 0) {
-            s /= q;
-            t /= q;
-        }
+    float q = stq ? xff(m + 8) * in[0] + xff(m + 9) * in[1] + xff(m + 10) * in[2] + xff(m + 11) * in[3] : 1.0f;
+    // Dual texture transform (XF 0x1012 bit 0): the first result, optionally normalised (0x1050+n bit 8), goes
+    // through a post-transform matrix (0x500 + index * 4, index = 0x1050+n bits 0-5): reflection and chrome maps.
+    if (g_gx.xf[0x1012] & 1) {
+        u32 pi = g_gx.xf[0x1050 + gen];
+        float c[3] = {s, t, q};
+        if ((pi >> 8) & 1) Norm3(c);
+        int pm = 0x500 + (int)(pi & 63) * 4;
+        float r[3];
+        for (int k = 0; k < 3; k++)
+            r[k] = xff(pm + k * 4) * c[0] + xff(pm + k * 4 + 1) * c[1] + xff(pm + k * 4 + 2) * c[2] + xff(pm + k * 4 + 3);
+        s = r[0];
+        t = r[1];
+        q = r[2];
+    }
+    if (stq && q != 0) {
+        s /= q;
+        t /= q;
     }
     out[0] = s;
     out[1] = t;
@@ -708,10 +826,19 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
                 for (int c = 0; c < f.posCnt; c++) v.pos[c] = ReadComp(a + c * kCompSize[f.posFmt], f.posFmt, posScale, le);
         }
         t = (lo >> 11) & 3;
+        v.nrm[0] = v.nrm[1] = 0.0f;
+        v.nrm[2] = 1.0f;
         if (t) {
-            if (t >= 2 && f.nrmIdx3 && f.nrmCnt == 9) p += (t == 2 ? 1 : 2) * 3;
-            else attrPtr(t, 1, f.nrmCnt * kCompSize[f.nrmFmt]);
-            (void)nrmScale;
+            int csz = kCompSize[f.nrmFmt];
+            const u8* a;
+            if (t >= 2 && f.nrmIdx3 && f.nrmCnt == 9) {
+                a = attrPtr(t, 1, 3 * csz);
+                p += (t == 2 ? 1 : 2) * 2;  // the binormal's and tangent's indices
+            } else {
+                a = attrPtr(t, 1, f.nrmCnt * csz);
+            }
+            if (a)
+                for (int c = 0; c < 3; c++) v.nrm[c] = ReadComp(a + c * csz, f.nrmFmt, nrmScale, le);
         }
         for (int c = 0; c < 2; c++) {
             t = (lo >> (13 + c * 2)) & 3;
@@ -862,10 +989,20 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
     auto bvAt = [&](int n) -> BV& { return *(BV*)(bvBytes + (size_t)n * stride); };  // only the first `stride` bytes
     bool cv1 = g_gx.xf[0x100F] & 1, av1 = g_gx.xf[0x1011] & 1;
     u32 m1 = g_gx.xf[0x100D];
+    static LightSetup lights;
+    static const bool noLight = NC_ENV("NICECRASH_NOLIGHT") != nullptr;  // debugging: the old unlit colours
+    LoadLights(lights, noLight ? 0 : numChans);
     for (int n = 0; n < count; n++) {
         Vtx& v = vs[n];
         BV& o = bvAt(n);
-        if (numChans == 0) {
+        if (lights.any) {  // GX lighting (LightChannel); unlit channels give the same as below
+            float ep[3], en[3];
+            EyeSpace(v, ep, en);
+            if (numChans >= 1) LightChannel(lights, 0, v.col[0], ep, en, o.c0);
+            else o.c0[0] = o.c0[1] = o.c0[2] = o.c0[3] = 255;
+            if (numChans >= 2) LightChannel(lights, 1, v.col[1], ep, en, o.c1);
+            else o.c1[0] = o.c1[1] = o.c1[2] = o.c1[3] = 255;
+        } else if (numChans == 0) {
             o.c0[0] = o.c0[1] = o.c0[2] = o.c0[3] = 255;
         } else {
             o.c0[0] = colVtx ? v.col[0][0] : (u8)(mat >> 24);
@@ -873,7 +1010,8 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
             o.c0[2] = colVtx ? v.col[0][2] : (u8)(mat >> 8);
             o.c0[3] = alpVtx ? v.col[0][3] : (u8)mat;
         }
-        if (numChans < 2) {
+        if (lights.any) {
+        } else if (numChans < 2) {
             o.c1[0] = o.c1[1] = o.c1[2] = o.c1[3] = 255;
         } else {
             o.c1[0] = cv1 ? v.col[1][0] : (u8)(m1 >> 24);

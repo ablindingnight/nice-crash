@@ -6,6 +6,7 @@
 #include <dbghelp.h>
 #include <cstdio>
 #include <cstdlib>
+#include <csignal>
 #include <cstring>
 
 static void PrintFrame(HANDLE proc, DWORD64 pc, int i) {
@@ -111,10 +112,38 @@ static LONG WINAPI OnCrash(EXCEPTION_POINTERS* ep) {
     return EXCEPTION_EXECUTE_HANDLER;
 }
 
+// abort() (the C runtime ends the process with 0xC0000409, past the exception filter): print the stack first.
+static void OnAbort(int) {
+    CONTEXT c{};
+    RtlCaptureContext(&c);
+    EXCEPTION_RECORD er{};
+    er.ExceptionCode = 0xC0000409;
+    er.ExceptionAddress = (void*)(uintptr_t)
+#ifdef _M_IX86
+        c.Eip;
+#else
+        c.Rip;
+#endif
+    EXCEPTION_POINTERS ep{&er, &c};
+    fprintf(stderr, "\n[crash] abort() called\n");
+    OnCrash(&ep);
+    fflush(stderr);
+    _exit(3);
+}
+
+// The C runtime's invalid-parameter check (a bad FILE*, handle or buffer passed to a CRT function) also ends the
+// process with 0xC0000409 and no exception: print the stack first.
+static void OnInvalidParam(const wchar_t*, const wchar_t*, const wchar_t*, unsigned, uintptr_t) {
+    fprintf(stderr, "\n[crash] C runtime: invalid parameter\n");
+    OnAbort(0);
+}
+
 __attribute__((constructor(101))) static void InstallCrashHandler() {
+    _set_invalid_parameter_handler(OnInvalidParam);
     ULONG guarantee = 64 * 1024;  // stack reserved for the handler, so a stack overflow is reported too
     SetThreadStackGuarantee(&guarantee);
     SetUnhandledExceptionFilter(OnCrash);
+    signal(SIGABRT, OnAbort);
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
 }
 
