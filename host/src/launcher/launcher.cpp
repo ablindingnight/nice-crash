@@ -253,6 +253,36 @@ std::string PickFolder() {
     return out;
 }
 
+// A disc image (.iso .rvz .wia .wbfs .ciso .gcz .nfs): read once into the disc cache (tasks::InspectDump).
+std::string PickImage() {
+    std::string out;
+    IFileOpenDialog* dlg = nullptr;
+    if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_IFileOpenDialog, (void**)&dlg)))
+        return out;
+    COMDLG_FILTERSPEC types[] = {{L"Wii disc images", L"*.iso;*.rvz;*.wia;*.wbfs;*.ciso;*.gcz;*.nfs"},
+                                 {L"All files", L"*.*"}};
+    dlg->SetFileTypes(2, types);
+    DWORD opt = 0;
+    dlg->GetOptions(&opt);
+    dlg->SetOptions(opt | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST);
+    dlg->SetTitle(L"Choose your Excite Truck disc image");
+    if (SUCCEEDED(dlg->Show(A.hwnd))) {
+        IShellItem* item = nullptr;
+        if (SUCCEEDED(dlg->GetResult(&item))) {
+            PWSTR p = nullptr;
+            if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &p))) {
+                int n = WideCharToMultiByte(CP_UTF8, 0, p, -1, nullptr, 0, nullptr, nullptr);
+                out.resize(n ? n - 1 : 0);
+                WideCharToMultiByte(CP_UTF8, 0, p, -1, &out[0], n, nullptr, nullptr);
+                CoTaskMemFree(p);
+            }
+            item->Release();
+        }
+    }
+    dlg->Release();
+    return out;
+}
+
 void AddPickedFolder(const std::string& path) {
     if (path.empty()) return;
     tasks::Candidate c = tasks::JudgeDump(path);
@@ -260,7 +290,10 @@ void AddPickedFolder(const std::string& path) {
         if (!_stricmp(A.extra[i].info.path.c_str(), c.info.path.c_str())) A.extra.erase(A.extra.begin() + i);
     A.extra.insert(A.extra.begin(), c);
     A.candSel = 0;
-    if (c.kind != 0) Toast(c.kind == 1 ? L"That disc isn't supported. See why under its name." : L"That folder isn't a complete disc dump.");
+    if (c.kind != 0)
+        Toast(c.kind == 1 ? L"That disc isn't supported. See why under its name."
+                          : tasks::IsDiscImage(path) ? L"That disc image couldn't be used. See why under its name."
+                                                     : L"That folder isn't a complete disc dump.");
 }
 
 // ---------------------------------------------------------------- Home
@@ -548,10 +581,12 @@ void DiscScreen() {
         p.AddRectangle(Gdiplus::RectF(x + 1, dy + 1, colW - 2, dh - 2));
         g.g->DrawPath(&pen, &p);
         Icon("folder", x + 18, dy + 20, 26, col::tilt, 1.8f);
-        Text(L"Drop your dump folder here", F_BODY_SEMI, 15, x + 60, dy + 14, col::fg);
-        Text(L"Or choose it yourself. Disc images (.iso, .rvz) come later.", F_BODY, 13, x + 60, dy + 36, col::dim);
-        float bw = TextWidth(L"BROWSE\u2026", F_DISPLAY, 17, 0.12f) + 52;
-        if (Button2(L"Browse\u2026", x + colW - bw - 16, dy + 11)) AddPickedFolder(PickFolder());
+        Text(L"Drop your disc image or dump folder here", F_BODY_SEMI, 15, x + 60, dy + 14, col::fg);
+        Text(L".iso, .rvz, .wbfs and more, or a folder from Dolphin's Extract.", F_BODY, 13, x + 60, dy + 36, col::dim);
+        float bw = TextWidth(L"FOLDER\u2026", F_DISPLAY, 17, 0.12f) + 52;
+        float iw = TextWidth(L"DISC IMAGE\u2026", F_DISPLAY, 17, 0.12f) + 52;
+        if (Button2(L"Folder\u2026", x + colW - bw - 16, dy + 11)) AddPickedFolder(PickFolder());
+        if (Button2(L"Disc image\u2026", x + colW - bw - 16 - 12 - iw, dy + 11)) AddPickedFolder(PickImage());
     }
     // Aside.
     {
@@ -2004,6 +2039,16 @@ int LauncherLaunchTest(int seconds) {
         printf("recorded: %s, %d s, %ls, log %s\n", runs[0].when.c_str(), runs[0].seconds,
                tasks::DescribeExit(runs[0].code).c_str(), runs[0].logged ? "kept" : "off");
     return 0;
+}
+
+int LauncherJudgeTest(const char* path) {
+    ULONGLONG t0 = GetTickCount64();
+    tasks::Candidate c = tasks::JudgeDump(path);
+    printf("kind %d (%s) in %llu ms\n%ls\n%ls\nfiles %s\ndol %s\nsha1 %s id %s bytes %lld\n", c.kind,
+           c.kind == 0 ? "ready" : c.kind == 1 ? "not supported" : "incomplete", GetTickCount64() - t0, c.title.c_str(),
+           c.why.c_str(), c.info.files.c_str(), c.info.dol.c_str(), c.info.sha1.c_str(), c.info.gameId.c_str(),
+           c.info.bytes);
+    return c.kind;
 }
 
 // --enhance: runs "Enhance my game" without the window and prints each step as it changes (testing).

@@ -145,7 +145,162 @@ static long long DirSize(const std::string& d, int depth = 0) {
     return sum;
 }
 
+static std::string FileDate(const std::string& p);
+// ---- disc images (.iso .rvz .wia .wbfs .ciso .gcz .nfs) ----
+// Read with decomp-toolkit's disc layer (dtk vfs; nod handles the formats and the Wii partition): the player's own
+// image is checked (game ID from sys/boot.bin) and extracted once into %LOCALAPPDATA%\NiceCrash\disc\DATA\ (sys
+// and files, as Dolphin's "Extract Entire Disc" lays them out); the rest of the launcher then uses that folder.
+// The image itself is only read.
+bool IsDiscImage(const std::string& p) {
+    size_t dot = p.find_last_of('.');
+    if (dot == std::string::npos || IsDir(p)) return false;
+    std::string e = p.substr(dot + 1);
+    for (char& c : e) c = (char)tolower((unsigned char)c);
+    return e == "iso" || e == "rvz" || e == "wia" || e == "wbfs" || e == "ciso" || e == "gcz" || e == "nfs";
+}
+
+static std::string DtkExe() {
+    std::string p = ExeDir() + "tools\\dtk\\dtk.exe";  // player installs ship it here (MIT OR Apache-2.0)
+    if (IsFile(p)) return p;
+    std::string root = RepoRoot();  // a source checkout: the matching repo's own copy
+    if (!root.empty() && IsFile(root + "\\..\\excite-truck\\build\\tools\\dtk.exe"))
+        return Full(root + "\\..\\excite-truck\\build\\tools\\dtk.exe");
+    return "";
+}
+
+// Runs dtk without a window; its output (errors) comes back in *out.
+static int Dtk(const std::string& args, std::string* out = nullptr) {
+    std::string dtk = DtkExe();
+    if (dtk.empty()) return -1;
+    char tmp[MAX_PATH], log[MAX_PATH];
+    GetTempPathA(MAX_PATH, tmp);
+    GetTempFileNameA(tmp, "dtk", 0, log);
+    SECURITY_ATTRIBUTES sa{sizeof sa, nullptr, TRUE};
+    HANDLE h = CreateFileA(log, GENERIC_WRITE, FILE_SHARE_READ, &sa, CREATE_ALWAYS, FILE_ATTRIBUTE_TEMPORARY, nullptr);
+    STARTUPINFOA si{};
+    si.cb = sizeof si;
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdOutput = si.hStdError = h;
+    PROCESS_INFORMATION pi{};
+    std::string cmd = "\"" + dtk + "\" " + args;
+    DWORD code = (DWORD)-1;
+    if (CreateProcessA(nullptr, &cmd[0], nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
+        WaitForSingleObject(pi.hProcess, INFINITE);
+        GetExitCodeProcess(pi.hProcess, &code);
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+    }
+    CloseHandle(h);
+    if (out) {
+        out->clear();
+        if (FILE* f = fopen(log, "rb")) {
+            char b[1024];
+            size_t n;
+            while ((n = fread(b, 1, sizeof b, f)) > 0 && out->size() < 4096) out->append(b, n);
+            fclose(f);
+        }
+    }
+    DeleteFileA(log);
+    return (int)code;
+}
+
+static long long FileSize64(const std::string& p) {
+    WIN32_FILE_ATTRIBUTE_DATA a;
+    if (!GetFileAttributesExA(p.c_str(), GetFileExInfoStandard, &a)) return -1;
+    return ((long long)a.nFileSizeHigh << 32) | a.nFileSizeLow;
+}
+
+static void RemoveTree(const std::string& dir) {  // only ever our own disc cache
+    WIN32_FIND_DATAA fd;
+    HANDLE h = FindFirstFileA((dir + "\\*").c_str(), &fd);
+    if (h != INVALID_HANDLE_VALUE) {
+        do {
+            std::string n = fd.cFileName;
+            if (n == "." || n == "..") continue;
+            std::string p = dir + "\\" + n;
+            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) RemoveTree(p);
+            else DeleteFileA(p.c_str());
+        } while (FindNextFileA(h, &fd));
+        FindClose(h);
+    }
+    RemoveDirectoryA(dir.c_str());
+}
+
+std::string DiscCacheDir() { return portcfg::Dir() + "\\disc"; }
+
+// The image's game ID, and (for the USA disc) the extracted folder. False with why when it can't be used.
+static bool PrepareImage(const std::string& img, std::string& folder, std::string& id, std::string& why) {
+    if (DtkExe().empty()) {
+        why = "The disc-image reader (tools\\dtk\\dtk.exe) is missing. Extract the disc with Dolphin instead "
+              "(right-click the game, Extract Entire Disc) and choose that folder.";
+        return false;
+    }
+    std::string dir = DiscCacheDir(), data = dir + "\\DATA";
+    char st[128];
+    snprintf(st, sizeof st, "|%lld|%s", FileSize64(img), FileDate(img).c_str());
+    std::string stamp = img + st;
+    // Same image as last time: already extracted.
+    if (FILE* f = fopen((dir + "\\image.txt").c_str(), "rb")) {
+        char b[2048] = {};
+        size_t n = fread(b, 1, sizeof b - 1, f);
+        fclose(f);
+        if (std::string(b, n) == stamp && IsFile(data + "\\sys\\main.dol") && IsDir(data + "\\files")) {
+            folder = data;
+            id = DumpGameId(data + "\\files");
+            return true;
+        }
+    }
+    CreateDirectoryA(dir.c_str(), nullptr);
+    std::string probe = dir + "\\probe";
+    RemoveTree(probe);
+    CreateDirectoryA(probe.c_str(), nullptr);
+    std::string out;
+    if (Dtk("vfs cp --no-decompress -q \"" + img + ":sys/boot.bin\" \"" + probe + "\\boot.bin\"", &out) != 0) {
+        why = "This file couldn't be read as a Wii disc image. " + out.substr(0, 200);
+        return false;
+    }
+    char b[7] = {};
+    if (FILE* f = fopen((probe + "\\boot.bin").c_str(), "rb")) {
+        fread(b, 1, 6, f);
+        fclose(f);
+    }
+    id = b;
+    RemoveTree(probe);
+    if (id != "REXE01") {
+        why = id.substr(0, 3) == "REX" ? "Nice Crash is built from the USA version only." : "This isn't Excite Truck.";
+        return false;
+    }
+    RemoveTree(data);
+    CreateDirectoryA(data.c_str(), nullptr);  // dtk creates sys and files itself
+    if (Dtk("vfs cp --no-decompress -q \"" + img + ":sys\" \"" + data + "\\sys\"", &out) != 0 ||
+        Dtk("vfs cp --no-decompress -q \"" + img + ":files\" \"" + data + "\\files\"", &out) != 0) {
+        why = "Reading the disc image failed: " + out.substr(0, 200);
+        RemoveTree(data);
+        return false;
+    }
+    if (FILE* f = fopen((dir + "\\image.txt").c_str(), "wb")) {
+        fwrite(stamp.data(), 1, stamp.size(), f);
+        fclose(f);
+    }
+    folder = data;
+    return true;
+}
+
 DumpInfo InspectDump(const std::string& path, bool measure) {
+    if (IsDiscImage(path)) {
+        DumpInfo d;
+        d.path = Full(path);
+        std::string folder, id;
+        if (!PrepareImage(d.path, folder, id, d.why)) {
+            d.gameId = id;
+            d.found = !id.empty();  // a readable disc of another region or game: "not supported", not "broken"
+            return d;
+        }
+        DumpInfo e = InspectDump(folder, false);
+        e.path = d.path;  // shown and remembered as the image
+        if (measure) e.bytes = FileSize64(d.path);
+        return e;
+    }
     DumpInfo d;
     d.path = Full(path);
     if (!LocateDump(d.path, d.files, d.dol, d.why)) {
@@ -495,7 +650,8 @@ static DWORD WINAPI CheckThread(void* p) {
     DumpInfo d = InspectDump(args.dump, true);
     if (!d.found && d.sha1.empty() && d.files.empty()) { Fail(FIND, W(d.why)); goto out; }
     if (!d.found) { Fail(FIND, W(d.why)); goto out; }
-    SetStep(FIND, DONE, W(d.path) + L" (extracted folder, " + FormatBytes(d.bytes) + L")");
+    SetStep(FIND, DONE, W(d.path) + (IsDiscImage(d.path) ? L" (disc image, " : L" (extracted folder, ") +
+                            FormatBytes(d.bytes) + L")");
     if (Cancelled(VERIFY)) goto out;
 
     // 2. Check it's the retail USA disc.
@@ -558,7 +714,9 @@ static DWORD WINAPI CheckThread(void* p) {
         std::string imp = ExeDir() + "import.exe";
         if (!IsFile(imp)) { Fail(INDEX, L"import.exe is missing next to the launcher."); goto out; }
         std::string summary, lastErr;
-        int code = RunCapture(Quote(W(imp)) + L" " + Quote(W(d.path)), ExeDir(), {}, [&](const std::string& l) {
+        // A disc image was extracted into the disc cache (InspectDump): the importer reads that folder.
+        std::string dumpDir = IsDiscImage(d.path) ? Full(d.files + "\\..") : d.path;
+        int code = RunCapture(Quote(W(imp)) + L" " + Quote(W(dumpDir)), ExeDir(), {}, [&](const std::string& l) {
             AddLog("[import] " + l);
             if (l.rfind("sets:", 0) == 0) summary = l;
             if (l.rfind("error:", 0) == 0) lastErr = l.substr(7);

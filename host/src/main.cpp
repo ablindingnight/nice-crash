@@ -38,6 +38,11 @@ int main(int argc, char** argv) {
         int LauncherEnhanceTest();
         return LauncherEnhanceTest();
     }
+    if (argc >= 3 && std::string(argv[1]) == "--judge") {  // what the launcher makes of a folder or disc image
+        AttachParentConsole();
+        int LauncherJudgeTest(const char* path);
+        return LauncherJudgeTest(argv[2]);
+    }
     if (argc >= 2 && std::string(argv[1]) == "--launch-game") {
         AttachParentConsole();
         return LauncherLaunchTest(argc >= 3 ? atoi(argv[2]) : 20);

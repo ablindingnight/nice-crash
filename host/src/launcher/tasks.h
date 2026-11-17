@@ -28,7 +28,9 @@ struct DumpInfo {
     std::string why;           // what's wrong, for the player
     long long bytes = -1;      // size of the dump folder, if measured
 };
-DumpInfo InspectDump(const std::string& path, bool measure);
+DumpInfo InspectDump(const std::string& path, bool measure);  // a folder or a disc image (extracted once, cached)
+bool IsDiscImage(const std::string& path);                     // .iso .rvz .wia .wbfs .ciso .gcz .nfs
+std::string DiscCacheDir();                                    // %LOCALAPPDATA%\NiceCrash\disc
 
 // The dump the launcher uses: launcher.dump_path, else dump.ini's disc. Re-checked on demand.
 struct State {

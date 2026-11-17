@@ -566,3 +566,16 @@
 - Keyboard (ba0823d, 28f0303): 2 or / = 2, 1 or . = 1, WASD/arrows = directions (A/D steer, W turbo), Space = A.
 - Next: disc images in the launcher (ISO/RVZ/WIA/WBFS/CISO/GCZ via decomp-toolkit's `dtk vfs`, verify REXE01 +
   main.dol SHA-1, extract to %LOCALAPPDATA%\NiceCrash\disc\, no-op on the same image); needs the user's image to test.
+
+## Disc images in the launcher (2026-11-16)
+- Disc screen: "Disc image..." (.iso .rvz .wia .wbfs .ciso .gcz .nfs, also by drag and drop) next to "Folder...".
+  tasks::InspectDump reads an image with decomp-toolkit's `dtk vfs` (nod: formats and the encrypted Wii partition;
+  the launcher looks for tools\dtk\dtk.exe next to itself, else the matching repo's build\tools\dtk.exe): game ID
+  from sys/boot.bin first (Europe REXP01 / Japan REXJ01 / other games rejected in <1 s with a reason, nothing
+  extracted), then sys and files (--no-decompress) into %LOCALAPPDATA%\NiceCrash\disc\DATA\ (554 MB, ~2 s); the
+  same image again (path, size, date in disc\image.txt) is a no-op (16 ms). The importer then reads that folder.
+- Checked with the user's images: USA ISO ready (main.dol e51685814..., importer 114 sets / 8138 resources, the
+  game runs from it), Europe and Japan RVZ "not supported" with the region named.
+- dtk quirk: three 5-byte vc.cfg files come out empty (unused by the game).
+- For a player release: ship dtk.exe (MIT OR Apache-2.0) with its licence under tools\dtk\.
+- `NiceCrash.exe --judge <folder or image>` prints the launcher's verdict (tests).
