@@ -1,9 +1,0 @@
-@@@ gameloop.cpp | RaceResult is 0xB0 (8 entries of 0x14 after the 0x10 header, as gamedo.cpp); 0xA4 here let fn_801B2C70's memset of a 0xB0 DeitySnap run 12 bytes past fn_8000BF20's local and zero its saved registers (Tutorial Exit crashed in fn_8000ABE0). Fixed at decomp HEAD by 08caf01e3 (gamelistener.h): drop at the next re-pin
-<<<
-    u8 padF[0xA4 - 0xF];
-};
-===
-    u8 padF;
-    u8 entries[8][0x14];  // offset 0x10
-};
->>>

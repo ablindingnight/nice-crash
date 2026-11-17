@@ -369,7 +369,15 @@ def main():
                 i = ln - 1
                 if 0 <= i < len(lines) and re.search(r'\b%s\b' % name, lines[i]) and \
                         not lines[i].lstrip().startswith('extern "C"') and not lines[i].lstrip().startswith('static'):
-                    lines[i] = re.sub(r'^(\s*)(?:extern\s+)?', r'\1extern "C" ', lines[i], count=1)
+                    s = lines[i]
+                    code, _, comment = s.partition('//')
+                    if not s.lstrip().startswith('extern') and '=' not in code and code.rstrip().endswith(';') and '(' not in code:
+                        # A definition without an initializer: `extern "C" T x;` would only declare it (the variable
+                        # vanished: physcam lbl_8055F564, 2026-11-16). The block form keeps it a definition.
+                        ind = code[:len(code) - len(code.lstrip())]
+                        lines[i] = ind + 'extern "C" { ' + code.strip() + ' }' + ('  //' + comment if comment else '')
+                    else:
+                        lines[i] = re.sub(r'^(\s*)(?:extern\s+)?', r'\1extern "C" ', s, count=1)
                     counts['linkage-fix'] = counts.get('linkage-fix', 0) + 1
             t = NL.join(lines)
         srcroot = os.path.join(ET, 'src')

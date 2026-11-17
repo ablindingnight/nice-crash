@@ -8,14 +8,6 @@
         return;
     }
 >>>
-@@@ heightfld.cpp | the ground file is little-endian on disc and retail swaps its 13-word header by hand to big-endian; on the little-endian host the data is already native (as the Swap16/Swap32 helpers here, which prep empties)
-<<<
-    for (int k = 0; k < 13; k++) {
-        s8 t = ((u8*)&w[k])[0];
-===
-    for (int k = 0; k < 0; k++) {  // port: no swap on a little-endian host
-        s8 t = ((u8*)&w[k])[0];
->>>
 @@@ faninfo.cpp | FINF data is little-endian on disc and retail swaps it by hand on first fetch; already native on the host
 <<<
             if (swapped) {
@@ -39,12 +31,12 @@ void fn_801380DC(ResExt* e) {
 >>>
 @@@ deity.cpp | ROBUSTNESS (port-only): LineFollower::Attach only positions the follower when SetLine sees a new line; if the racing line picked at init (random stream 4) equals the snapped one, it stays unpositioned and the AI driver's first reset reads a null segment (aicar fn_80195D80). Position it as Attach would (SetPosition(p, 0, 0)) when it is still unpositioned; no change when retail's path positioned it
 <<<
-    c->line->Attach(fn_80156A40()->Racing(c->index), &p, 0);
+    c->line->Attach((CenterLine*)fn_80156A40()->LineFor(c->index), &p, 0);
     LineFollower* l = c->line;
 ===
-    c->line->Attach(fn_80156A40()->Racing(c->index), &p, 0);
+    c->line->Attach((CenterLine*)fn_80156A40()->LineFor(c->index), &p, 0);
     if (!c->line->il.seg) {  // port: see patches/swap-detect
-        CenterLine* rl = (CenterLine*)fn_80156A40()->Racing(c->index);
+        CenterLine* rl = (CenterLine*)fn_80156A40()->LineFor(c->index);
         // Before the grid placement the car's world position can still be the allocator fill (no segment is
         // near it): start at the line's first point; the race start (fn_801B18B8) positions it properly.
         c->line->SetPosition(&p, 0, (k->pos[0] == k->pos[0] && __builtin_fabsf(k->pos[0]) < 1e6f) ? 0 : (rl ? rl->points : 0));
@@ -81,11 +73,11 @@ GXTex* lbl_804DB468[6];  // port: 3 + retail's following @271 (stages 3-5)
 >>>
 @@@ cammgr.cpp | ABI (struct return): idealline's fn_80136594 returns its 12-byte ILPos by value (i386: hidden result pointer the callee pops); cammgr keeps the PPC out-pointer form (tagged PORT in the decomp: a by-value form is not code-identical there). Call the by-value function and copy the result into the caller's slot
 <<<
-void fn_80136594(CamTrackPos* out, CamTrack* trk, const CamXZ* xz);  // PORT: idealline returns the ILPos by value (a by-value form here is not code-identical)
+void fn_80136594(CamTrackPos* out, LineFollower* trk, const CamXZ* xz);  // PORT: idealline returns the ILPos by value (a by-value form here is not code-identical)
 ===
 struct PortILPos12 { u32 w[3]; };
-PortILPos12 port_ro_fn_80136594(CamTrack* trk, const CamXZ* xz) __asm__("_fn_80136594");
-static inline void fn_80136594(CamTrackPos* out, CamTrack* trk, const CamXZ* xz) {  // port: by-value call
+PortILPos12 port_ro_fn_80136594(LineFollower* trk, const CamXZ* xz) __asm__("_fn_80136594");
+static inline void fn_80136594(CamTrackPos* out, LineFollower* trk, const CamXZ* xz) {  // port: by-value call
     PortILPos12 r = port_ro_fn_80136594(trk, xz);
     memcpy(out, &r, sizeof(*out) < sizeof(r) ? sizeof(*out) : sizeof(r));
 }
