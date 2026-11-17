@@ -560,6 +560,8 @@ extern "C" int port_autopilot_air(int airborne, float steer) {
 static bool AutopilotAirborne(f32* lean, f32* steer) {
     // A stale "airborne" (the title's demo truck, then a menu) would hold 2 down and no menu press would register.
     if (!port_autopilot() || !g_apAir || sdk_vi_retrace_count() - g_apWhen > 4) return false;
+    // Nor a truck parked off the ground behind a lesson menu (the Hybrid still runs there): real jumps last seconds.
+    if (g_apFrames > 300) return false;
     *steer = fmaxf(-1.0f, fminf(1.0f, g_apSteer));  // point along the course, as the AI was steering at takeoff
     static const char* mode = getenv("NICECRASH_AUTOPILOT_LEAN");
     if (mode && !_stricmp(mode, "up")) *lean = 1;
