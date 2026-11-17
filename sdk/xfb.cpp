@@ -200,6 +200,9 @@ void xfb_copy(u32 addr, int lines) {
     g_lastAddr = addr;
 }
 
+static bool g_forcePresent;
+void xfb_force_next() { g_forcePresent = true; }  // the in-game menu draws over the same picture every frame
+
 bool xfb_present(u32 addr, bool black, int ww, int wh) {
     if (!Load() || !g_fbo) return false;
     addr &= 0x1FFFFFFF;
@@ -215,6 +218,8 @@ bool xfb_present(u32 addr, bool black, int ww, int wh) {
     static bool lastBlack, lastValid;
     static const bool all = getenv("NICECRASH_PRESENTALL") != nullptr;
     u32 serial = it != g_xfbs.end() ? it->second.serial : 0, shown = it != g_xfbs.end() ? it->first : 0;
+    if (g_forcePresent) lastValid = false;
+    g_forcePresent = false;
     if (!all && lastValid && shown == lastAddr && serial == lastSerial && black == lastBlack && ww == g_presW && wh == g_presH)
         return false;
     lastValid = true;

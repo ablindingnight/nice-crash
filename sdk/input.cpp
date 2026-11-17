@@ -97,10 +97,38 @@ static void LoadScript() {
 // Keys pressed since the last read (sdk/vi.cpp's window procedure calls sdk_input_key_down): a quick tap between
 // two game frames still counts once. CurrentHold clears them after each read.
 static bool g_keyTapped[256];
+// The Nice Crash menu (sdk/menu.cpp): Esc, Tab (game.menu_on_tab) or the pad's Start held 0.5 s ask for it; never
+// while the game's HOME menu is up. While it is open every key goes to it.
+static volatile bool g_menuRequest;
+bool sdk_menu_open();
+void sdk_menu_key(unsigned vk);
+bool sdk_input_take_menu_request() {
+    bool r = g_menuRequest;
+    g_menuRequest = false;
+    return r;
+}
 void sdk_input_key_down(unsigned vk) {
+    if (sdk_menu_open()) {
+        sdk_menu_key(vk);
+        return;
+    }
+    if ((vk == VK_ESCAPE || (vk == VK_TAB && host_cfg().menuOnTab)) && !fn_802ECC10()) {
+        g_menuRequest = true;
+        return;
+    }
     if (vk < 256) g_keyTapped[vk] = true;
 }
-static bool Key(int vk) { return (GetAsyncKeyState(vk) & 0x8000) != 0 || (vk < 256 && g_keyTapped[vk]); }
+// Release latch: keys and pad buttons still held when the menu closes don't reach the game until let go.
+static bool g_swallowKey[256];
+static WORD g_swallowPad[4];
+static bool Key(int vk) {
+    bool down = (GetAsyncKeyState(vk) & 0x8000) != 0;
+    if (vk < 256 && g_swallowKey[vk]) {
+        if (down) return false;
+        g_swallowKey[vk] = false;
+    }
+    return down || (vk < 256 && g_keyTapped[vk]);
+}
 
 // ---- Pads: XInput and DirectInput (both part of Windows, loaded at run time; nothing to install) ----
 // Pad slots 0-3 are the connected XInput pads first, then DirectInput game controllers that are not XInput
@@ -406,6 +434,31 @@ static u32 PadHold(int chan, f32* steer, f32* lean) {
     XState s;
     *steer = *lean = 0;
     if (!PadState(chan, &s, true)) return 0;
+    // Release latch (after the Nice Crash menu): triggers count as bits 0x400 (LT) and 0x800 (RT) here.
+    if (g_swallowPad[chan]) {
+        WORD now = s.buttons | (s.lt > 64 ? 0x400 : 0) | (s.rt > 64 ? 0x800 : 0);
+        g_swallowPad[chan] &= now;
+        s.buttons &= ~g_swallowPad[chan];
+        if (g_swallowPad[chan] & 0x400) s.lt = 0;
+        if (g_swallowPad[chan] & 0x800) s.rt = 0;
+    }
+    // Start: a short press is the remote's +; held 0.5 s it opens the Nice Crash menu instead.
+    static DWORD startDown[4];
+    static bool startOpened[4];
+    static u32 plusUntil[4];
+    if (s.buttons & XSTART) {
+        if (!startDown[chan]) startDown[chan] = GetTickCount();
+        else if (!startOpened[chan] && GetTickCount() - startDown[chan] >= 500 && !fn_802ECC10()) {
+            startOpened[chan] = true;
+            g_menuRequest = true;
+        }
+        s.buttons &= ~XSTART;
+    } else {
+        if (startDown[chan] && !startOpened[chan]) plusUntil[chan] = sdk_vi_retrace_count() + 6;
+        startDown[chan] = 0;
+        startOpened[chan] = false;
+    }
+    if (sdk_vi_retrace_count() < plusUntil[chan]) s.buttons |= XSTART;
     enum { DUP = XDUP, DDOWN = XDDOWN, DLEFT = XDLEFT, DRIGHT = XDRIGHT, START = XSTART, BACK = XBACK, LB = XLB,
            RB = XRB };
     u32 hold = 0;
@@ -428,6 +481,35 @@ static u32 PadHold(int chan, f32* steer, f32* lean) {
     f32 ll = Axis(s.ly, 7849), rl = Axis(s.ry, 8689);
     *lean = fabsf(rl) > fabsf(ll) ? rl : ll;
     return hold;
+}
+
+// For the Nice Crash menu: every connected pad's buttons OR'd, plus the left stick as 0x10000 up, 0x20000 down,
+// 0x40000 left, 0x80000 right and the triggers as 0x100000 (LT) / 0x200000 (RT).
+unsigned sdk_input_menu_pad() {
+    unsigned r = 0;
+    for (int c = 0; c < 4; c++) {
+        XState s;
+        if (!PadState(c, &s)) continue;
+        r |= s.buttons;
+        if (s.ly > 16000) r |= 0x10000;
+        if (s.ly < -16000) r |= 0x20000;
+        if (s.lx < -16000) r |= 0x40000;
+        if (s.lx > 16000) r |= 0x80000;
+        if (s.lt > 64) r |= 0x100000;
+        if (s.rt > 64) r |= 0x200000;
+    }
+    return r;
+}
+// The menu closed: whatever is still held stays away from the game until released.
+void sdk_input_swallow_held() {
+    for (int vk = 1; vk < 256; vk++) g_swallowKey[vk] = (GetAsyncKeyState(vk) & 0x8000) != 0;
+    memset(g_keyTapped, 0, sizeof g_keyTapped);
+    for (int c = 0; c < 4; c++) {
+        XState s;
+        g_swallowPad[c] = 0;
+        if (PadState(c, &s, true))  // consume: presses made inside the menu are dropped
+            g_swallowPad[c] = s.buttons | (s.lt > 64 ? 0x400 : 0) | (s.rt > 64 ? 0x800 : 0);
+    }
 }
 
 static u32 CurrentHold(f32* tilt) {

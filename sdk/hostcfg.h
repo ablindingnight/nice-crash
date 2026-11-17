@@ -19,6 +19,8 @@ struct HostCfg {
     bool launched;        // started by the launcher (NICECRASH_LAUNCHED=1)
     int msaa;             // graphics.msaa: 0/1 off, 2, 4, 8 samples
     int internalScale;    // graphics.internal_scale: 0 = the window's size, 1-4 = 480 lines x n
-    int texFilter;        // graphics.texture_filter: 0 game, 1 bilinear, 2 trilinear, 3 anisotropic 16x
+    int texFilter;
+    bool menuOnTab;       // game.menu_on_tab: Tab opens the Nice Crash menu too (Esc always does)        // graphics.texture_filter: 0 game, 1 bilinear, 2 trilinear, 3 anisotropic 16x
 };
 const HostCfg& host_cfg();
+void host_cfg_reload();  // re-read after the in-game menu changed a setting

@@ -39,10 +39,19 @@ static void ApplyWindowMode(bool windowed);
 static bool g_windowed;
 
 void sdk_input_key_down(unsigned vk);  // sdk/input.cpp: a tap between two game frames still counts
+bool sdk_input_take_menu_request();    // sdk/input.cpp: Esc, Tab or a Start hold asked for the Nice Crash menu
+bool sdk_menu_test_wants_open();
+bool sdk_menu_open();       // sdk/menu.cpp (NICECRASH_MENUTEST)
+void sdk_menu_begin();
+void sdk_menu_end();
+bool sdk_menu_frame(int w, int h);
+u32 gxi_last_copy_dst();
 
 static LRESULT CALLBACK WndProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
     case WM_KEYDOWN:
+        // A held Esc/Tab auto-repeats: only its first press may open (or, after closing, reopen) the menu.
+        if ((wp == VK_ESCAPE || wp == VK_TAB) && (lp & (1 << 30)) && !sdk_menu_open()) break;
         sdk_input_key_down((unsigned)wp);
         break;
     case WM_SYSKEYDOWN:  // Alt+Enter: windowed <-> borderless full screen
@@ -333,6 +342,42 @@ static void Present() {
     }
 }
 
+static void RunMenu() {
+    sdk_menu_begin();
+    LARGE_INTEGER t;
+    for (;;) {
+        QueryPerformanceCounter(&t);
+        Pump();
+        bool shown = false;
+        if (xfb_active() && g_dc) {
+            gxr_end_batch();
+            glDisable(GL_COLOR_LOGIC_OP);
+            xfb_force_next();
+            u32 addr = g_nextFb ? (u32)(uintptr_t)g_nextFb : gxi_last_copy_dst();
+            xfb_present(addr, false, g_w, g_h);
+            shown = sdk_menu_frame(g_w, g_h);
+            if (shown) SwapBuffers(g_dc);
+            xfb_rebind_efb();
+        }
+        if (!shown) break;
+        // ~60 menu frames a second when v-sync doesn't pace the swaps.
+        LARGE_INTEGER e;
+        QueryPerformanceCounter(&e);
+        double ms = (double)(e.QuadPart - t.QuadPart) * 1000.0 / (double)g_freq.QuadPart;
+        if (ms < 15.0) Sleep((DWORD)(15.0 - ms));
+    }
+    sdk_menu_end();
+}
+
+// The in-game menu changed display.*: apply the window mode, size and v-sync now.
+void sdk_vi_apply_display() {
+    if (!g_hwnd) return;
+    ApplyWindowMode(host_cfg().windowMode == 0);
+    typedef BOOL(WINAPI * SwapIntervalFn)(int);
+    if (auto si = (SwapIntervalFn)(void*)wglGetProcAddress("wglSwapIntervalEXT"))
+        si(getenv("NICECRASH_NOVSYNC") || !host_cfg().vsync ? 0 : 1);
+}
+
 // The VI retrace interrupt: every 1/59.94 s. Called from OSGetTime (polled by every wait in the game) and
 // VIWaitForRetrace, on the thread that holds the Wii CPU, like an interrupt arriving between instructions.
 void sdk_vi_poll() {
@@ -353,6 +398,13 @@ void sdk_vi_poll() {
             Sleep(30);
         }
         QueryPerformanceCounter(&g_last);  // no catch-up burst afterwards
+    }
+    // The Nice Crash menu (sdk/menu.cpp): the game thread waits here, at its retrace, while the menu runs over the
+    // last picture; audio underruns to silence (AX isn't ticked). The clock restarts afterwards (no catch-up).
+    if (sdk_input_take_menu_request() | sdk_menu_test_wants_open()) {
+        RunMenu();
+        QueryPerformanceCounter(&now);
+        g_last = now;
     }
     // graphics.show_fps: the frame rate (display copies per second) in the title bar.
     if (host_cfg().showFps) {

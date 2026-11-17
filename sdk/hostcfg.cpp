@@ -39,10 +39,14 @@ static HostCfg Load() {
     if (c.internalScale < 0 || c.internalScale > 4) c.internalScale = 0;
     const char* tf = Settings_Get("graphics.texture_filter");
     c.texFilter = !strcmp(tf, "bilinear") ? 1 : !strcmp(tf, "trilinear") ? 2 : !strcmp(tf, "aniso16") ? 3 : 0;
+    c.menuOnTab = Settings_GetInt("game.menu_on_tab") != 0;
     return c;
 }
 
-const HostCfg& host_cfg() {
+static HostCfg& Cfg() {
     static HostCfg c = Load();
     return c;
 }
+const HostCfg& host_cfg() { return Cfg(); }
+// The in-game menu changed settings.ini: read it again (the live rows apply from the next use).
+void host_cfg_reload() { Cfg() = Load(); }
