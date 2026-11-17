@@ -342,7 +342,10 @@ bool BindTexMap(int m) {
                                   : fmt == 9 ? (size_t)((w + 7) & ~7) * ((h + 3) & ~3)
                                              : (size_t)((w + 3) & ~3) * ((h + 3) & ~3) * 2)
                       : tex::GXImageSize(fmt, w, h);
-    if (!bytes) return false;
+    if (!bytes) {
+        if (NC_ENV("NICECRASH_TEXFAILLOG")) fprintf(stderr, "[tex] unsized %08x fmt %d %dx%d\n", addr, fmt, w, h);
+        return false;
+    }
     u32 tlutOff = (tlut & 0x3FF) << 9, tlutFmt = (tlut >> 10) & 3;
     unsigned long long key = (unsigned long long)addr << 32 ^ (u32)(fmt << 28 | w << 14 | h) ^
                              (ci ? (unsigned long long)tlutOff << 4 : 0);
@@ -369,7 +372,14 @@ bool BindTexMap(int m) {
     if (!t.id || t.sum != sum) {
         std::vector<u8> rgba;
         if (ci) DecodeCI(fmt, src, w, h, g_tmem + tlutOff, (int)tlutFmt, rgba);
-        else if (!tex::DecodeRawGX(fmt, src, w, h, rgba)) return false;
+        else if (!tex::DecodeRawGX(fmt, src, w, h, rgba)) {
+            if (NC_ENV("NICECRASH_TEXFAILLOG")) {  // each texture that cannot be decoded, once
+                static std::unordered_map<u32, bool> told;
+                if (!told[addr]) fprintf(stderr, "[tex] cannot decode %08x fmt %d %dx%d\n", addr, fmt, w, h);
+                told[addr] = true;
+            }
+            return false;
+        }
         if (NC_ENV("NICECRASH_TEXDUMP")) {  // each new/changed texture as build/tex/<addr>_<fmt>_<w>x<h>.bmp
             char path[128];
             CreateDirectoryA("build/tex", nullptr);
