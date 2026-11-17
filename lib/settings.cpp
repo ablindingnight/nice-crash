@@ -305,6 +305,13 @@ std::string Settings_DataDir(void) {
     return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY) ? d : portcfg::Dir();
 }
 
+std::string Settings_FindData(const std::string& rel) {
+    std::string d = Settings_DataDir() + rel;
+    if (GetFileAttributesA(d.c_str()) != INVALID_FILE_ATTRIBUTES) return d;
+    std::string legacy = portcfg::Dir() + rel;
+    return GetFileAttributesA(legacy.c_str()) != INVALID_FILE_ATTRIBUTES ? legacy : d;
+}
+
 const char* Settings_Path(void) {
     EnsureLoaded();
     static thread_local std::string p;

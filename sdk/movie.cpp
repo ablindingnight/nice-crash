@@ -154,6 +154,15 @@ void Dump(const std::string& base, u32* bink, const VideoH* v) {
 }
 
 // ---- replacement playback (Media Foundation) ----
+// A decoder thread reads the video in order into a small ring of RGB frames, a few ahead of the frame the game asked
+// for, so the game thread only uploads a ready frame (decoding and colour conversion on the game thread cost ~10 ms
+// per video frame at 1280x896, every other game frame). The movie looping back (the game asks for an earlier frame
+// than the ring holds) rewinds the reader on the decoder thread.
+struct Slot {
+    long idx = -1;              // video frame in `px`, -1 = empty
+    std::vector<u8> px;         // BGRA rows, top first
+};
+const int kSlots = 4;
 struct Replacement {
     IMFSourceReader* reader = nullptr;
     GLuint tex = 0;
@@ -161,8 +170,16 @@ struct Replacement {
     LONG stride = 0;
     double fps = 29.97;
     long have = -1;  // index of the frame in tex
-    long next = 0;   // index of the next frame the reader returns
+    long next = 0;   // index of the next frame the reader returns (decoder thread)
     bool failed = false;
+    // Shared with the decoder thread (under cs).
+    CRITICAL_SECTION cs;
+    CONDITION_VARIABLE cv;
+    Slot slot[kSlots];
+    long want = 0;       // the frame the game wants now
+    bool rewind = false; // the game went back: start the reader over
+    bool ended = false;  // the reader hit the end (or failed) and waits for a rewind
+    int busy = -1;       // slot being uploaded by the game thread (not to be overwritten)
 };
 std::unordered_map<std::string, Replacement> g_repl;
 
@@ -216,55 +233,133 @@ bool Open(Replacement& r, const std::string& path) {
     return true;
 }
 
-// Bring frame `want` (0-based) into r.tex. False when the video has no such frame.
-bool Seek(Replacement& r, long want) {
-    if (want == r.have) return true;
-    if (want < r.next) {  // the movie looped: back to the start
-        PROPVARIANT pv;
-        PropVariantInit(&pv);
-        pv.vt = VT_I8;
-        pv.hVal.QuadPart = 0;
-        r.reader->SetCurrentPosition(GUID{}, pv);  // GUID_NULL: 100-ns units
-        r.next = 0;
-    }
-    while (r.next <= want) {
+// Decoder thread: keeps the ring filled with the frames from r.want on, in order.
+DWORD WINAPI Decoder(LPVOID arg) {
+    Replacement& r = *(Replacement*)arg;
+    const size_t frameBytes = (size_t)r.w * r.h * 4;
+    for (;;) {
+        EnterCriticalSection(&r.cs);
+        int free = -1;
+        for (;;) {
+            if (r.rewind) break;
+            // A slot is free when it is empty or holds a frame the game has gone past (and is not being uploaded).
+            free = -1;
+            int ahead = 0;
+            for (int i = 0; i < kSlots; i++) {
+                if (i == r.busy) continue;
+                if (r.slot[i].idx < 0 || r.slot[i].idx < r.want) {
+                    if (free < 0) free = i;
+                } else {
+                    ahead++;
+                }
+            }
+            if (free >= 0 && !r.ended && ahead < kSlots) break;
+            SleepConditionVariableCS(&r.cv, &r.cs, 100);
+        }
+        bool rewind = r.rewind;
+        if (rewind) {
+            r.rewind = false;
+            r.ended = false;
+            for (int i = 0; i < kSlots; i++)
+                if (i != r.busy) r.slot[i].idx = -1;
+        }
+        LeaveCriticalSection(&r.cs);
+        if (rewind) {
+            PROPVARIANT pv;
+            PropVariantInit(&pv);
+            pv.vt = VT_I8;
+            pv.hVal.QuadPart = 0;
+            r.reader->SetCurrentPosition(GUID{}, pv);  // GUID_NULL: 100-ns units
+            r.next = 0;
+            continue;
+        }
         DWORD flags = 0;
         LONGLONG ts = 0;
         IMFSample* s = nullptr;
-        if (FAILED(r.reader->ReadSample((DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM, 0, nullptr, &flags, &ts, &s))) return false;
-        if (flags & MF_SOURCE_READERF_ENDOFSTREAM) {
+        HRESULT hr = r.reader->ReadSample((DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM, 0, nullptr, &flags, &ts, &s);
+        if (FAILED(hr) || (flags & MF_SOURCE_READERF_ENDOFSTREAM)) {
             if (s) s->Release();
-            return false;
+            EnterCriticalSection(&r.cs);
+            r.ended = true;  // until the game goes back to an earlier frame
+            LeaveCriticalSection(&r.cs);
+            continue;
         }
         if (!s) continue;
         long idx = (long)((double)ts * r.fps / 1e7 + 0.5);
         r.next = idx + 1;
-        if (idx >= want) {
-            IMFMediaBuffer* b = nullptr;
-            if (SUCCEEDED(s->ConvertToContiguousBuffer(&b))) {
-                BYTE* p = nullptr;
-                DWORD len = 0;
-                if (SUCCEEDED(b->Lock(&p, nullptr, &len))) {
-                    glBindTexture(GL_TEXTURE_2D, r.tex);
-                    LONG stride = r.stride;
-                    if (stride > 0 && (DWORD)stride * r.h <= len) {  // top-down rows
-                        glPixelStorei(GL_UNPACK_ROW_LENGTH, stride / 4);
-                        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, r.w, r.h, 0x80E1, GL_UNSIGNED_BYTE, p);
-                    } else if (stride < 0 && (DWORD)(-stride) * r.h <= len) {  // bottom-up: upload row by row
-                        for (u32 y = 0; y < r.h; y++)
-                            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, y, r.w, 1, 0x80E1, GL_UNSIGNED_BYTE,
-                                            p + (size_t)(r.h - 1 - y) * (size_t)(-stride));
-                    }
-                    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
-                    b->Unlock();
+        IMFMediaBuffer* mb = nullptr;
+        bool got = false;
+        Slot& sl = r.slot[free];
+        if (sl.px.size() != frameBytes) sl.px.resize(frameBytes);
+        if (SUCCEEDED(s->ConvertToContiguousBuffer(&mb))) {
+            BYTE* p = nullptr;
+            DWORD len = 0;
+            if (SUCCEEDED(mb->Lock(&p, nullptr, &len))) {
+                LONG st = r.stride;
+                size_t row = (size_t)r.w * 4, pitch = (size_t)(st < 0 ? -st : st);
+                if (pitch >= row && pitch * r.h <= len) {
+                    for (u32 y = 0; y < r.h; y++)  // top row first whichever way the decoder stored them
+                        memcpy(&sl.px[(size_t)y * row], p + (st > 0 ? y : r.h - 1 - y) * pitch, row);
+                    got = true;
                 }
-                b->Release();
+                mb->Unlock();
             }
-            r.have = idx;
+            mb->Release();
         }
         s->Release();
+        EnterCriticalSection(&r.cs);
+        sl.idx = got ? idx : -1;
+        LeaveCriticalSection(&r.cs);
+        WakeAllConditionVariable(&r.cv);
     }
-    return r.have == want || r.have >= 0;
+    return 0;
+}
+
+void StartDecoder(Replacement& r) {
+    InitializeCriticalSection(&r.cs);
+    InitializeConditionVariable(&r.cv);
+    if (HANDLE h = CreateThread(nullptr, 0, Decoder, &r, 0, nullptr)) {
+        SetThreadPriority(h, THREAD_PRIORITY_BELOW_NORMAL);
+        CloseHandle(h);
+    } else {
+        r.failed = true;
+    }
+}
+
+// Bring the newest decoded frame not after `want` (0-based) into r.tex. Never waits for decoding, except up to
+// 100 ms for the very first frame. False when nothing has been shown yet.
+bool Seek(Replacement& r, long want) {
+    EnterCriticalSection(&r.cs);
+    if (want < r.want || want + 1 < r.have) {  // the movie looped: the decoder starts over
+        bool inRing = false;
+        for (int i = 0; i < kSlots; i++) inRing |= r.slot[i].idx == want;
+        if (!inRing) r.rewind = true;
+    }
+    r.want = want;
+    WakeAllConditionVariable(&r.cv);
+    for (int tries = 0;; tries++) {
+        int best = -1;
+        for (int i = 0; i < kSlots; i++)
+            if (r.slot[i].idx >= 0 && r.slot[i].idx <= want && (best < 0 || r.slot[i].idx > r.slot[best].idx)) best = i;
+        if (best >= 0 && r.slot[best].idx != r.have) {
+            r.busy = best;
+            long idx = r.slot[best].idx;
+            LeaveCriticalSection(&r.cs);
+            glBindTexture(GL_TEXTURE_2D, r.tex);
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, r.w, r.h, 0x80E1 /* GL_BGRA */, GL_UNSIGNED_BYTE, r.slot[best].px.data());
+            EnterCriticalSection(&r.cs);
+            r.busy = -1;
+            r.have = idx;
+            WakeAllConditionVariable(&r.cv);
+            break;
+        }
+        if (r.have >= 0 || tries >= 10) break;
+        SleepConditionVariableCS(&r.cv, &r.cs, 10);  // the first frame only
+    }
+    bool shown = r.have >= 0;
+    LeaveCriticalSection(&r.cs);
+    return shown;
 }
 
 Replacement* Find(const std::string& base) {
@@ -273,8 +368,9 @@ Replacement* Find(const std::string& base) {
     auto it = g_repl.find(base);
     if (it == g_repl.end()) {
         Replacement& r = g_repl[base];
-        std::string path = Settings_DataDir() + "\\cache\\enhanced\\" + base + ".mp4";
+        std::string path = Settings_FindData("\\cache\\enhanced\\" + base + ".mp4");
         if (GetFileAttributesA(path.c_str()) == INVALID_FILE_ATTRIBUTES || !Open(r, path)) r.failed = true;
+        else StartDecoder(r);
         it = g_repl.find(base);
     }
     return it->second.failed ? nullptr : &it->second;
@@ -290,7 +386,16 @@ extern "C" int port_movie_frame(const char* name, u32* bink, void* video, float 
     if (NC_ENV("NICECRASH_VIDEODUMP")) Dump(base, bink, (const VideoH*)video);
     Replacement* r = Find(base);
     if (!r || !bink[3]) return 0;
-    if (!Seek(*r, (long)bink[3] - 1)) return 0;
+    static const bool timeIt = NC_ENV("NICECRASH_MOVIETIME") != nullptr;  // cost of each replacement frame
+    LARGE_INTEGER t0, t1, fq;
+    if (timeIt) QueryPerformanceCounter(&t0);
+    bool ok = Seek(*r, (long)bink[3] - 1);
+    if (timeIt) {
+        QueryPerformanceCounter(&t1);
+        QueryPerformanceFrequency(&fq);
+        fprintf(stderr, "[movietime] frame %u %.2f ms\n", bink[3], (t1.QuadPart - t0.QuadPart) * 1000.0 / fq.QuadPart);
+    }
+    if (!ok) return 0;
     // A port command in the GX stream (sdk/gxinterp.cpp, 0xC8): draw texture r->tex over this EFB rectangle, in
     // order with the game's own draws.
     port_fifo_u8(0xC8);

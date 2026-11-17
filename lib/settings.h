@@ -43,6 +43,9 @@ const char* Settings_Path(void);
 // launcher.data_dir expanded and created (default %USERPROFILE%\Games\Nice Crash): the extracted disc, enhanced
 // files, texture packs and dumps. Falls back to the settings folder when it can't be created.
 std::string Settings_DataDir(void);
+// `rel` ("\cache\enhanced\x.mp4", "\textures\REXE01") inside the data folder, or, when it is only in the
+// settings folder (data from before launcher.data_dir; the launcher moves it there at its next start), that path.
+std::string Settings_FindData(const std::string& rel);
 
 // C++ helpers.
 namespace settings {

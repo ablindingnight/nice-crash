@@ -118,7 +118,7 @@ void Index() {
     g_indexed = true;
     g_loading = Settings_GetInt("graphics.enhanced_assets") != 0;
     if (!g_loading) return;
-    std::string dir = Settings_DataDir() + "\\textures\\REXE01";
+    std::string dir = Settings_FindData("\\textures\\REXE01");
     Scan(dir);
     if (!SelfTest()) {
         fprintf(stderr, "[texpack] XXH64 self-test failed: texture packs off\n");
