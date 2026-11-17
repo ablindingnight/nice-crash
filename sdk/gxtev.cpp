@@ -436,6 +436,8 @@ bool gxt_begin(const bool texOk[8]) {
     }
     auto it = g_progs.find(key);
     if (it == g_progs.end()) {
+        LARGE_INTEGER t0, t1, fq;
+        QueryPerformanceCounter(&t0);
         if (!g_vs) g_vs = Compile(GL_VERTEX_SHADER_, kVS);
         std::string fsrc = BuildFS(nStages, texOk);
         GLuint fs = g_vs ? Compile(GL_FRAGMENT_SHADER_, fsrc) : 0;
@@ -464,6 +466,17 @@ bool gxt_begin(const bool texOk[8]) {
             }
         }
         if (NC_ENV("NICECRASH_TEVLOG")) fprintf(stderr, "[tev] program %zu (%s):\n%s\n", g_progs.size(), key.c_str(), fsrc.c_str());
+        if (NC_ENV("NICECRASH_TEVTIME")) {  // first-use cost of each TEV program (stutter)
+            if (pr.id) {
+                GLint ok = 0;
+                p_glGetProgramiv(pr.id, GL_LINK_STATUS_, &ok);  // forces the driver to finish the link
+            }
+            QueryPerformanceCounter(&t1);
+            QueryPerformanceFrequency(&fq);
+            u32 sdk_vi_retrace_count();
+            fprintf(stderr, "[tevtime] retrace %u program %zu %.2f ms\n", sdk_vi_retrace_count(), g_progs.size(),
+                    (t1.QuadPart - t0.QuadPart) * 1000.0 / fq.QuadPart);
+        }
         it = g_progs.emplace(key, pr).first;
     }
     fast[h] = &it->second;
