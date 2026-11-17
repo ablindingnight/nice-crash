@@ -576,6 +576,7 @@
   same image again (path, size, date in disc\image.txt) is a no-op (16 ms). The importer then reads that folder.
 - Checked with the user's images: USA ISO ready (main.dol e51685814..., importer 114 sets / 8138 resources, the
   game runs from it), Europe and Japan RVZ "not supported" with the region named.
-- dtk quirk: three 5-byte vc.cfg files come out empty (unused by the game).
+- dtk quirk: three 5-byte vc.cfg files come out empty (unused by the game). Every empty file after an extraction
+  is written to the launcher log ("came out empty"), never shown to the player; not reported upstream.
 - For a player release: ship dtk.exe (MIT OR Apache-2.0) with its licence under tools\dtk\.
 - `NiceCrash.exe --judge <folder or image>` prints the launcher's verdict (tests).

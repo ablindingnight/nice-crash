@@ -278,6 +278,26 @@ static bool PrepareImage(const std::string& img, std::string& folder, std::strin
         RemoveTree(data);
         return false;
     }
+    // dtk writes some tiny files empty (the three 5-byte vc.cfg; the game never reads them). Log every empty file
+    // (the player sees nothing), so a resource that matters one day doesn't go missing silently.
+    {
+        std::vector<std::string> stack{data};
+        while (!stack.empty()) {
+            std::string d = stack.back();
+            stack.pop_back();
+            WIN32_FIND_DATAA fd;
+            HANDLE h = FindFirstFileA((d + "\\*").c_str(), &fd);
+            if (h == INVALID_HANDLE_VALUE) continue;
+            do {
+                std::string n = fd.cFileName;
+                if (n == "." || n == "..") continue;
+                if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) stack.push_back(d + "\\" + n);
+                else if (!fd.nFileSizeLow && !fd.nFileSizeHigh)
+                    LogLine("[launcher] disc image: %s\\%s came out empty (dtk tiny-file quirk?)", d.c_str(), n.c_str());
+            } while (FindNextFileA(h, &fd));
+            FindClose(h);
+        }
+    }
     if (FILE* f = fopen((dir + "\\image.txt").c_str(), "wb")) {
         fwrite(stamp.data(), 1, stamp.size(), f);
         fclose(f);
