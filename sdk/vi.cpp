@@ -73,6 +73,13 @@ static LRESULT CALLBACK WndProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
     return DefWindowProcA(hw, msg, wp, lp);
 }
 
+// NICECRASH_GLDEBUG: one driver message (stdcall, as GL calls it on 32-bit Windows).
+static void APIENTRY GlDebugMessage(GLenum, GLenum type, GLuint id, GLenum sev, GLsizei, const char* msg, const void*) {
+    static int n;
+    if (n++ < 200) fprintf(stderr, "[gl] type %04x id %u sev %04x: %s\n", type, id, sev, msg);
+    port_trace("gl-debug", type, id);
+}
+
 static void CreateGameWindow() {
     WNDCLASSA wc{};
     wc.style = CS_OWNDC;
@@ -99,6 +106,19 @@ static void CreateGameWindow() {
     SetPixelFormat(g_dc, ChoosePixelFormat(g_dc, &pfd), &pfd);
     g_rc = wglCreateContext(g_dc);
     wglMakeCurrent(g_dc, g_rc);
+    // NICECRASH_GLDEBUG=1 (debugging): the driver's messages (errors, warnings) on stderr and in the trace ring, as
+    // they happen (synchronous), to find what a driver abort follows.
+    if (getenv("NICECRASH_GLDEBUG")) {
+        typedef void(APIENTRY * DebugProc)(GLenum, GLenum, GLuint, GLenum, GLsizei, const char*, const void*);
+        typedef void(APIENTRY * DebugCb)(DebugProc, const void*);
+        if (auto cb = (DebugCb)(void*)wglGetProcAddress("glDebugMessageCallback")) {
+            glEnable(0x92E0);  // GL_DEBUG_OUTPUT
+            glEnable(0x8242);  // GL_DEBUG_OUTPUT_SYNCHRONOUS
+            cb(GlDebugMessage, nullptr);
+        } else {
+            fprintf(stderr, "[gl] no glDebugMessageCallback\n");
+        }
+    }
     // NICECRASH_NOVSYNC=1: swap without waiting for the monitor (the VI retrace is timed on the performance counter;
     // measured 2026-11-16: no frame-rate difference in the race, so the driver default stays).
     typedef BOOL(WINAPI * SwapIntervalFn)(int);
@@ -231,7 +251,43 @@ static void LumLog() {
     glReadPixels(0, 0, g_w, g_h, GL_RGBA, GL_UNSIGNED_BYTE, px);
     long sum = 0, n = 0;
     for (int i = 0; i < g_w * g_h; i += 97, n += 3) sum += px[i * 4] + px[i * 4 + 1] + px[i * 4 + 2];
-    fprintf(stderr, "[lum] retrace %u mean %ld\n", g_retrace, n ? sum / n : 0);
+    // Flat green: green well above red and blue, the same colour as the pixel 4 to the right (tree billboards
+    // drawn as solid blocks). A frame that jumps above the last one is saved as build/t3/flash_<retrace>.bmp.
+    long flat = 0, cnt = 0;
+    for (int y = 0; y < g_h; y += 2)
+        for (int x = 0; x + 4 < g_w; x += 2, cnt++) {
+            const unsigned char* p = px + (y * g_w + x) * 4;
+            if (p[1] > p[0] + 30 && p[1] > p[2] + 30 &&
+                abs(p[16] - p[0]) + abs(p[17] - p[1]) + abs(p[18] - p[2]) <= 3)
+                flat++;
+        }
+    double green = cnt ? (double)flat / cnt : 0;
+    static double lastGreen = -1;
+    static int saved;
+    bool jump = lastGreen >= 0 && green > lastGreen * 1.5 + 0.005;
+    fprintf(stderr, "[lum] retrace %u mean %ld green %.4f%s\n", g_retrace, n ? sum / n : 0, green, jump ? " JUMP" : "");
+    if (jump && saved < 8) {
+        saved++;
+        char path[64];
+        snprintf(path, sizeof path, "build/t3/flash_%u.txt", g_retrace);
+        void gxr_drawlog_dump(const char* path);
+        gxr_drawlog_dump(path);  // the draws of the frames before (sdk/gxrender.cpp)
+        snprintf(path, sizeof path, "build/t3/flash_%u.bmp", g_retrace);
+        BITMAPFILEHEADER fh{};
+        BITMAPINFOHEADER ih{};
+        ih.biSize = sizeof ih; ih.biWidth = g_w; ih.biHeight = g_h; ih.biPlanes = 1; ih.biBitCount = 32;
+        fh.bfType = 0x4D42; fh.bfOffBits = sizeof fh + sizeof ih; fh.bfSize = fh.bfOffBits + g_w * g_h * 4;
+        if (FILE* f = fopen(path, "wb")) {
+            fwrite(&fh, sizeof fh, 1, f);
+            fwrite(&ih, sizeof ih, 1, f);
+            for (int i = 0; i < g_w * g_h; i++) {
+                unsigned char q[4] = {px[i * 4 + 2], px[i * 4 + 1], px[i * 4], 255};
+                fwrite(q, 4, 1, f);
+            }
+            fclose(f);
+        }
+    }
+    lastGreen = green;
 }
 
 static void MaybeShot() {

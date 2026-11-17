@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <unordered_map>
 #include <vector>
 #include "env.h"
@@ -778,6 +779,28 @@ void gxr_end_batch() {
 
 static u32 g_drawsSinceCopy;  // draws since the last display copy (an empty copy is not shown, see gxr_copy)
 
+// Flash hunt (NICECRASH_FLASHDRAWS with NICECRASH_LUMLOG): [0] = the frame being drawn, [1] and [2] = the last two finished ones.
+static std::vector<std::string> g_drawLog[3];
+bool gxr_drawlog_on() {
+    static const bool on = NC_ENV("NICECRASH_FLASHDRAWS") != nullptr;
+    return on;
+}
+static int texMap0() { return g_gx.bp[0x28] & 3; }
+static void DrawLogFrameDone() {
+    g_drawLog[2].swap(g_drawLog[1]);
+    g_drawLog[1].swap(g_drawLog[0]);
+    g_drawLog[0].clear();
+}
+void gxr_drawlog_dump(const char* path) {
+    if (FILE* f = fopen(path, "w")) {
+        for (int k = 2; k >= 1; k--) {
+            fprintf(f, "== frame -%d (%zu draws)\n", k, g_drawLog[k].size());
+            for (auto& l : g_drawLog[k]) fprintf(f, "%s\n", l.c_str());
+        }
+        fclose(f);
+    }
+}
+
 void gxr_draw(int prim, int vat, int count, const u8* data) {
     if (!count) return;
     // NICECRASH_SKIPTEX=<hex image address>[,...]: skip draws whose stage-0 texture is one of these (debugging).
@@ -872,6 +895,27 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
             const u8* a = attrPtr(t, 4 + i, cnt * kCompSize[f.texFmt[i]]);
             if (a)
                 for (int c = 0; c < cnt; c++) v.tex[i][c] = ReadComp(a + c * kCompSize[f.texFmt[i]], f.texFmt[i], texScale[i], le);
+        }
+    }
+
+    // NICECRASH_FLASHDRAWS (with NICECRASH_LUMLOG): one line per draw of the last two finished frames (sdk/vi.cpp dumps them when a
+    // frame jumps in flat green): primitive, count, matrix slot, texture, the transformed vertices' EFB extent.
+    if (gxr_drawlog_on()) {
+        float x0 = 1e30f, x1 = -1e30f, y0 = 1e30f, y1 = -1e30f, wmin = 1e30f;
+        for (int k = 0; k < count; k++) {
+            float o[4];
+            Transform(vs[k].pos, vs[k].pnmtx, o);
+            x0 = fminf(x0, o[0]); x1 = fmaxf(x1, o[0]); y0 = fminf(y0, o[1]); y1 = fmaxf(y1, o[1]); wmin = fminf(wmin, o[3]);
+        }
+        if ((x1 - x0 > 2000 || y1 - y0 > 1500) && wmin > 0.05f) {  // in front of the eye yet far off screen
+            char line[512];
+            int m = vs[0].pnmtx * 4;
+            int len = snprintf(line, sizeof line, "d%u prim %02x vat %d n %d mtx %d [t %.1f %.1f %.1f] img3 %06x vcd %08x/%08x arr0 %08x st %u efb x %.0f..%.0f y %.0f..%.0f wmin %.3f:",
+                               g_drawsSinceCopy, prim, vat, count, vs[0].pnmtx, xff(m + 3), xff(m + 7), xff(m + 11),
+                               g_gx.bp[0x94 + texMap0()] & 0xFFFFFF, lo, hi, g_gx.cp[0xA0], g_gx.cp[0xB0] & 0xFF, x0, x1, y0, y1, wmin);
+            for (int k = 0; k < count && k < 4 && len < (int)sizeof line - 60; k++)
+                len += snprintf(line + len, sizeof line - len, " v%d m%d (%.2f %.2f %.2f)", k, vs[k].pnmtx, vs[k].pos[0], vs[k].pos[1], vs[k].pos[2]);
+            g_drawLog[0].push_back(line);
         }
     }
 
@@ -1269,6 +1313,7 @@ bool GpuCopy(EfbCopy& c, u32 dst, int real, bool inten, int px0, int py0, int pw
             int& sz = sizes[pbo];
             if (sz != tw * th * 4) {
                 sz = tw * th * 4;
+                port_trace("pbo-data", pbo, (unsigned)sz);
                 p_bufferData(GL_PIXEL_PACK_BUFFER_, (ptrdiff_t)sz, nullptr, GL_STREAM_READ_);
             }
             glPixelStorei(GL_PACK_ALIGNMENT, 1);
@@ -1448,6 +1493,7 @@ void gxr_copy(u32 bp52) {
             } else if (NC_ENV("NICECRASH_XFBLOG")) {
                 fprintf(stderr, "[xfb] empty copy skipped\n");
             }
+            if (gxr_drawlog_on()) DrawLogFrameDone();
             g_drawsSinceCopy = 0;
         } else {
             sdk_vi_present_now();

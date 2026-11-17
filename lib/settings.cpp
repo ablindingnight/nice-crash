@@ -33,7 +33,7 @@ const Def kDefs[] = {
     {"display.monitor", "0", kRestart, nullptr},
     {"display.background_animation", "auto", 0, nullptr},  // launcher Home: auto | on | off
     {"graphics.internal_scale", "window", 0, nullptr},
-    {"graphics.msaa", "0", kRestart, nullptr},  // 4x crashed the driver at the Tutorial loading (2026-11-16): off until fixed
+    {"graphics.msaa", "0", kRestart, nullptr},  // 0 | 2 | 4 | 8; the driver crash at the Tutorial loading is fixed (2026-11-17, sdk/xfb.cpp xfb_resolve)
     {"graphics.texture_filter", "game", 0, nullptr},
     {"graphics.bloom", "1", 0, nullptr},
     {"graphics.show_fps", "0", 0, nullptr},

@@ -157,9 +157,8 @@ void xfb_resolve(bool depth) {
         return;
     }
     port_trace("resolve", g_w, depth);
-    // The game's last draw state is still set: a blit is affected by the scissor and the masks, and with logic op
-    // on the driver ended the process (0xC0000409 at the Tutorial's loading copy). Plain state for the blit; the
-    // next draw sets everything up again.
+    // The game's last draw state is still set: a blit is affected by the scissor and the masks. Plain state for
+    // the blit; the next draw sets everything up again.
     glDisable(GL_SCISSOR_TEST);
     glDisable(GL_COLOR_LOGIC_OP);
     glDisable(GL_BLEND);
@@ -168,11 +167,15 @@ void xfb_resolve(bool depth) {
     glColorMask(1, 1, 1, 1);
     glDepthMask(1);
     gxr_state_dirty();
+    // Submit the drawing first. Without this flush the NVIDIA driver's threaded path raced the resolve against
+    // drawing still queued for the multisampled buffer: a GPU fault (System log: nvlddmkm event 153) and the driver
+    // ending the process (fast fail 7, exit 0xC0000409) at the Tutorial's loading in 3-4 of 6 runs with 2x or 4x.
+    // Measured 2026-11-17, 4x at 854x480: flush first 0/9 crashes (finish first 0/9, finish after 2/9, no blit 0/6).
+    glFlush();
     p_glBindFramebuffer(GL_READ_FRAMEBUFFER_, g_msFbo);
     p_glBindFramebuffer(GL_DRAW_FRAMEBUFFER_, g_fbo);
     p_glBlitFramebuffer(0, 0, g_w, g_h, 0, 0, g_w, g_h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
-    // Depth only when a depth copy reads it (resolving the multisampled depth/stencil at every copy crashed the
-    // driver: 0xC0000409 fast fails at the Tutorial's loading, about half the runs with 4x MSAA).
+    // Depth only when a depth copy reads it.
     if (depth) p_glBlitFramebuffer(0, 0, g_w, g_h, 0, 0, g_w, g_h, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
     p_glBindFramebuffer(GL_FRAMEBUFFER_, g_fbo);
     g_msDirty = false;

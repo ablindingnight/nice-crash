@@ -62,7 +62,7 @@ struct Scripted {
     u32 bits;
     u32 len = 6;  // frames held ("frame+len:buttons")
 };
-static Scripted g_script[64];
+static Scripted g_script[1024];
 static int g_nscript = -1;
 
 static u32 ButtonBits(const char* name) {
@@ -79,10 +79,10 @@ static void LoadScript() {
     g_nscript = 0;
     const char* s = getenv("NICECRASH_INPUT");
     if (!s) return;
-    char buf[1024];
+    static char buf[32768];
     strncpy(buf, s, sizeof buf - 1);
     buf[sizeof buf - 1] = 0;
-    for (char* tok = strtok(buf, ","); tok && g_nscript < 64; tok = strtok(nullptr, ",")) {
+    for (char* tok = strtok(buf, ","); tok && g_nscript < 1024; tok = strtok(nullptr, ",")) {
         char* c = strchr(tok, ':');
         if (!c) continue;
         *c = 0;

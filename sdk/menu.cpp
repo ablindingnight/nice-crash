@@ -326,6 +326,11 @@ void BuildRows() {
                               {"2", "2x (960p)", "Twice the Wii's resolution."},
                               {"3", "3x (1440p)", "Three times the Wii's resolution."},
                               {"4", "4x (1920p)", "Four times the Wii's resolution: needs a strong GPU."}}});
+    graphics.rows.push_back({"Anti-aliasing", "graphics.msaa", kChoice, "Smooths the jagged edges of trucks, trees and hills.",
+                             {{"0", "Off", "The Wii's own edges."},
+                              {"2", "2x MSAA", "Lightly smoothed edges."},
+                              {"4", "4x MSAA", "Smooth edges; a good balance."},
+                              {"8", "8x MSAA", "The smoothest edges: needs a strong GPU."}}});
     graphics.rows.push_back({"Texture filtering", "graphics.texture_filter", kChoice, "How textures look at a distance and at an angle.",
                              {{"game", "As the game sets it", "The Wii's own filtering."},
                               {"bilinear", "Bilinear", "Smooth, no mipmaps."},
