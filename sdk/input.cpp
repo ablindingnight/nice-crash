@@ -202,6 +202,9 @@ struct DiPad {
 };
 static DiPad g_diPads[4];
 static int g_nDi;
+// g_diPads/g_nDi and the slot table change on the scanner thread and are read on the polling thread: g_devLock is
+// held only for those short changes and for one polling pass, never across the slow scan itself.
+static CRITICAL_SECTION g_devLock;
 
 static bool LoadDInput() {
     static int ok = -1;
@@ -251,7 +254,9 @@ static BOOL CALLBACK EnumPad(LPCDIDEVICEINSTANCEA inst, LPVOID) {
     r.lMax = 32767;
     d->SetProperty(DIPROP_RANGE, &r.diph);
     d->Acquire();
+    EnterCriticalSection(&g_devLock);
     g_diPads[g_nDi++] = {d, inst->guidInstance, false};
+    LeaveCriticalSection(&g_devLock);
     sdk_log("DirectInput pad %d: %s", g_nDi, inst->tszProductName);
     return DIENUM_CONTINUE;
 }
@@ -321,17 +326,23 @@ static XState g_padLatch[4];        // buttons pressed / triggers pulled since t
 static bool g_padOn[4];
 static CRITICAL_SECTION g_padLock;
 
+// Runs on the scanner thread (ScanThread). The slow parts (probing absent XInput pads, DirectInput enumeration:
+// ~300 ms on some PCs) hold no lock, so the polling thread keeps reading the pads meanwhile. (Before 2026-11-17 the
+// scan ran on the polling thread once a second: pads went unread for ~300 ms of every second, so presses arrived
+// late and a held reading triggered the menus' auto-repeat: the cursor jumped and "caught up" on the name screen.)
 static void RefreshSlots() {
     LARGE_INTEGER t0, t1, fq;
     QueryPerformanceCounter(&t0);
+    Slot slots[4];
     int n = 0;
     if (LoadXInput()) {
         for (int i = 0; i < 4; i++) {
             XState s;
-            if (p_XInputGetState((DWORD)i, &s) == 0) g_slots[n++] = {1, i};
+            if (p_XInputGetState((DWORD)i, &s) == 0) slots[n++] = {1, i};
         }
     }
     if (LoadDInput()) {
+        EnterCriticalSection(&g_devLock);
         for (int i = 0; i < g_nDi;) {  // drop unplugged devices
             if (g_diPads[i].lost) {
                 sdk_log("DirectInput pad %d gone", i + 1);
@@ -342,32 +353,46 @@ static void RefreshSlots() {
                 i++;
             }
         }
-        g_di->EnumDevices(DI8DEVCLASS_GAMECTRL, EnumPad, nullptr, DIEDFL_ATTACHEDONLY);
-        for (int i = 0; i < g_nDi && n < 4; i++) g_slots[n++] = {2, i};
+        // The slot table must not name a dropped device index until it is rebuilt below.
+        for (int c = 0; c < 4; c++)
+            if (g_slots[c].kind == 2 && g_slots[c].index >= g_nDi) g_slots[c] = {0, 0};
+        LeaveCriticalSection(&g_devLock);
+        g_di->EnumDevices(DI8DEVCLASS_GAMECTRL, EnumPad, nullptr, DIEDFL_ATTACHEDONLY);  // EnumPad locks to add
+        EnterCriticalSection(&g_devLock);
+        for (int i = 0; i < g_nDi && n < 4; i++) slots[n++] = {2, i};
+        LeaveCriticalSection(&g_devLock);
     }
-    while (n < 4) g_slots[n++] = {0, 0};
+    while (n < 4) slots[n++] = {0, 0};
+    EnterCriticalSection(&g_devLock);
+    memcpy(g_slots, slots, sizeof g_slots);
+    LeaveCriticalSection(&g_devLock);
     QueryPerformanceCounter(&t1);
     QueryPerformanceFrequency(&fq);
     static int logged;
     if (logged++ < 2)
         sdk_log("pad slots refreshed in %.2f ms: %d/%d/%d/%d", (t1.QuadPart - t0.QuadPart) * 1000.0 / fq.QuadPart,
-                g_slots[0].kind, g_slots[1].kind, g_slots[2].kind, g_slots[3].kind);
+                slots[0].kind, slots[1].kind, slots[2].kind, slots[3].kind);
+}
+
+static volatile LONG g_rescanNow;  // the polling thread saw a pad stop answering: scan again at once
+
+static DWORD WINAPI ScanThread(LPVOID) {
+    for (;;) {
+        RefreshSlots();
+        for (int t = 0; t < 20 && !InterlockedExchange(&g_rescanNow, 0); t++) Sleep(50);  // about once a second
+    }
+    return 0;
 }
 
 static DWORD WINAPI PadThread(LPVOID) {
     LoadDiMap();
-    DWORD lastScan = 0;
-    bool scanned = false;
+    InitializeCriticalSection(&g_devLock);
+    if (HANDLE h = CreateThread(nullptr, 0, ScanThread, nullptr, 0, nullptr)) CloseHandle(h);
     for (;;) {
-        DWORD now = GetTickCount();
-        if (!scanned || now - lastScan >= 1000) {
-            RefreshSlots();
-            lastScan = GetTickCount();
-            scanned = true;
-        }
         XState st[4];
         bool on[4];
         bool rescan = false;
+        EnterCriticalSection(&g_devLock);
         for (int c = 0; c < 4; c++) {
             memset(&st[c], 0, sizeof st[c]);
             on[c] = false;
@@ -379,6 +404,9 @@ static DWORD WINAPI PadThread(LPVOID) {
                 if (!on[c]) rescan = true;
             }
         }
+        Slot slotsNow[4];
+        memcpy(slotsNow, g_slots, sizeof g_slots);
+        LeaveCriticalSection(&g_devLock);
         EnterCriticalSection(&g_padLock);
         // Presses since the game last read the pad (PadState with consume): the game samples the remote once per
         // game frame (33 ms in 30 fps screens), so a quick tap between two reads would never be seen.
@@ -389,9 +417,9 @@ static DWORD WINAPI PadThread(LPVOID) {
         }
         memcpy(g_padState, st, sizeof st);
         memcpy(g_padOn, on, sizeof on);
-        memcpy(g_slotsPub, g_slots, sizeof g_slots);
+        memcpy(g_slotsPub, slotsNow, sizeof slotsNow);
         LeaveCriticalSection(&g_padLock);
-        if (rescan) scanned = false;
+        if (rescan) InterlockedExchange(&g_rescanNow, 1);
         Sleep(2);
     }
     return 0;

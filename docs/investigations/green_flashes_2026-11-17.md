@@ -33,6 +33,8 @@ share is logged, and frames that jump are saved as `build/t3/flash_<retrace>.bmp
   (a slow run, so speed is not strictly required either).
 - Final (lit) vertex colour = paint or paint x2 (TC's check 2): only the grass tufts (img3 8abdcc, prim 98, n 4)
   match, every few frames, never on a flash frame. Index-past-batch check (TC's check 1) never fired earlier.
+- glFinish once per frame before the swap (TC's buffer-rewrite test): still 3-4 flashes a run.
+- Grass tufts skipped (SKIPTEX 1157b980,11570880, the only draws lit to paint x2): still 2-9 flashes a run.
 - glFinish after every draw: untestable (~30,000 draws a frame; the race is never reached).
 
 ## Not yet tried / ideas
