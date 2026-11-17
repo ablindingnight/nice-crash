@@ -751,3 +751,9 @@ void PADInit(void) {}
 void KPADInit(void) {}
 
 }  // extern "C"
+
+// NICECRASH_AUTOPILOT=1 (testing, patches/autopilot): the game's AI drives the player's truck, as in the attract mode.
+extern "C" int port_autopilot(void) {  // C name: playcar.cpp declares it inside its extern "C" block
+    static const int on = getenv("NICECRASH_AUTOPILOT") ? 1 : 0;
+    return on;
+}

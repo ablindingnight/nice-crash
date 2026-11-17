@@ -1,0 +1,24 @@
+@@@ playcar.cpp | PORT-ONLY (testing, not for the decomp): NICECRASH_AUTOPILOT=1 drives the player's truck with the game's own AI driver, as the title screen's attract mode does (profile flag 0x100: an AI controller in the Hybrid and lbl_8055E522 set), so scripted runs can get through the Tutorial and races
+<<<
+    if (U32(prof, 0x4) == 0x180304) {
+        lbl_8055E522 = 0;
+    }
+===
+    if (U32(prof, 0x4) == 0x180304) {
+        lbl_8055E522 = 0;
+    }
+    extern int port_autopilot(void);  // sdk/input.cpp
+    if (port_autopilot() && !ctl) {
+        lbl_8055E522 = 1;
+        ctl = fn_80134E90();
+    }
+>>>
+@@@ playcar.cpp | (same): with the autopilot on, the Hybrid always lets the AI driver (offset 0x8) drive, never the player's driver
+<<<
+    if (!lbl_8055E529) {
+===
+    extern int port_autopilot(void);  // sdk/input.cpp
+    if (port_autopilot()) {
+        fn_80191084(p, U32(p, 0x8));
+    } else if (!lbl_8055E529) {
+>>>
