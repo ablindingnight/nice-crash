@@ -8,6 +8,7 @@ struct HostCfg {
     int windowX, windowY; // windowed position, or INT_MIN: centred
     int monitor;          // display.monitor
     bool vsync;
+    bool frame60;         // display.frame_rate: 60 Hz retraces instead of the Wii's 59.94
     bool widescreen;      // display.aspect: 16:9 / native = true, 4:3 = false
     bool showFps;         // frame rate in the window title
     int master;           // audio.master 0-100

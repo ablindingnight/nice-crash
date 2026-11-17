@@ -325,7 +325,7 @@ u32 g_ticks;
 void sdk_ax_tick() {
     OpenOutput();
     g_ticks++;
-    double target = g_ticks * (double)kRate / 59.94;
+    double target = g_ticks * (double)kRate / (host_cfg().frame60 ? 60.0 : 60000.0 / 1001.0);  // display.frame_rate
     while (g_produced + kFrame <= target) {
         if (g_frameCb) g_frameCb();
         s32 acc[kFrame * 2] = {};

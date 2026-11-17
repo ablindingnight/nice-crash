@@ -18,6 +18,8 @@ static HostCfg Load() {
     c.windowY = y[0] ? atoi(y) : INT_MIN;
     c.monitor = Settings_GetInt("display.monitor");
     c.vsync = Settings_GetInt("display.vsync") != 0;
+    // display.frame_rate: "60" = 60 Hz retraces; anything else = the Wii's 59.94 (60000/1001).
+    c.frame60 = strcmp(Settings_Get("display.frame_rate"), "60") == 0;
     c.widescreen = strcmp(Settings_Get("display.aspect"), "4:3") != 0;
     c.showFps = Settings_GetInt("graphics.show_fps") != 0;
     c.master = Settings_GetInt("audio.master");

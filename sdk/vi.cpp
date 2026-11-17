@@ -502,7 +502,7 @@ void sdk_vi_poll() {
     if (!g_hwnd || inside) return;
     LARGE_INTEGER now;
     QueryPerformanceCounter(&now);
-    double frame = (double)g_freq.QuadPart * 1001.0 / 60000.0;
+    double frame = (double)g_freq.QuadPart * (host_cfg().frame60 ? 1000.0 : 1001.0) / 60000.0;  // display.frame_rate
     double since = (double)(now.QuadPart - g_last.QuadPart);
     if (since < frame) return;
     inside = true;
