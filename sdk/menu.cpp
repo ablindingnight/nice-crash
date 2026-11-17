@@ -352,6 +352,11 @@ void BuildRows() {
     game.rows.push_back({"Pause in the background", "game.pause_unfocused", kToggle,
                          "The game stops while another window is in front (games started from the launcher).", {}});
     game.rows.push_back({"Tab opens this menu", "game.menu_on_tab", kToggle, "Esc always opens it; Tab too when this is on.", {}});
+    game.rows.push_back({"Screenshot key", "game.screenshot_key", kChoice, "Saves the picture as a PNG in Pictures\\Nice Crash.",
+                         {{"F12", "F12", "Press F12 to save a screenshot."},
+                          {"F11", "F11", "Press F11 to save a screenshot."},
+                          {"PrintScreen", "Print Screen", "Press Print Screen to save a screenshot."},
+                          {"none", "None", "No screenshot key."}}});
     Tab sys{"System", {}};
     Row r;
     sys.rows.push_back({"Resume", "", kAction, "Back to the game.", {}, 0, 0, 0, aResume});

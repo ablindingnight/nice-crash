@@ -198,6 +198,11 @@ bool SavePng(const std::string& path, const std::vector<u8>& rgba, u32 w, u32 h)
 
 }  // namespace
 
+bool host_save_png(const char* path, const u8* rgba, int w, int h) {
+    std::vector<u8> v(rgba, rgba + (size_t)w * h * 4);
+    return SavePng(path, v, (u32)w, (u32)h);
+}
+
 std::string texpack_name(int fmt, int w, int h, bool mips, const u8* data, size_t bytes, const u8* tlut) {
     // The palette range the texture's indices use (Dolphin hashes only that much of the TLUT).
     size_t pal = fmt == 8 ? 16 * 2 : fmt == 9 ? 256 * 2 : fmt == 10 ? 16384 * 2 : 0;

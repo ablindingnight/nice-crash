@@ -13,6 +13,11 @@
 #include "project.h"
 #include "sdk.h"
 #include "hostcfg.h"
+#include <shlobj.h>
+#include <string>
+#include <vector>
+#include "settings.h"
+#include "texpack.h"
 extern "C" void port_trace(const char* what, unsigned a, unsigned b);  // runtime/trace.cpp (NICECRASH_TRACE)
 
 void sdk_cpu_release();
@@ -48,9 +53,63 @@ void sdk_menu_end();
 bool sdk_menu_frame(int w, int h);
 u32 gxi_last_copy_dst();
 
+// game.screenshot_key (F12, F11, PrintScreen or none; read at each press, so a change applies at once): the next
+// presented frame is saved as Pictures\Nice Crash\NiceCrash_<date>_<time>.png, the picture as shown in the window.
+static volatile bool g_shotWanted;
+static unsigned ShotKey() {
+    const char* k = Settings_Get("game.screenshot_key");
+    if (!k || !_stricmp(k, "F12")) return VK_F12;
+    if (!_stricmp(k, "F11")) return VK_F11;
+    if (!_stricmp(k, "PrintScreen")) return VK_SNAPSHOT;
+    return 0;  // "none"
+}
+static void SaveScreenshot(int w, int h) {
+    g_shotWanted = false;
+    if (w <= 0 || h <= 0) return;
+    wchar_t pics[MAX_PATH];
+    std::wstring dir;
+    if (const wchar_t* o = _wgetenv(L"NICECRASH_SHOTDIR")) {  // tests: somewhere other than the player's Pictures
+        dir = o;
+    } else {
+        if (FAILED(SHGetFolderPathW(nullptr, CSIDL_MYPICTURES, nullptr, 0, pics))) return;
+        dir = std::wstring(pics) + L"\\Nice Crash";
+    }
+    CreateDirectoryW(dir.c_str(), nullptr);
+    SYSTEMTIME t;
+    GetLocalTime(&t);
+    wchar_t name[64];
+    std::wstring path;
+    for (int n = 0; n < 100; n++) {  // a second shot within the same second gets _2, _3, ...
+        swprintf(name, 64, n ? L"\\NiceCrash_%04d-%02d-%02d_%02d-%02d-%02d_%d.png" : L"\\NiceCrash_%04d-%02d-%02d_%02d-%02d-%02d.png",
+                 t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond, n + 1);
+        path = dir + name;
+        if (GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) break;
+    }
+    std::vector<unsigned char> px((size_t)w * h * 4), rows((size_t)w * h * 4);
+    glPixelStorei(GL_PACK_ALIGNMENT, 4);
+    glReadBuffer(GL_BACK);
+    glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+    for (int y = 0; y < h; y++) {  // GL rows start at the bottom
+        unsigned char* d = &rows[(size_t)y * w * 4];
+        memcpy(d, &px[(size_t)(h - 1 - y) * w * 4], (size_t)w * 4);
+        for (int x = 0; x < w; x++) d[x * 4 + 3] = 255;  // opaque
+    }
+    char utf8[MAX_PATH * 3];
+    WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1, utf8, sizeof utf8, nullptr, nullptr);
+    bool ok = host_save_png(utf8, rows.data(), w, h);
+    fprintf(stderr, ok ? "[vi] screenshot saved to %s\n" : "[vi] screenshot failed: %s\n", utf8);
+}
+
 static LRESULT CALLBACK WndProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
+    case WM_KEYUP:  // Print Screen arrives only as a key-up
+        if (wp == VK_SNAPSHOT && ShotKey() == VK_SNAPSHOT) g_shotWanted = true;
+        break;
     case WM_KEYDOWN:
+        if (wp != VK_SNAPSHOT && wp == ShotKey() && !(lp & (1 << 30))) {
+            g_shotWanted = true;
+            break;
+        }
         // A held Esc/Tab auto-repeats: only its first press may open (or, after closing, reopen) the menu.
         if ((wp == VK_ESCAPE || wp == VK_TAB) && (lp & (1 << 30)) && !sdk_menu_open()) break;
         sdk_input_key_down((unsigned)wp);
@@ -386,6 +445,7 @@ static void Present() {
         if (xfb_present(addr, g_black && getenv("NICECRASH_HONOR_BLACK"), g_w, g_h)) {
             LumLog();
             MaybeShot();
+            if (g_shotWanted) SaveScreenshot(g_w, g_h);
             SwapBuffers(g_dc);
         }
         xfb_rebind_efb();
@@ -412,6 +472,7 @@ static void RunMenu() {
             u32 addr = g_nextFb ? (u32)(uintptr_t)g_nextFb : gxi_last_copy_dst();
             xfb_present(addr, false, g_w, g_h);
             shown = sdk_menu_frame(g_w, g_h);
+            if (shown && g_shotWanted) SaveScreenshot(g_w, g_h);
             if (shown) SwapBuffers(g_dc);
             xfb_rebind_efb();
         }

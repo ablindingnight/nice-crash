@@ -11,3 +11,5 @@ std::string texpack_name(int fmt, int w, int h, bool mips, const u8* data, size_
 // Uploads the replacement for `name` into the bound GL texture (with mip levels); false when the pack has none.
 bool texpack_replace(const std::string& name, int fmt);
 void texpack_dump(const std::string& name, const std::vector<u8>& rgba, int w, int h);  // NICECRASH_TEXPACK_DUMP
+// A PNG file (WIC) from RGBA rows, top row first; the screenshot key (sdk/vi.cpp) uses it too.
+bool host_save_png(const char* path, const u8* rgba, int w, int h);
