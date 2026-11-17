@@ -372,7 +372,12 @@ void HomeScreen() {
     Line(x, ry, x + 650, ry, col::rule, 1);
     const float rowH = crashed ? 74 : 80;
     if (crashed) {
-        HomeRow(ry, rowH, col::bad, L"Last run", [&](float vx, float vy) {
+        // Safe settings after a crash: the heaviest graphics options off (anti-aliasing, high render resolution,
+        // enhanced files). Offered only while one of them is on.
+        bool risky = Settings_GetInt("graphics.msaa") > 1 || std::string(Settings_Get("graphics.internal_scale")) != "1" ||
+                     Settings_GetInt("graphics.enhanced_assets") != 0;
+        const float crashH = risky ? 100 : rowH;
+        HomeRow(ry, crashH, col::bad, L"Last run", [&](float vx, float vy) {
             Text(L"Last run stopped unexpectedly.", F_BODY, 18, vx, vy, col::bad);
             std::wstring d = tasks::DescribeExit(lastRun.code) + L" \u00B7 " + ui::W(lastRun.when);
             if (!lastRun.logged) d = L"Turn on error logs to keep details next time.";
@@ -390,7 +395,13 @@ void HomeScreen() {
                 Toast(L"Error logs are on. The next run keeps its details.");
             }
         }
-        ry += rowH;
+        if (risky && Link(L"Use safe settings", 734, vy + 52, 15, col::tilt, true, nullptr, RIGHT)) {
+            Settings_Set("graphics.msaa", "0");
+            Settings_Set("graphics.internal_scale", "1");
+            Settings_Set("graphics.enhanced_assets", "0");
+            Toast(L"Safe settings on: anti-aliasing off, render resolution 1x, enhanced files off. Change them in Graphics.");
+        }
+        ry += crashH;
     }
     // Your game.
     HomeRow(ry, rowH, !s.haveDump || !s.dump.verified ? (s.haveDump ? col::bad : col::warn) : col::gold, L"Your game",
