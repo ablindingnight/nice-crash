@@ -23,6 +23,7 @@ struct HostCfg {
     int msaa;             // graphics.msaa: 0/1 off, 2, 4, 8 samples
     int internalScale;    // graphics.internal_scale: 0 = the window's size, 1-4 = 480 lines x n
     int texFilter;
+    bool videoSharpen;    // graphics.video_sharpen: movies sharpened and upscaled bicubic, live
     bool menuOnTab;       // game.menu_on_tab: Tab opens the Nice Crash menu too (Esc always does)        // graphics.texture_filter: 0 game, 1 bilinear, 2 trilinear, 3 anisotropic 16x
 };
 const HostCfg& host_cfg();

@@ -339,6 +339,8 @@ void BuildRows() {
     graphics.rows.push_back({"Show frame rate", "graphics.show_fps", kToggle, "Frames per second in the window's title bar (Windowed mode).", {}});
     graphics.rows.push_back({"Enhanced files", "graphics.enhanced_assets", kToggle,
                              "Use the AI-enhanced intro video and your texture packs when they are there.", {}});
+    graphics.rows.push_back({"Sharpen videos", "graphics.video_sharpen", kToggle,
+                             "Sharpens the game's videos and scales them up smoothly, live (no waiting).", {}});
     Tab audio{"Audio", {}};
     audio.rows.push_back({"Volume", "audio.master", kSlider, "The game's overall volume.", {}, 0, 100, 5});
     audio.rows.push_back({"Mute in the background", "audio.mute_unfocused", kToggle,

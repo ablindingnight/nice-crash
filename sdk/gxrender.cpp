@@ -1228,12 +1228,22 @@ void gxr_host_quad(unsigned tex, float x0, float y0, float x1, float y1) {
     glBindTexture(GL_TEXTURE_2D, tex);
     glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
     glColor4f(1, 1, 1, 1);
+    // graphics.video_sharpen: bicubic when the frame is drawn bigger than it is (the movies, sdk/movie.cpp).
+    bool cubic = false;
+    if (host_cfg().videoSharpen) {
+        GLint tw = 0, th = 0;
+        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &tw);
+        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &th);
+        float sx = (x1 - x0) * ww / 640.0f, sy = (y1 - y0) * wh / 480.0f;  // the rectangle in window pixels
+        if (tw > 0 && th > 0 && (sx > tw * 1.05f || sy > th * 1.05f)) cubic = gxt_bicubic_begin((float)tw, (float)th);
+    }
     glBegin(GL_QUADS);
     glTexCoord2f(0, 0); glVertex2f(x0, y0);
     glTexCoord2f(1, 0); glVertex2f(x1, y0);
     glTexCoord2f(1, 1); glVertex2f(x1, y1);
     glTexCoord2f(0, 1); glVertex2f(x0, y1);
     glEnd();
+    if (cubic) gxt_copy_end();
     glDisable(GL_TEXTURE_2D);
     g_drawsSinceCopy++;
     g_stateDirty = true;

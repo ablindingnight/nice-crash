@@ -47,6 +47,7 @@ static HostCfg Load() {
     const char* tf = Settings_Get("graphics.texture_filter");
     c.texFilter = !strcmp(tf, "bilinear") ? 1 : !strcmp(tf, "trilinear") ? 2 : !strcmp(tf, "aniso16") ? 3 : 0;
     c.menuOnTab = Settings_GetInt("game.menu_on_tab") != 0;
+    c.videoSharpen = Settings_GetInt("graphics.video_sharpen") != 0;
     return c;
 }
 

@@ -948,6 +948,52 @@ static std::string Upscaler() {
     return FileBytes(p) > 0 ? p : "";
 }
 
+// The game and the AI upscaler would fight over the GPU (the upscaler keeps it ~2/3 busy and the game stutters):
+// while the game runs, every process of the upscaling step is suspended, and resumed when the game exits.
+typedef LONG(NTAPI* NtProcessFn)(HANDLE);
+static void SuspendJob(HANDLE job, bool suspend) {
+    HMODULE nt = GetModuleHandleA("ntdll.dll");
+    NtProcessFn fn = (NtProcessFn)GetProcAddress(nt, suspend ? "NtSuspendProcess" : "NtResumeProcess");
+    if (!fn) return;
+    struct {
+        JOBOBJECT_BASIC_PROCESS_ID_LIST list;
+        ULONG_PTR more[63];
+    } b{};
+    b.list.NumberOfAssignedProcesses = 64;
+    if (!QueryInformationJobObject(job, JobObjectBasicProcessIdList, &b, sizeof b, nullptr)) return;
+    for (DWORD i = 0; i < b.list.NumberOfProcessIdsInList; i++) {
+        HANDLE h = OpenProcess(PROCESS_SUSPEND_RESUME, FALSE, (DWORD)b.list.ProcessIdList[i]);
+        if (h) {
+            fn(h);
+            CloseHandle(h);
+        }
+    }
+}
+bool GameRunning();
+static DWORD WINAPI PauseWatch(void*) {
+    HANDLE pausedJob = nullptr;
+    for (;;) {
+        bool game = GameRunning();
+        {
+            Lk lk;
+            bool scaling = s_check.running && s_check.kind == 1 && s_check.steps.size() > 2 &&
+                           s_check.steps[2].state == ACTIVE;
+            bool want = scaling && game && s_job && !s_cancel;
+            if (pausedJob && (!want || pausedJob != s_job)) {
+                if (pausedJob == s_job) SuspendJob(pausedJob, false);
+                pausedJob = nullptr;
+            }
+            if (want && !pausedJob) {
+                SuspendJob(s_job, true);
+                pausedJob = s_job;
+            }
+            s_check.paused = pausedJob != nullptr;
+            if (!s_check.running) return 0;
+        }
+        Sleep(500);
+    }
+}
+
 static DWORD WINAPI EnhanceThread(void*) {
     enum { SPACE, FRAMES, SCALE, SWITCH, CLEAN };
     std::string frames = FramesDir(), out = EnhancedDir();
@@ -995,7 +1041,7 @@ static DWORD WINAPI EnhanceThread(void*) {
                                           : L"AI upscaling with Real-ESRGAN (best quality: this takes a while).", 0);
         std::wstring cmd = Quote(W(ExeDir() + "enhance.exe")) + L" --frames " + Quote(W(frames)) +
                            L" --name uisingle --scale " + std::to_wstring(scale) + L" --out " +
-                           Quote(W(out + "\\uisingle.mp4"));
+                           Quote(W(out + "\\uisingle.part.mp4"));
         if (!up.empty()) cmd += L" --upscaler " + Quote(W(up)) + L" --model " + W(model);
         int code = RunCapture(cmd, ExeDir(), {}, [&](const std::string& l) {
             AddLog(l);
@@ -1006,6 +1052,19 @@ static DWORD WINAPI EnhanceThread(void*) {
                                            (strcmp(what, "upscale") ? L" frames encoded" : L" frames upscaled"),
                         (float)a / b);
         });
+        if (s_cancel) { Cancelled(SCALE); DeleteFileA((out + "\\uisingle.part.mp4").c_str()); goto out; }
+        // Written under another name and moved into place at the end, so a game started meanwhile never opens a
+        // half-written video. A running game may hold the old one open: wait for it to close.
+        if (code == 0) {
+            bool told = false;
+            while (!MoveFileExA((out + "\\uisingle.part.mp4").c_str(), (out + "\\uisingle.mp4").c_str(),
+                                MOVEFILE_REPLACE_EXISTING)) {
+                if (s_cancel || GetLastError() == ERROR_FILE_NOT_FOUND) break;
+                if (!told) SetStep(SCALE, ACTIVE, L"Finished: waiting for the game to close to put it in place.", 1);
+                told = true;
+                Sleep(1000);
+            }
+        }
         if (s_cancel) { Cancelled(SCALE); goto out; }
         if (code != 0 || !HaveEnhancedVideo()) { Fail(SCALE, L"enhance.exe failed (exit code " + std::to_wstring(code) + L")."); goto out; }
         SetStep(SCALE, DONE, FormatBytes(EnhancedBytes()), 1);
@@ -1046,6 +1105,8 @@ void StartEnhance() {
         s_cancel = 0;
     }
     HANDLE t = CreateThread(nullptr, 0, EnhanceThread, nullptr, 0, nullptr);
+    if (t) CloseHandle(t);
+    t = CreateThread(nullptr, 0, PauseWatch, nullptr, 0, nullptr);
     if (t) CloseHandle(t);
 }
 

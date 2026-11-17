@@ -461,12 +461,29 @@ void HomeScreen() {
         else Go(DISC);
     }
     ry += rowH;
-    // Newest version.
-    HomeRow(ry, rowH, col::dim, L"Newest version", [&](float vx, float vy) {
-        Text(L"Local build", F_BODY, 18, vx, vy, col::fg);
-        Text(L"Update checks are off until Nice Crash has an update host.", F_BODY, 14, vx, vy + 26, col::dim);
-    });
-    if (Link(L"Builds", 734, ry + 18, 15, col::tilt, true, nullptr, RIGHT)) GoPage(P_BUILDS);
+    // Newest version, or the intro video while "Enhance my game" runs in the background.
+    tasks::Checklist ec = tasks::Snapshot();
+    if (ec.kind == 1 && ec.running && ec.steps.size() > 2) {
+        HomeRow(ry, rowH, col::gold, L"Intro video", [&](float vx, float vy) {
+            const tasks::Step& sc = ec.steps[2];
+            float w = Text(L"Enhancing in the background", F_BODY, 18, vx, vy, col::fg);
+            if (ec.paused) Badge(L"Paused while you play", vx + w + 10, vy + 1, col::warn, false);
+            std::wstring d = sc.state == tasks::ACTIVE && !sc.detail.empty() ? sc.detail : L"Getting ready…";
+            Text(Ellipsize(d, F_BODY, 14, 330), F_BODY, 14, vx, vy + 26, col::dim);
+        });
+        if (Link(L"Details", 734, ry + 18, 15, col::tilt, true, nullptr, RIGHT)) Go(FIRSTRUN);
+    } else {
+        HomeRow(ry, rowH, col::dim, L"Newest version", [&](float vx, float vy) {
+            Text(L"Local build", F_BODY, 18, vx, vy, col::fg);
+            Text(L"Update checks are off until Nice Crash has an update host.", F_BODY, 14, vx, vy + 26, col::dim);
+        });
+        if (Link(L"Builds", 734, ry + 18, 15, col::tilt, true, nullptr, RIGHT)) GoPage(P_BUILDS);
+    }
+    // Finished in the background: say so once.
+    static bool wasRunning;
+    if (ec.kind == 1 && wasRunning && !ec.running && ec.finished)
+        Toast(L"Your enhanced intro video is ready. It plays from the next game start.");
+    wasRunning = ec.kind == 1 && ec.running;
 
     // Bottom bar.
     float by = 720 - 46 - 74;
@@ -844,6 +861,16 @@ void FirstRunScreen() {
         int ci = g.focusCount;
         if (Button2(L"Cancel", bx - bw, fy)) { tasks::CancelChecklist(); A.demoChecklist = false; }
         DefaultFocus(ci);
+        // "Enhance my game" upscaling takes a while: it can carry on behind Home (paused while the game runs, which
+        // meanwhile plays the videos sharpened live).
+        if (c.kind == 1 && c.steps.size() > 2 && c.steps[2].state == tasks::ACTIVE) {
+            float bw2 = TextWidth(L"CONTINUE IN BACKGROUND", F_DISPLAY, 17, 0.12f) + 52;
+            if (Button2(L"Continue in background", bx - bw - 20 - bw2, fy)) {
+                A.st = tasks::Refresh();
+                Go(HOME);
+                Toast(L"Enhancing in the background. You can play now: it pauses while the game runs.");
+            }
+        }
         if (g.in.back && !g.consumed) { g.consumed = true; tasks::CancelChecklist(); }
     } else if (c.failed) {
         float bw = TextWidth(L"TRY AGAIN", F_DISPLAY, 17, 0.12f) + 52, bw2;
@@ -1644,6 +1671,10 @@ double g_nextFull = 0;
 // Screens that change on their own every frame (spinners, timers, a fading toast) repaint fully while they do.
 bool ContinuousFull() {
     if (A.screen == FIRSTRUN) return true;
+    if (A.screen == HOME) {  // "Enhance my game" progress in the background (and its "ready" toast)
+        tasks::Checklist c = tasks::Snapshot();
+        if (c.kind == 1 && c.running) return true;
+    }
     if (A.screen == DISC && tasks::DiscScanRunning()) return true;
     if (!A.toast.empty() && Now() < A.toastUntil + 0.1) return true;
     if (A.screen == SETTINGS && A.page == P_BUILDS && tasks::BuildDiskUse() < 0) return true;

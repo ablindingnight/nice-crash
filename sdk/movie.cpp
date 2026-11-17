@@ -25,6 +25,8 @@
 #include "settings.h"
 #include "portconfig.h"
 #include "sdk.h"
+#include "hostcfg.h"
+#include <cmath>
 
 extern "C" void port_fifo_u8(unsigned char v);
 extern "C" void port_fifo_u32(unsigned int v);
@@ -376,6 +378,96 @@ Replacement* Find(const std::string& base) {
     return it->second.failed ? nullptr : &it->second;
 }
 
+// ---- live sharpening (graphics.video_sharpen, no enhanced video) ----
+// The game's own frame, converted on the CPU once per movie frame: Y/Cb/Cr to RGB with the half-size chroma planes
+// interpolated (the game's TEV samples them bilinear too), then contrast-adaptive sharpening on luma (after AMD's
+// FidelityFX CAS: a 5-tap unsharp mask weakened where the neighbourhood already has contrast, so edges don't ring
+// and noise isn't boosted). gxr_host_quad then draws it bicubic at the window's size. ~2-3 ms per movie frame
+// (every other game frame at 30 fps).
+struct Live {
+    GLuint tex = 0;
+    u32 w = 0, h = 0, frame = ~0u;
+    int cur = -1;
+    std::vector<float> y;
+    std::vector<u8> px;  // BGRA
+};
+std::unordered_map<std::string, Live> g_live;
+
+inline float Chroma(const PlaneH& p, u32 cw, u32 ch, float x, float y) {  // bilinear in a half-size plane
+    x = x * 0.5f - 0.25f;
+    y = y * 0.5f - 0.25f;
+    if (x < 0) x = 0;
+    if (y < 0) y = 0;
+    u32 x0 = (u32)x, y0 = (u32)y;
+    u32 x1 = x0 + 1 < cw ? x0 + 1 : x0, y1 = y0 + 1 < ch ? y0 + 1 : y0;
+    float fx = x - x0, fy = y - y0;
+    float a = TexelI8(p.buf, p.width, x0, y0), b = TexelI8(p.buf, p.width, x1, y0);
+    float c = TexelI8(p.buf, p.width, x0, y1), d = TexelI8(p.buf, p.width, x1, y1);
+    return (a + (b - a) * fx) * (1 - fy) + (c + (d - c) * fx) * fy;
+}
+
+void LiveConvert(Live& L, const VideoH* v) {
+    const FrameH& f = v->frames[v->cur];
+    u32 w = v->width, h = v->height, cw = (w + 1) / 2, ch = (h + 1) / 2;
+    L.y.resize((size_t)w * h);
+    L.px.resize((size_t)w * h * 4);
+    for (u32 y = 0; y < h; y++)
+        for (u32 x = 0; x < w; x++) L.y[(size_t)y * w + x] = TexelI8(f.y.buf, f.y.width, x, y) / 255.0f;
+    const float sharp = 0.6f;  // CAS sharpness 0..1
+    const float peak = -1.0f / (8.0f - 3.0f * sharp);
+    for (u32 y = 0; y < h; y++) {
+        const float* r0 = &L.y[(size_t)(y ? y - 1 : 0) * w];
+        const float* r1 = &L.y[(size_t)y * w];
+        const float* r2 = &L.y[(size_t)(y + 1 < h ? y + 1 : y) * w];
+        u8* o = &L.px[(size_t)y * w * 4];
+        for (u32 x = 0; x < w; x++, o += 4) {
+            u32 xl = x ? x - 1 : 0, xr = x + 1 < w ? x + 1 : x;
+            float c = r1[x], n = r0[x], s = r2[x], e = r1[xr], wv = r1[xl];
+            float mn = fminf(c, fminf(fminf(n, s), fminf(e, wv))), mx = fmaxf(c, fmaxf(fmaxf(n, s), fmaxf(e, wv)));
+            float amp = mx > 0 ? fminf(mn, 1.0f - mx) / mx : 0;
+            amp = sqrtf(fmaxf(0.0f, fminf(1.0f, amp)));
+            float wt = amp * peak;
+            float Y = ((n + s + e + wv) * wt + c) / (1.0f + 4.0f * wt) * 255.0f;
+            // Plane "u" holds Cr and "v" holds Cb (as ToRgb).
+            float cr = Chroma(f.u, cw, ch, (float)x, (float)y) - 128.0f;
+            float cb = Chroma(f.v, cw, ch, (float)x, (float)y) - 128.0f;
+            float R = Y + 1.402f * cr, G = Y - 0.344f * cb - 0.714f * cr, B = Y + 1.772f * cb;
+            o[0] = (u8)(B < 0 ? 0 : B > 255 ? 255 : B + 0.5f);
+            o[1] = (u8)(G < 0 ? 0 : G > 255 ? 255 : G + 0.5f);
+            o[2] = (u8)(R < 0 ? 0 : R > 255 ? 255 : R + 0.5f);
+            o[3] = 255;
+        }
+    }
+}
+
+// The live texture for this movie frame, or 0 (off, or the frame isn't decoded yet).
+GLuint LiveFrame(const std::string& base, u32* bink, const VideoH* v) {
+    if (!host_cfg().videoSharpen || !bink[3] || !v->width || !v->height || v->cur < 0 || v->cur > 1) return 0;
+    const FrameH& f = v->frames[v->cur];
+    if (!f.y.buf || !f.u.buf || !f.v.buf) return 0;
+    Live& L = g_live[base];
+    if (!L.tex || L.w != v->width || L.h != v->height) {
+        if (!L.tex) glGenTextures(1, &L.tex);
+        L.w = v->width;
+        L.h = v->height;
+        glBindTexture(GL_TEXTURE_2D, L.tex);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, 0x812F);  // clamp to edge
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, 0x812F);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, L.w, L.h, 0, 0x80E1 /* GL_BGRA */, GL_UNSIGNED_BYTE, nullptr);
+        L.frame = ~0u;
+    }
+    if (L.frame != bink[3] || L.cur != v->cur) {
+        LiveConvert(L, v);
+        glBindTexture(GL_TEXTURE_2D, L.tex);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, L.w, L.h, 0x80E1 /* GL_BGRA */, GL_UNSIGNED_BYTE, L.px.data());
+        L.frame = bink[3];
+        L.cur = v->cur;
+    }
+    return L.tex;
+}
+
 }  // namespace
 
 // tevbink.cpp (patches/movie-hook): the movie `name` is about to draw its current frame into the rectangle
@@ -385,7 +477,18 @@ extern "C" int port_movie_frame(const char* name, u32* bink, void* video, float 
     std::string base = BaseName(name);
     if (NC_ENV("NICECRASH_VIDEODUMP")) Dump(base, bink, (const VideoH*)video);
     Replacement* r = Find(base);
-    if (!r || !bink[3]) return 0;
+    if (!r) {  // no enhanced video: the game's own frame, sharpened and upscaled live
+        GLuint t = LiveFrame(base, bink, (const VideoH*)video);
+        if (!t) return 0;
+        port_fifo_u8(0xC8);
+        port_fifo_f32(x);
+        port_fifo_f32(y);
+        port_fifo_f32(x + w);
+        port_fifo_f32(y + h);
+        port_fifo_u32(t);
+        return 1;
+    }
+    if (!bink[3]) return 0;
     static const bool timeIt = NC_ENV("NICECRASH_MOVIETIME") != nullptr;  // cost of each replacement frame
     LARGE_INTEGER t0, t1, fq;
     if (timeIt) QueryPerformanceCounter(&t0);

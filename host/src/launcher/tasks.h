@@ -72,6 +72,7 @@ struct Checklist {
     std::vector<std::string> log;
     bool running = false, finished = false, failed = false, cancelled = false;
     int kind = 0;              // 0 first run / rebuild, 1 "Enhance my game"
+    bool paused = false;       // "Enhance my game": the upscaler is suspended while the game runs
 };
 void StartChecklist(const std::string& dumpPath, bool rebuild);
 

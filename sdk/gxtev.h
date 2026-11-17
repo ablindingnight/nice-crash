@@ -20,3 +20,6 @@ void gxt_blend(u32 cmode0, u32 cmode1, u32 pe_ctrl);
 // a texture of copy format `real` (BP 0x52) samples as. Draw a quad, then gxt_copy_end(). False: no shaders.
 bool gxt_copy_begin(int real, bool intensity, bool srcAlpha);
 void gxt_copy_end();
+// Movie frames (gxr_host_quad): Catmull-Rom bicubic upscale of the texture on unit 0 (size in texels). End with
+// gxt_copy_end(). False: no shaders (draw bilinear).
+bool gxt_bicubic_begin(float texW, float texH);

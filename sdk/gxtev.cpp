@@ -699,3 +699,60 @@ bool gxt_copy_begin(int real, bool intensity, bool srcAlpha) {
 }
 
 void gxt_copy_end() { p_glUseProgram(0); }
+
+// ---- Movie upscale (gxr_host_quad) ----
+// Catmull-Rom bicubic from texture unit 0 (GL_LINEAR filtering): nine bilinear taps give the 16-texel kernel. Sharper
+// than bilinear when a 640x448 movie frame fills a large window, without bilinear's blur or nearest's blocks.
+bool gxt_bicubic_begin(float texW, float texH) {
+    if (!Load()) return false;
+    static GLuint prog;
+    static GLint uTex, uSize;
+    static bool tried;
+    if (!tried) {
+        tried = true;
+        static const char* vs =
+            "#version 120\n"
+            "void main() { gl_Position = ftransform(); gl_TexCoord[0] = gl_MultiTexCoord0; }\n";
+        static const char* fs =
+            "#version 120\n"
+            "uniform sampler2D tex;\n"
+            "uniform vec2 size;\n"
+            "vec4 at(float x, float y) { return texture2D(tex, vec2(x, y)); }\n"
+            "void main() {\n"
+            "  vec2 sp = gl_TexCoord[0].st * size;\n"
+            "  vec2 tp = floor(sp - 0.5) + 0.5;\n"
+            "  vec2 f = sp - tp;\n"
+            "  vec2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f));\n"
+            "  vec2 w1 = 1.0 + f * f * (-2.5 + 1.5 * f);\n"
+            "  vec2 w2 = f * (0.5 + f * (2.0 - 1.5 * f));\n"
+            "  vec2 w3 = f * f * (-0.5 + 0.5 * f);\n"
+            "  vec2 w12 = w1 + w2;\n"
+            "  vec2 t0 = (tp - 1.0) / size, t3 = (tp + 2.0) / size, t12 = (tp + w2 / w12) / size;\n"
+            "  vec4 c = (at(t0.x, t0.y) * w0.x + at(t12.x, t0.y) * w12.x + at(t3.x, t0.y) * w3.x) * w0.y\n"
+            "         + (at(t0.x, t12.y) * w0.x + at(t12.x, t12.y) * w12.x + at(t3.x, t12.y) * w3.x) * w12.y\n"
+            "         + (at(t0.x, t3.y) * w0.x + at(t12.x, t3.y) * w12.x + at(t3.x, t3.y) * w3.x) * w3.y;\n"
+            "  gl_FragColor = vec4(clamp(c.rgb, 0.0, 1.0), 1.0);\n"
+            "}\n";
+        GLuint v = Compile(GL_VERTEX_SHADER_, vs), f = v ? Compile(GL_FRAGMENT_SHADER_, fs) : 0;
+        if (f) {
+            prog = p_glCreateProgram();
+            p_glAttachShader(prog, v);
+            p_glAttachShader(prog, f);
+            p_glLinkProgram(prog);
+            GLint ok = 0;
+            p_glGetProgramiv(prog, GL_LINK_STATUS_, &ok);
+            if (!ok) {
+                fprintf(stderr, "[tev] movie upscale program link failed: bilinear\n");
+                prog = 0;
+            } else {
+                uTex = p_glGetUniformLocation(prog, "tex");
+                uSize = p_glGetUniformLocation(prog, "size");
+            }
+        }
+    }
+    if (!prog) return false;
+    p_glUseProgram(prog);
+    p_glUniform1i(uTex, 0);
+    p_glUniform2f(uSize, texW, texH);
+    return true;
+}
