@@ -19,6 +19,7 @@
 #include "texture.h"
 #include "gxtev.h"
 #include "xfb.h"
+#include "texpack.h"
 #include "hostcfg.h"
 
 #ifndef GL_CLAMP_TO_EDGE
@@ -158,6 +159,8 @@ struct GLTex {
     u32 sum;
     int w, h;
     int frame = -1;  // display frame of the last checksum (memory is checked once per frame)
+    bool replaced = false;  // uploaded from a texture pack (bigger than w x h, with mip levels)
+    int changes = 0;        // content changes at this address: > 3 = a moving picture (movie planes), not packed
 };
 std::unordered_map<unsigned long long, GLTex> g_texCache;
 
@@ -349,6 +352,20 @@ bool BindTexMap(int m) {
         sum = Checksum(src, bytes) ^ (ci ? Checksum(g_tmem + tlutOff, fmt == 8 ? 32 : 512) : 0);
         t.frame = g_frameNo;
     }
+    // Texture packs (sdk/texpack.cpp): a replacement found by the texture's content is uploaded instead.
+    std::string packName;
+    if (t.id && t.sum != sum) t.changes++;
+    if ((!t.id || t.sum != sum) && t.changes <= 3 && texpack_active()) {
+        packName = texpack_name(fmt, w, h, ((mode0 >> 5) & 3) != 0, src, bytes, ci ? g_tmem + tlutOff : nullptr);
+        if (!t.id) glGenTextures(1, &t.id);
+        glBindTexture(GL_TEXTURE_2D, t.id);
+        if (texpack_replace(packName, fmt)) {
+            t.sum = sum;
+            t.w = w;
+            t.h = h;
+            t.replaced = true;
+        }
+    }
     if (!t.id || t.sum != sum) {
         std::vector<u8> rgba;
         if (ci) DecodeCI(fmt, src, w, h, g_tmem + tlutOff, (int)tlutFmt, rgba);
@@ -382,6 +399,8 @@ bool BindTexMap(int m) {
         t.sum = sum;
         t.w = w;
         t.h = h;
+        t.replaced = false;
+        if (!packName.empty()) texpack_dump(packName, rgba, w, h);
     }
     glBindTexture(GL_TEXTURE_2D, t.id);
     static const GLint wrap[4] = {GL_CLAMP_TO_EDGE, GL_REPEAT, GL_MIRRORED_REPEAT, GL_REPEAT};
@@ -392,7 +411,9 @@ bool BindTexMap(int m) {
     // graphics.texture_filter: game = the game's filter both ways; bilinear smooths minification; trilinear and
     // aniso16 add mip levels (and 16x anisotropy for the ground at an angle). Magnification stays the game's (pixel
     // art in menus keeps its crisp edges).
+    // A pack replacement always uses its mip levels (a 4K image minified without them would shimmer).
     int tf = host_cfg().texFilter;
+    if (t.replaced && tf < 2) tf = 2;
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, tf == 0 ? mag : tf == 1 ? GL_LINEAR : 0x2703 /* LINEAR_MIPMAP_LINEAR */);
     if (tf == 3) glTexParameterf(GL_TEXTURE_2D, 0x84FE /* MAX_ANISOTROPY */, 16.0f);
     return true;
