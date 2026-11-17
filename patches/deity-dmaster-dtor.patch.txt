@@ -1,0 +1,10 @@
+@@@ deity.cpp | VTABLE VIEW: DMaster views the game mode (fn_801B83A0), whose slot 0x08 is the destructor (GameUI/GameMode); a virtual destructor takes two slots on the PC, so with a plain m08 every later slot was off by one and Finished (0x94) called the mode's vf90 (BetaMaster's collision handler: a null hit vector read when the first car crossed the line in Excite Race). Declare the destructor as GameMode does
+<<<
+class DMaster {
+public:
+    virtual void m08(void);
+===
+class DMaster {
+public:
+    virtual ~DMaster(void) {}  // port: slot 0x08 is the mode's destructor (two slots on the PC)
+>>>

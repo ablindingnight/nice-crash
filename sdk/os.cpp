@@ -98,3 +98,72 @@ int OSEnableInterrupts(void) { return 1; }
 int OSRestoreInterrupts(int level) { return level; }
 
 }  // extern "C"
+
+// NICECRASH_NANSCAN=1 (debugging, patches/nanscan): the first non-finite or huge (|x| > 1e7) float in `bytes` of a
+// car's solver tables; logged for the first few hits (car, before/after the solver, byte offset, value).
+extern "C" int port_nanscan(int car, const char* when, const void* p, int bytes) {
+    static const bool on = getenv("NICECRASH_NANSCAN") != nullptr;
+    static int left = 40;
+    if (!on || left <= 0) return 0;
+    const float* f = (const float*)p;
+    for (int i = 0; i < bytes / 4; i++) {
+        float v = f[i];
+        if (!(v == v) || v > 1e7f || v < -1e7f) {
+            u32 bits;
+            memcpy(&bits, &v, 4);
+            fprintf(stderr, "[nanscan] car %d %s solver: offset 0x%x = %g (%08x)\n", car, when, i * 4, v, bits);
+            left--;
+            return 1;
+        }
+    }
+    return 0;
+}
+extern "C" void port_setup_log(const char* path, const float* bump, const float* spring, const float* rebound, float mass) {
+    if (!getenv("NICECRASH_NANSCAN")) return;
+    fprintf(stderr, "[setup] %s: mass %g wheel0 spring %g bump %g rebound %g\n", path, mass, *spring, *bump, *rebound);
+}
+extern "C" void port_value_log(const char* key, const char* text, float parsed) {
+    if (!getenv("NICECRASH_NANSCAN")) return;
+    fprintf(stderr, "[value] %s = \"%s\" -> %g\n", key, text ? text : "(null)", parsed);
+}
+// Debugging: how many x87 registers are in use (should be 0 between calls; a float-returning function called as void
+// leaks one each time, and after 8 the next load gives NaN).
+extern "C" int port_x87_depth(void) {
+    unsigned short env[14];
+    __asm__ volatile("fnstenv %0\n\tfldenv %0" : "=m"(env));
+    unsigned tag = env[4];
+    int used = 0;
+    for (int i = 0; i < 8; i++)
+        if (((tag >> (2 * i)) & 3) != 3) used++;
+    return used;
+}
+// PORT_CFLAGS=-finstrument-functions (debugging): the i386 ABI wants the x87 stack empty at every call, so the first
+// function entered with x87 registers in use names the call that leaked (a float result left unpopped, or a float
+// function that fell off its end). Each hit is logged, then the stack is cleared to catch the next one.
+extern "C" __attribute__((no_instrument_function)) void __cyg_profile_func_enter(void* fn, void* site) {
+    static int left = 200;
+    if (left <= 0) return;
+    unsigned short env[14];
+    __asm__ volatile("fnstenv %0" : "=m"(env));
+    unsigned tag = env[4];
+    int used = 0;
+    for (int i = 0; i < 8; i++)
+        if (((tag >> (2 * i)) & 3) != 3) used++;
+    if (used) {
+        static void* seen[256];
+        static int nseen;
+        bool dup = false;
+        for (int i = 0; i < nseen; i++) dup |= seen[i] == site;
+        if (!dup && nseen < 256) {  // each call site once
+            seen[nseen++] = site;
+            left--;
+            u32 sdk_vi_retrace_count();
+            fprintf(stderr, "[x87] %d in use entering %p (called from %p) retrace %u\n", used, fn, site, sdk_vi_retrace_count());
+        }
+        env[4] = 0xFFFF;  // all empty
+        __asm__ volatile("fldenv %0" : : "m"(env));
+    } else {
+        __asm__ volatile("fldenv %0" : : "m"(env));
+    }
+}
+extern "C" __attribute__((no_instrument_function)) void __cyg_profile_func_exit(void*, void*) {}

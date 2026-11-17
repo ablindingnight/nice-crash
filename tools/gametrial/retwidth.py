@@ -54,6 +54,43 @@ def scan(texts):
     return fixes
 
 
+FLOATS = {'f32': 'float', 'f64': 'double', 'float': 'float', 'double': 'double'}
+
+
+def scan_x87(texts):
+    """Declarations whose return type disagrees with the definition on whether it is a float. On 32-bit x86 a float
+    result travels on the x87 register stack: a caller that declared it void/int never pops it (one register leaked
+    per call; after 8 every float load is NaN: carbody's `void fn_801E9DD0` for ground.cpp's f32 broke Excite Race
+    physics), and a caller that declared f32 for a void function pops a register nothing pushed. On the PPC both just
+    ignore f1. Returns fixes in scan()'s shape: the declaration gets the definition's return type."""
+    decls = collections.defaultdict(list)
+    for f, raw in texts.items():
+        t = regorder.strip_comments(raw)
+        for m in FUNC.finditer(t):
+            ret, name, end = ' '.join(m.group(2).split()), m.group(4), m.group(6)
+            if name in regorder.KW or ret in ('return', 'else', 'case', 'goto', 'typedef', 'new', 'delete'):
+                continue
+            decls[name].append({'file': f, 'start': m.start(2), 'end': m.end(2), 'ret': ret, 'def': end == '{',
+                                'static': 'static' in m.group(1)})
+    fixes = []
+    for name, ds in decls.items():
+        if not name.startswith('fn_8'):  # address names are unique; a plain name (End) can be two functions
+            continue
+        defs = [d for d in ds if d['def'] and not d['static']]
+        if len(defs) != 1:
+            continue
+        df = defs[0]
+        dfloat = df['ret'] in FLOATS
+        for d in ds:
+            if d['def'] or d['static'] or d['file'] == df['file']:
+                continue
+            if (d['ret'] in FLOATS) == dfloat:
+                continue
+            new = FLOATS.get(df['ret'], 'void' if df['ret'] == 'void' else CANON.get(df['ret'], df['ret']))
+            fixes.append(dict(d, name=name, new=new, deffile=df['file']))
+    return fixes
+
+
 def apply(texts, fixes):
     by_file = collections.defaultdict(list)
     for fx in fixes:

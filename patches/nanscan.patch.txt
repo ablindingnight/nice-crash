@@ -1,0 +1,71 @@
+@@@ masslist.cpp | DEBUGGING (port-only, NICECRASH_NANSCAN=1): report the first non-finite or huge float in a car's solver tables just before and just after the contact solver, with the car, the table and the byte offset (the Excite Race start NaN)
+<<<
+    fn_801BA088(lbl_80436D48, 0, 0xB, 0x2A);
+===
+    {
+        extern int port_nanscan(int car, const char* when, const void* p, int bytes);  // sdk/os.cpp
+        port_nanscan(car, "before", &lbl_80436D48[0], sizeof(MassSet) + sizeof(ContactSet) + sizeof(CrossSet));
+    }
+    fn_801BA088(lbl_80436D48, 0, 0xB, 0x2A);
+    {
+        extern int port_nanscan(int car, const char* when, const void* p, int bytes);  // sdk/os.cpp
+        port_nanscan(car, "after", &lbl_80436D48[0], sizeof(MassSet) + sizeof(ContactSet) + sizeof(CrossSet));
+    }
+>>>
+@@@ carsetup.cpp | (same): each car setup as parsed (NICECRASH_NANSCAN=1)
+<<<
+    fn_80279F58(s, t);
+    fn_80131818(t);
+===
+    fn_80279F58(s, t);
+    {
+        extern int port_nanscan(int car, const char* when, const void* p, int bytes);  // sdk/os.cpp
+        extern void port_setup_log(const char* path, const float* bump, const float* spring, const float* rebound, float mass);
+        port_setup_log(path, &s->wheels[0].bump, &s->wheels[0].spring, &s->wheels[0].rebound, s->mass);
+        port_nanscan(-1, path, s, sizeof *s);
+    }
+    fn_80131818(t);
+>>>
+@@@ carbody.cpp | (same): each car's setup as carbody parses it (NICECRASH_NANSCAN=1)
+<<<
+    fn_80279F58(&setup, table);
+    fn_8027A8B4(&setup, fn_8027A798((char*)(p + 0x234)));
+===
+    fn_80279F58(&setup, table);
+    {
+        extern int port_nanscan(int car, const char* when, const void* p, int bytes);  // sdk/os.cpp
+        port_nanscan(cb->index, (const char*)(p + 0x234), &setup, sizeof setup);
+        extern void port_setup_log(const char* path, const float* bump, const float* spring, const float* rebound, float mass);
+        port_setup_log((const char*)(p + 0x234), (const float*)((u8*)&setup + 0x88), (const float*)((u8*)&setup + 0x84),
+                       (const float*)((u8*)&setup + 0x8C), *(const float*)&setup);
+    }
+    fn_8027A8B4(&setup, fn_8027A798((char*)(p + 0x234)));
+>>>
+@@@ carsetup.cpp | (same): the raw text of the suspension factors (NICECRASH_NANSCAN=1)
+<<<
+        f32 spring = c->GetFloat("spring_factor", 1.0f);
+===
+        if (i == 0) {
+            extern void port_value_log(const char* key, const char* text, float parsed);  // sdk/os.cpp
+            static const char* const kKeys[] = {"spring_factor", "shock_factor", "bump_factor", "rebound_factor", "frebound_factor", "rrebound_factor"};
+            for (int k = 0; k < 6; k++)
+                if (c->Has(kKeys[k])) port_value_log(kKeys[k], c->GetValue(kKeys[k]), c->GetFloat(kKeys[k]));
+        }
+        f32 spring = c->GetFloat("spring_factor", 1.0f);
+>>>
+@@@ carsetup.cpp | (same): the factors as computed (NICECRASH_NANSCAN=1)
+<<<
+        w->radius = 2.0f;
+        w->spring *= spring;
+===
+        if (i == 0) {
+            extern void port_value_log(const char* key, const char* text, float parsed);  // sdk/os.cpp
+            port_value_log("computed spring", c->Has("spring_factor") ? "has" : "-", spring);
+            port_value_log("computed shock", c->Has("shock_factor") ? "has" : "-", shock);
+            port_value_log("computed bump", c->Has("bump_factor") ? "has" : "-", bump);
+            extern int port_x87_depth(void);
+            port_value_log("x87 depth", "", (float)port_x87_depth());
+        }
+        w->radius = 2.0f;
+        w->spring *= spring;
+>>>

@@ -406,6 +406,9 @@ def main():
     import retwidth
     texts, n = retwidth.apply(texts, retwidth.scan(texts))
     counts['ret-narrow'] = n
+    # Float returns declared non-float (or the reverse): the x87 stack leaks or underflows on 32-bit x86.
+    texts, n = retwidth.apply(texts, retwidth.scan_x87(texts))
+    counts['x87-returns'] = n
     for b, i in game.items():
         outputs[i] = (outputs[i][0], texts[b])
     for dst, t in outputs:

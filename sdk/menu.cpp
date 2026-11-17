@@ -348,6 +348,12 @@ void BuildRows() {
     controls.rows.push_back({"Stick dead zone", "controls.deadzone", kSlider,
                              "How far the stick moves before the truck steers. Raise it if the truck drifts.", {}, 0, 40, 5});
     controls.rows.push_back({"Invert steering", "controls.invert_steer", kToggle, "Swap left and right on the stick.", {}});
+    controls.rows.push_back({"Steering curve", "controls.steer_curve", kChoice, "How the stick and keys turn the truck.",
+                             {{"smooth", "Smooth", "The original feel: the keys ease into a turn."},
+                              {"linear", "Linear", "The keys turn fully at once; the stick as Smooth."},
+                              {"sharp", "Sharp", "Small stick movements turn more; the keys turn at once."}}});
+    controls.rows.push_back({"Tilt sensitivity", "controls.tilt_sensitivity", kSlider,
+                             "How far the truck turns for the same stick or key. 100% is the original.", {}, 0, 200, 10});
     Tab game{"Game", {}};
     game.rows.push_back({"Pause in the background", "game.pause_unfocused", kToggle,
                          "The game stops while another window is in front (games started from the launcher).", {}});
