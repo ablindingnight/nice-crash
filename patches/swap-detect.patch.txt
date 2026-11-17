@@ -1,34 +1,3 @@
-@@@ model.cpp | ENDIAN: "already fixed up?" was tested by the counts looking small (unswapped LE counts read huge on the BE Wii). On an LE host the counts are always small; test whether elems is still a file offset instead (fixed-up data points into MEM1/MEM2)
-<<<
-    if ((u32)m->nElems < 16000 && (u32)m->nExtras < 16000) {
-        return;
-    }
-===
-    if ((u32)m->elems >= 0x80000000u) {
-        return;
-    }
->>>
-@@@ faninfo.cpp | FINF data is little-endian on disc and retail swaps it by hand on first fetch; already native on the host
-<<<
-            if (swapped) {
-                u8* p = (u8*)data;
-===
-            if (0 && swapped) {  // port: no swap on a little-endian host
-                u8* p = (u8*)data;
->>>
-@@@ idealres.cpp | (same): the hand-written swap of this resource extension (the others use Swap4, emptied by prep)
-<<<
-void fn_801380DC(ResExt* e) {
-===
-void fn_801380DC(ResExt* e) {
-    return;  // port: little-endian host, data already native
->>>
-@@@ include/game/uiwidget.h | C++: retail's gText table has a pure slot 0x8C, but gText objects are built (by-name ctor); a pure declaration makes the class abstract and clang compiles its deleting destructor to a trap (ud2). Declare it plain; the body is defined in widgets.cpp (never called)
-<<<
-    virtual void Slot8C(void) = 0;               // 0x8C: pure in retail's table (meaning unknown)
-===
-    virtual void Slot8C(void) {}                 // port: pure in retail's table; plain here (see patches)
->>>
 @@@ deity.cpp | ROBUSTNESS (port-only): LineFollower::Attach only positions the follower when SetLine sees a new line; if the racing line picked at init (random stream 4) equals the snapped one, it stays unpositioned and the AI driver's first reset reads a null segment (aicar fn_80195D80). Position it as Attach would (SetPosition(p, 0, 0)) when it is still unpositioned; no change when retail's path positioned it
 <<<
     c->line->Attach((CenterLine*)fn_80156A40()->LineFor(c->index), &p, 0);
@@ -45,51 +14,4 @@ void fn_801380DC(ResExt* e) {
         }
     }
     LineFollower* l = c->line;
->>>
-@@@ gndtex.cpp | MEMORY: fn_802DBDE8(i, tex) is called with i up to 5; retail's 3-entry lbl_804DB468 (0x804DB468) is followed by the 12-byte @271 (0x804DB474), which takes stages 3-5. On the host the batch list came next and its data pointer was overwritten. Give the array the six slots retail effectively has (decomp: lbl_804DB468 + @271 are one 6-entry table)
-<<<
-GXTex* lbl_804DB468[3];
-===
-GXTex* lbl_804DB468[6];  // port: 3 + retail's following @271 (stages 3-5)
->>>
-
-@@@ playcar.cpp | VTABLE VIEW: VPx views PhysDriver and the replay Recorder (SetGear at 0x08, destructor LAST at 0x80; decomp 971aea901). On the host a virtual destructor takes two slots: declare it so v80 lands on the complete/deleting pair (prep.py MWCC_DTOR_AT puts the Recorder table's pair at 0x80)
-<<<
-    virtual void v80(int del);
-};
-
-#define VP(p) ((VPx*)(p))
-===
-    virtual ~VPx(void);  // port: slot 0x80 is the destructor (two slots on the host)
-};
-
-#define VP(p) ((VPx*)(p))
->>>
-@@@ playcar.cpp | (same): the controller's destructor deletes its driver through the view
-<<<
-            VP(PTR(p, 0x4))->v80(1);
-===
-            delete VP(PTR(p, 0x4));  // port: deleting destructor (MWCC v80(1))
->>>
-@@@ cammgr.cpp | ABI (struct return): idealline's fn_80136594 returns its 12-byte ILPos by value (i386: hidden result pointer the callee pops); cammgr keeps the PPC out-pointer form (tagged PORT in the decomp: a by-value form is not code-identical there). Call the by-value function and copy the result into the caller's slot
-<<<
-void fn_80136594(CamTrackPos* out, LineFollower* trk, const CamXZ* xz);  // PORT: idealline returns the ILPos by value (a by-value form here is not code-identical)
-===
-struct PortILPos12 { u32 w[3]; };
-PortILPos12 port_ro_fn_80136594(LineFollower* trk, const CamXZ* xz) __asm__("_fn_80136594");
-static inline void fn_80136594(CamTrackPos* out, LineFollower* trk, const CamXZ* xz) {  // port: by-value call
-    PortILPos12 r = port_ro_fn_80136594(trk, xz);
-    memcpy(out, &r, sizeof(*out) < sizeof(r) ? sizeof(*out) : sizeof(r));
-}
->>>
-@@@ xlobj.cpp | ABI (struct return), as cammgr: xlobj calls idealline's fn_80136414 with an explicit 12-byte result slot (PORT form in the decomp); call the by-value function and copy
-<<<
-void fn_80136414(struct XSample* out, void* it, int idx);
-===
-struct PortILPos12 { u32 w[3]; };
-PortILPos12 port_ro_fn_80136414(void* it, int idx) __asm__("_fn_80136414");
-static inline void fn_80136414(struct XSample* out, void* it, int idx) {  // port: by-value call (12-byte slot)
-    PortILPos12 r = port_ro_fn_80136414(it, idx);
-    __builtin_memcpy(out, &r, sizeof(r));
-}
 >>>

@@ -1,7 +1,0 @@
-@@@ drsurf.cpp | ASM: mtspr GQR6 (paired-single quantisation setup) has no meaning on the host
-<<<
-    asm { mtspr 0x396, v }
-===
-    (void)v;  /* port: GQR6 setup (paired-single quantisation) not needed on the host */
->>>
-

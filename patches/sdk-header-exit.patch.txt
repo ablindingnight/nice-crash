@@ -1,6 +1,0 @@
-@@@ include/revolution/OS/__ppc_eabi_init.h | DECL: the runtime's `void exit(void)` clashes with the host C library's `void exit(int)` once a game unit sees both (the game's C++ units now reach this header through revolution/OS.h). The game never calls it
-<<<
-DECL_WEAK void exit(void);
-===
-// port: DECL_WEAK void exit(void); (clashes with the C library's exit(int))
->>>

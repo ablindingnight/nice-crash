@@ -580,3 +580,13 @@
   is written to the launcher log ("came out empty"), never shown to the player; not reported upstream.
 - For a player release: ship dtk.exe (MIT OR Apache-2.0) with its licence under tools\dtk\.
 - `NiceCrash.exe --judge <folder or image>` prints the launcher's verdict (tests).
+
+## 2026-11-17: port fixes moved into the decomp (pin 86f7f4d39)
+- The decomp now carries PC-only branches (`#ifndef __MWERKS__`, or byteswap.h's `__MWERKS__ ||
+  GAME_FILE_DATA_NEEDS_SWAP`) for what these port patches did; the patch files are gone: host-stack, gx-stores,
+  dsp-adpcm-header, model-cpu-vertices, asm, sdk-header-exit. swap-detect keeps only the deity robustness hunk
+  (the model, faninfo, idealres, uiwidget Slot8C, gndtex, playcar and cammgr/xlobj struct-return hunks are upstream).
+  The notes above that name those patches describe history.
+- Still port-side by design: debug-log, gx-wgpipe-header (needs port_fifo.h), hbm-msc-asm, hbm-portability,
+  homebtn-gate, host-allocator, movie-hook, pad-stick-menus, swap-detect (deity).
+- 363/363 units, link OK, stubs 85 functions / 3 data; title, race, Tutorial Exit, Options and the sound mix checked.

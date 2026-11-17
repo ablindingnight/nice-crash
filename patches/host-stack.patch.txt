@@ -1,6 +1,0 @@
-@@@ kernel.cpp | STACK: the game's overrun check budgets 29K (0x7400) of stack below main for the Wii's frames; x86 frames are larger (adapters, no register args), so the port gives the check 256K
-<<<
-    lbl_804DB780.size = 0x7400;
-===
-    lbl_804DB780.size = 0x40000;  /* port: host frames are larger than the Wii's (0x7400 on the Wii) */
->>>
