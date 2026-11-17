@@ -1,0 +1,507 @@
+diff --git a/sdk/gxfifo.cpp b/sdk/gxfifo.cpp
+index 56e9d0e..b558e84 100644
+--- a/sdk/gxfifo.cpp
++++ b/sdk/gxfifo.cpp
+@@ -1,6 +1,9 @@
+ // Host GX FIFO: collects the command stream written to the write-gather pipe (game code via port_wgpipe; later
+ // the SDK's own GX code), in the GPU's big-endian byte order. Milestone 2 interprets it (BP/CP/XF loads, draws).
+ // Plain malloc/realloc: the game replaces the global operator new, and the FIFO must not eat the game's heaps.
++#define WIN32_LEAN_AND_MEAN
++#include <windows.h>
++#include <cstdio>
+ #include <cstdlib>
+ #include <cstring>
+ #include "sdk.h"
+@@ -15,6 +18,16 @@ static size_t g_dlLen, g_dlSize;
+ static bool g_dlOn;
+ 
+ static inline void Put(u8 v) {
++    static const bool thrLog = getenv("NICECRASH_FIFOTHREADS") != nullptr;  // debugging: who writes GX commands
++    if (thrLog) {
++        static unsigned long last;
++        unsigned long t = GetCurrentThreadId();
++        if (t != last) {
++            static int n;
++            if (n++ < 200) fprintf(stderr, "[fifothr] %lu -> %lu dl %d len %zu\n", last, t, (int)g_dlOn, g_len);
++            last = t;
++        }
++    }
+     if (g_dlOn) {
+         if (g_dlLen < g_dlSize) g_dl[g_dlLen] = v;
+         g_dlLen++;
+diff --git a/sdk/gxinterp.cpp b/sdk/gxinterp.cpp
+index 5ff87da..03f80f6 100644
+--- a/sdk/gxinterp.cpp
++++ b/sdk/gxinterp.cpp
+@@ -3,6 +3,7 @@
+ #include "gxinterp.h"
+ #include <cstdio>
+ #include <cstdlib>
++#include <cmath>
+ #include <cstring>
+ #include <vector>
+ 
+@@ -30,6 +31,31 @@ static inline u16 be16(const u8* p) { return (u16)(p[0] << 8 | p[1]); }
+ 
+ static int VertexSize(int vat) { return gxr_vertex_size(vat); }
+ 
++// NICECRASH_MTXHUNT: report position matrices (XF 0x00-0x77) loaded with a huge or non-finite rotation/scale part.
++static void CheckMtx(u32 addr, u32 n, const char* how) {
++    static const bool on = getenv("NICECRASH_MTXHUNT") != nullptr;
++    if (!on || addr >= 0xF0) return;
++    for (u32 m = addr / 12 * 12; m < addr + n && m < 0xF0; m += 12) {
++        float v[12];
++        memcpy(v, &g_gx.xf[m], sizeof v);
++        float big = 0;
++        bool bad = false;
++        for (int r = 0; r < 3; r++)
++            for (int c = 0; c < 3; c++) {
++                float a = fabsf(v[r * 4 + c]);
++                if (!(a < 1e30f)) bad = true;
++                else if (a > big) big = a;
++            }
++        if (bad || big > (m < 0x78 ? 64.0f : 1e4f)) {
++            u32 sdk_vi_retrace_count();
++            static int shown;
++            if (shown++ < 200)
++                fprintf(stderr, "[mtx] retrace %u %s xf %03x big %g [%g %g %g %g / %g %g %g %g / %g %g %g %g]\n", sdk_vi_retrace_count(), how, m,
++                        big, v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10], v[11]);
++        }
++    }
++}
++
+ static size_t Run(const u8* p, size_t len, int depth);
+ 
+ static void LoadBP(u32 v) {
+@@ -100,6 +126,7 @@ static size_t Run(const u8* p, size_t len, int depth) {
+             if ((size_t)(end - p) < n * 4) return (size_t)(hist[(nh - 1) & 7] - start);
+             for (u32 i = 0; i < n; i++)
+                 if (addr + i < sizeof(g_gx.xf) / 4) g_gx.xf[addr + i] = be32(p + i * 4);
++            CheckMtx(addr, n, "imm");
+             p += n * 4;
+             g_stats.xfLoads++;
+         } else if (op == 0x20 || op == 0x28 || op == 0x30 || op == 0x38) {  // indexed XF loads (A-D)
+@@ -128,6 +155,21 @@ static size_t Run(const u8* p, size_t len, int depth) {
+                     sBE += plausible(be32(src + i * 4));
+                 }
+                 bool hostOrder = sLE >= sBE;
++                static const bool hunt = getenv("NICECRASH_GREENHUNT") != nullptr;
++                if (hunt && (!hostOrder || sLE < (int)n)) {  // a big-endian pick or a doubtful matrix
++                    static int shown;
++                    if (shown++ < 80) {
++                        fprintf(stderr, "[idxbe] arr %d index %u n %u xf %03x sLE %d sBE %d pick %s:", arr, index, n, addr, sLE, sBE,
++                                hostOrder ? "LE" : "BE");
++                        for (u32 i = 0; i < n && i < 12; i++) {
++                            u32 le = (u32)src[i * 4] | (u32)src[i * 4 + 1] << 8 | (u32)src[i * 4 + 2] << 16 | (u32)src[i * 4 + 3] << 24;
++                            float a;
++                            memcpy(&a, &le, 4);
++                            fprintf(stderr, " %g", a);
++                        }
++                        fprintf(stderr, "\n");
++                    }
++                }
+                 static int logn = getenv("NICECRASH_IDXLOG") ? atoi(getenv("NICECRASH_IDXLOG")) : 0;
+                 if (logn > 0 && logn--) {
+                     fprintf(stderr, "[idx] op %02x index %u n %u xf %03x base %08x stride %u le %d:", op, index, n, addr, base,
+@@ -148,6 +190,7 @@ static size_t Run(const u8* p, size_t len, int depth) {
+                                                         (u32)src[i * 4 + 3] << 24
+                                                   : be32(src + i * 4);
+                 }
++                CheckMtx(addr, n, "idx");
+             }
+         } else if (op == 0x40) {  // call display list
+             if (end - p < 8) return (size_t)(hist[(nh - 1) & 7] - start);
+diff --git a/sdk/gxrender.cpp b/sdk/gxrender.cpp
+index bd4c106..ffbab1e 100644
+--- a/sdk/gxrender.cpp
++++ b/sdk/gxrender.cpp
+@@ -716,7 +716,13 @@ static bool ArraysHostOrder(u32 lo, const VtxFmt& f, int count, const u8* data,
+     int pt = (lo >> 9) & 3;
+     if (pt < 2) return false;  // positions come through the FIFO: no array to judge
+     u32 base = g_gx.cp[0xA0], stride = g_gx.cp[0xB0] & 0xFF;
++    static const bool s16be = NC_ENV("NICECRASH_S16BE") != nullptr;  // experiment
+     auto it = known.find(base);
++    if (f.posFmt != 4 && NC_ENV("NICECRASH_S16LOG") && it != known.end() && it->second.host) {
++        static int n;
++        if (n++ < 30) fprintf(stderr, "[s16le] base %08x fmt %d retrace %u judged-frame %d now %d\n", base, f.posFmt, sdk_vi_retrace_count(), it->second.frame, g_frameNo);
++    }
++    if (s16be && f.posFmt != 4) return false;
+     if (it != known.end() && it->second.frame == g_frameNo) return it->second.host;
+     if (f.posFmt != 4) return it != known.end() && it->second.host;
+     int off = (lo & 1);
+@@ -761,6 +767,114 @@ void gxr_flush_batch() {
+     if (!g_batchN) return;
+     port_trace("draw", (unsigned)g_batchN, (unsigned)g_batchIdx.size());
+     g_nFlush++;
++    // NICECRASH_GREENHUNT: triangles as the GPU gets them that are long, thin and green.
++    static const bool hunt = NC_ENV("NICECRASH_GREENHUNT") != nullptr;
++    if (hunt) {
++        const int st = BvStride(g_bNTex);
++        static int shown;
++        for (size_t t = 0; t + 2 < g_batchIdx.size() && shown < 200; t += 3) {
++            const BV* v[3];
++            bool ok = true, green = false;
++            int behind = 0;
++            float sx[3], sy[3];
++            for (int c = 0; c < 3; c++) {
++                unsigned i = g_batchIdx[t + c];
++                if (i >= g_batchN) {
++                    fprintf(stderr, "[gpu] index %u past batch %zu\n", i, g_batchN);
++                    ok = false;
++                    break;
++                }
++                v[c] = (const BV*)&g_batch[(size_t)i * st];
++                if (v[c]->pos[3] <= 0) ok = false, behind++;
++                else sx[c] = v[c]->pos[0] / v[c]->pos[3], sy[c] = v[c]->pos[1] / v[c]->pos[3];
++                green |= v[c]->c0[1] > v[c]->c0[0] + 60 && v[c]->c0[1] > v[c]->c0[2] + 60;
++            }
++            if (behind && behind < 3 && green) {
++                static unsigned lastB, cntB;
++                unsigned r = sdk_vi_retrace_count();
++                if (r != lastB) {
++                    if (cntB) fprintf(stderr, "[gpubehind] retrace %u count %u\n", lastB, cntB);
++                    lastB = r;
++                    cntB = 0;
++                }
++                if (cntB++ < 2)
++                    fprintf(stderr, "[gpub] retrace %u (%g %g %g %g) (%g %g %g %g) (%g %g %g %g)\n", r, v[0]->pos[0], v[0]->pos[1],
++                            v[0]->pos[2], v[0]->pos[3], v[1]->pos[0], v[1]->pos[1], v[1]->pos[2], v[1]->pos[3], v[2]->pos[0],
++                            v[2]->pos[1], v[2]->pos[2], v[2]->pos[3]);
++            }
++            if (!ok) continue;
++            float w = fmaxf(sx[0], fmaxf(sx[1], sx[2])) - fminf(sx[0], fminf(sx[1], sx[2]));
++            float h = fmaxf(sy[0], fmaxf(sy[1], sy[2])) - fminf(sy[0], fminf(sy[1], sy[2]));
++            float len = fmaxf(w, h);
++            float area = fabsf((sx[1] - sx[0]) * (sy[2] - sy[0]) - (sx[2] - sx[0]) * (sy[1] - sy[0])) * 0.5f;
++            if (g_bNTex > 0 && len >= 200) {  // a big triangle whose texture coordinates hardly change: one texel stretched
++                float u0 = v[0]->tc[0][0], u1 = v[1]->tc[0][0], u2 = v[2]->tc[0][0];
++                float t0 = v[0]->tc[0][1], t1 = v[1]->tc[0][1], t2 = v[2]->tc[0][1];
++                float du = fmaxf(u0, fmaxf(u1, u2)) - fminf(u0, fminf(u1, u2)), dv = fmaxf(t0, fmaxf(t1, t2)) - fminf(t0, fminf(t1, t2));
++                if (du < 0.01f && dv < 0.01f) {
++                    static unsigned lastU, cntU;
++                    unsigned r = sdk_vi_retrace_count();
++                    if (r != lastU) {
++                        if (cntU) fprintf(stderr, "[gpuflat] retrace %u count %u\n", lastU, cntU);
++                        lastU = r;
++                        cntU = 0;
++                    }
++                    if (cntU++ < 2)
++                        fprintf(stderr, "[gpuf] retrace %u tri (%.0f %.0f) (%.0f %.0f) (%.0f %.0f) uv (%g %g) (%g %g) (%g %g) c %02x%02x%02x%02x ntex %d\n", r,
++                                sx[0], sy[0], sx[1], sy[1], sx[2], sy[2], u0, t0, u1, t1, u2, t2, v[0]->c0[0], v[0]->c0[1], v[0]->c0[2],
++                                v[0]->c0[3], g_bNTex);
++                }
++            }
++            if (green && len >= 300) {  // any big green triangle, thin or wide
++                static unsigned lastG, cntG;
++                unsigned r = sdk_vi_retrace_count();
++                if (r != lastG) {
++                    if (cntG) fprintf(stderr, "[gpubig] retrace %u count %u\n", lastG, cntG);
++                    lastG = r;
++                    cntG = 0;
++                }
++                if (cntG++ < 3)
++                    fprintf(stderr, "[gpubg] retrace %u batch %zu tri %zu idx %u %u %u (%.0f %.0f w %.2f) (%.0f %.0f w %.2f) (%.0f %.0f w %.2f) c %02x%02x%02x%02x\n",
++                            r, g_batchN, t / 3, g_batchIdx[t], g_batchIdx[t + 1], g_batchIdx[t + 2], sx[0], sy[0], v[0]->pos[3], sx[1],
++                            sy[1], v[1]->pos[3], sx[2], sy[2], v[2]->pos[3], v[0]->c0[0], v[0]->c0[1], v[0]->c0[2], v[0]->c0[3]);
++            }
++            if (len < 300 || area > len * 40) continue;
++            {  // the longest thin triangle per frame, with the batch's texture and its corners
++                static unsigned lastL;
++                static float bestLen;
++                static char best[320];
++                unsigned r = sdk_vi_retrace_count();
++                if (r != lastL) {
++                    if (bestLen > 0) fprintf(stderr, "[longest] %u len %.0f %s\n", lastL, bestLen, best);
++                    lastL = r;
++                    bestLen = 0;
++                }
++                if (len > bestLen) {
++                    bestLen = len;
++                    snprintf(best, sizeof best, "img3 %06x ntex %d (%.0f %.0f w %.1f) (%.0f %.0f w %.1f) (%.0f %.0f w %.1f) uv (%.3f %.3f) (%.3f %.3f) (%.3f %.3f)",
++                             g_gx.bp[0x94 + (g_gx.bp[0x28] & 3)] & 0xFFFFFF, g_bNTex, sx[0], sy[0], v[0]->pos[3], sx[1], sy[1], v[1]->pos[3], sx[2],
++                             sy[2], v[2]->pos[3], v[0]->tc[0][0], v[0]->tc[0][1], v[1]->tc[0][0], v[1]->tc[0][1], v[2]->tc[0][0],
++                             v[2]->tc[0][1]);
++                }
++            }
++            static unsigned lastR, cnt;
++            unsigned r = sdk_vi_retrace_count();
++            if (r != lastR) {
++                if (cnt) fprintf(stderr, "[gputhin] retrace %u count %u\n", lastR, cnt);
++                lastR = r;
++                cnt = 0;
++            }
++            cnt++;
++            if (!green) continue;
++            shown++;
++            fprintf(stderr, "[gpu] retrace %u batch %zu verts tri %zu idx %u %u %u:", sdk_vi_retrace_count(), g_batchN, t / 3,
++                    g_batchIdx[t], g_batchIdx[t + 1], g_batchIdx[t + 2]);
++            for (int c = 0; c < 3; c++)
++                fprintf(stderr, " (%.0f %.0f w %.2f c %02x%02x%02x%02x)", sx[c], sy[c], v[c]->pos[3], v[c]->c0[0], v[c]->c0[1],
++                        v[c]->c0[2], v[c]->c0[3]);
++            fprintf(stderr, "\n");
++        }
++    }
+     if (!g_batchIdx.empty())
+         gxt_draw_arrays(GL_TRIANGLES, g_batch.data(), BvStride(g_bNTex), (int)g_batchN, g_bNTex, g_batchIdx.data(),
+                         (int)g_batchIdx.size());
+@@ -778,6 +892,7 @@ void gxr_end_batch() {
+ }
+ 
+ static u32 g_drawsSinceCopy;  // draws since the last display copy (an empty copy is not shown, see gxr_copy)
++u32 gxr_draws_since_copy() { return g_drawsSinceCopy; }
+ 
+ // Flash hunt (NICECRASH_FLASHDRAWS with NICECRASH_LUMLOG): [0] = the frame being drawn, [1] and [2] = the last two finished ones.
+ static std::vector<std::string> g_drawLog[3];
+@@ -839,7 +954,8 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
+     bool arraysLE = ArraysHostOrder(lo, f, count, data, vat);
+     bool le = false;  // set by attrPtr: the attribute came from a host-order array
+     auto attrPtr = [&](int type, int arr, int directSize) -> const u8* {
+-        le = type >= 2 && arraysLE;
++        static const int attrBE = NC_ENV("NICECRASH_ATTRBE") ? atoi(NC_ENV("NICECRASH_ATTRBE")) : 0;  // experiment: 1 = tex, 2 = all non-position
++        le = type >= 2 && arraysLE && !((attrBE & 1) && arr >= 4) && !((attrBE & 2) && arr >= 1);
+         if (type == 1) {
+             const u8* r = p;
+             p += directSize;
+@@ -900,6 +1016,108 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
+ 
+     // NICECRASH_FLASHDRAWS (with NICECRASH_LUMLOG): one line per draw of the last two finished frames (sdk/vi.cpp dumps them when a
+     // frame jumps in flat green): primitive, count, matrix slot, texture, the transformed vertices' EFB extent.
++    // NICECRASH_GREENHUNT: any draw whose vertex colour, material colour or TEV colour is the flash green
++    // (0, 225, 24), logged at once with its state.
++    static const bool greenHunt = NC_ENV("NICECRASH_GREENHUNT") != nullptr;
++    if (greenHunt) {  // raw positions far out (garbage vertex data)
++        int bad = -1;
++        bool objSpace = false;
++        for (int k = 0; k < count && bad < 0; k++) {
++            int m = vs[k].pnmtx * 4;
++            bool obj = xff(m + 3) != 0 || xff(m + 7) != 0 || xff(m + 11) != 0;
++            for (int c = 0; c < 3; c++)
++                if (!(fabsf(vs[k].pos[c]) < (obj ? 500.0f : 1e5f))) bad = k, objSpace = obj;
++        }
++        if (bad >= 0 && sdk_vi_retrace_count() >= 3900) {
++            fprintf(stderr, "[bp] %u base %08x img3 %06x le %d posfmt %d frac %d obj %d n %d pos (%g %g %g)\n", sdk_vi_retrace_count(),
++                    g_gx.cp[0xA0], g_gx.bp[0x94 + texMap0()] & 0xFFFFFF, (int)arraysLE, f.posFmt, f.posFrac, (int)objSpace, count,
++                    vs[bad].pos[0], vs[bad].pos[1], vs[bad].pos[2]);
++            static int shownBad;
++            if (shownBad++ < 0) {
++                int pt = (lo >> 9) & 3;
++                fprintf(stderr, "[badpos] retrace %u d%u prim %02x vat %d n %d v%d pos (%g %g %g) vcd %08x/%08x vat %08x/%08x/%08x postype %d base %08x stride %u le %d img3 %06x data",
++                        sdk_vi_retrace_count(), g_drawsSinceCopy, prim, vat, count, bad, vs[bad].pos[0], vs[bad].pos[1], vs[bad].pos[2],
++                        lo, hi, g_gx.cp[0x70 + vat], g_gx.cp[0x80 + vat], g_gx.cp[0x90 + vat], pt, g_gx.cp[0xA0],
++                        g_gx.cp[0xB0] & 0xFF, (int)arraysLE, g_gx.bp[0x94 + texMap0()] & 0xFFFFFF);
++                for (int k = 0; k < 16; k++) fprintf(stderr, " %02x", data[k]);
++                fprintf(stderr, "\n");
++                for (int k = 0; k < count && k < 4; k++)
++                    fprintf(stderr, "    v%d pos (%g %g %g)\n", k, vs[k].pos[0], vs[k].pos[1], vs[k].pos[2]);
++            }
++        }
++    }
++    if (greenHunt) {
++        auto isGreen = [](u32 r, u32 g, u32 b) { return r <= 12 && g >= 205 && g <= 240 && b >= 10 && b <= 40; };
++        int hitV = -1;
++        for (int k = 0; k < count && hitV < 0; k++)
++            if (isGreen(vs[k].col[0][0], vs[k].col[0][1], vs[k].col[0][2]) || isGreen(vs[k].col[1][0], vs[k].col[1][1], vs[k].col[1][2])) hitV = k;
++        u32 matc = g_gx.xf[0x100C];
++        bool hitM = isGreen(matc >> 24, (matc >> 16) & 255, (matc >> 8) & 255);
++        bool hitT = false;
++        for (int i = 0; i < 8; i++) {
++            u32 t = g_gx.tevReg[i], q = g_gx.tevKonst[i];
++            hitT |= isGreen((t >> 16) & 255, (t >> 8) & 255, t & 255) || isGreen((q >> 16) & 255, (q >> 8) & 255, q & 255);
++        }
++        {  // the truck's paint (0, ~112, ~12) or the flash green in a material/TEV colour
++            auto isPaint = [](u32 r, u32 g, u32 b) { return r <= 14 && g >= 95 && g <= 130 && b >= 5 && b <= 22; };
++            bool pm = isPaint(matc >> 24, (matc >> 16) & 255, (matc >> 8) & 255) || hitM;
++            bool pt = hitT;
++            for (int i = 0; i < 8; i++) {
++                u32 t = g_gx.tevReg[i], q = g_gx.tevKonst[i];
++                pt |= isPaint((t >> 16) & 255, (t >> 8) & 255, t & 255) || isPaint((q >> 16) & 255, (q >> 8) & 255, q & 255);
++            }
++            if ((pm || pt) && sdk_vi_retrace_count() >= 3900) {
++                static unsigned lastR;
++                static int perFrame;
++                unsigned r = sdk_vi_retrace_count();
++                if (r != lastR) lastR = r, perFrame = 0;
++                if (perFrame++ < 3)
++                    fprintf(stderr, "[paint] %u d%u mat %d tev %d prim %02x n %d mtx %d img3 %06x vcd %08x arr0 %08x matc %08x reg %06x %06x %06x %06x konst %06x %06x %06x %06x\n",
++                            r, g_drawsSinceCopy, (int)pm, (int)pt, prim, count, vs[0].pnmtx, g_gx.bp[0x94 + texMap0()] & 0xFFFFFF, lo,
++                            g_gx.cp[0xA0], matc, g_gx.tevReg[0], g_gx.tevReg[1], g_gx.tevReg[2], g_gx.tevReg[3], g_gx.tevKonst[0],
++                            g_gx.tevKonst[1], g_gx.tevKonst[2], g_gx.tevKonst[3]);
++            }
++        }
++        float ey0 = 1e30f, ey1 = -1e30f, ex0 = 1e30f, ex1 = -1e30f, ew = 1e30f;
++        if (hitV >= 0)
++            for (int k = 0; k < count; k++) {
++                float o[4];
++                Transform(vs[k].pos, vs[k].pnmtx, o);
++                ex0 = fminf(ex0, o[0]); ex1 = fmaxf(ex1, o[0]); ey0 = fminf(ey0, o[1]); ey1 = fmaxf(ey1, o[1]); ew = fminf(ew, o[3]);
++            }
++        bool stretched = hitV >= 0 && (ey1 - ey0 > 300 || ex1 - ex0 > 300);
++        if (stretched) {
++            static int n;
++            if (n++ < 60) {
++                fprintf(stderr, "[stretch] retrace %u efb x %.0f..%.0f y %.0f..%.0f wmin %.3f\n", sdk_vi_retrace_count(), ex0, ex1, ey0, ey1, ew);
++                for (int k = 0; k < count && k < 4; k++) {
++                    int mm = vs[k].pnmtx * 4;
++                    float oo[4], cl[4];
++                    Transform(vs[k].pos, vs[k].pnmtx, oo, cl);
++                    fprintf(stderr, "    v%d clip (%g %g %g %g)\n", k, cl[0], cl[1], cl[2], cl[3]);
++                    fprintf(stderr, "    v%d mtx %d [%g %g %g %g / %g %g %g %g / %g %g %g %g]\n", k, vs[k].pnmtx, xff(mm), xff(mm + 1),
++                            xff(mm + 2), xff(mm + 3), xff(mm + 4), xff(mm + 5), xff(mm + 6), xff(mm + 7), xff(mm + 8), xff(mm + 9),
++                            xff(mm + 10), xff(mm + 11));
++                }
++            }
++        }
++        if (stretched) {
++            static int n;
++            if (n++ < 60) {
++                int m = vs[0].pnmtx * 4;
++                fprintf(stderr, "[green] retrace %u d%u hit v%d m%d t%d prim %02x vat %d n %d mtx %d [t %.1f %.1f %.1f] img3 %06x vcd %08x/%08x vat %08x/%08x/%08x arr0 %08x st %u arr2 %08x st %u mat %08x\n",
++                        sdk_vi_retrace_count(), g_drawsSinceCopy, hitV, hitM, hitT, prim, vat, count, vs[0].pnmtx, xff(m + 3), xff(m + 7),
++                        xff(m + 11), g_gx.bp[0x94 + texMap0()] & 0xFFFFFF, lo, hi, g_gx.cp[0x70 + vat], g_gx.cp[0x80 + vat],
++                        g_gx.cp[0x90 + vat], g_gx.cp[0xA0], g_gx.cp[0xB0] & 0xFF, g_gx.cp[0xA2], g_gx.cp[0xB2] & 0xFF, matc);
++                for (int k = 0; k < count && k < 6; k++)
++                    fprintf(stderr, "    v%d pos (%.2f %.2f %.2f) col %02x%02x%02x%02x\n", k, vs[k].pos[0], vs[k].pos[1], vs[k].pos[2],
++                            vs[k].col[0][0], vs[k].col[0][1], vs[k].col[0][2], vs[k].col[0][3]);
++                fprintf(stderr, "    data");
++                for (int k = 0; k < 24; k++) fprintf(stderr, " %02x", data[k]);
++                fprintf(stderr, "\n");
++            }
++        }
++    }
+     if (gxr_drawlog_on()) {
+         float x0 = 1e30f, x1 = -1e30f, y0 = 1e30f, y1 = -1e30f, wmin = 1e30f;
+         for (int k = 0; k < count; k++) {
+@@ -1053,6 +1271,11 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
+     static LightSetup lights;
+     static const bool noLight = NC_ENV("NICECRASH_NOLIGHT") != nullptr;  // debugging: the old unlit colours
+     LoadLights(lights, noLight ? 0 : numChans);
++    // Vertices whose position is not a finite number (NaN or infinite: game data the Wii's GPU never saw this way).
++    // A GPU's clipper may turn a triangle through one into a streak across the screen: those triangles are dropped.
++    static std::vector<char> badV;
++    bool anyBad = false;
++    static const bool keepNaN = NC_ENV("NICECRASH_KEEPNAN") != nullptr;
+     for (int n = 0; n < count; n++) {
+         Vtx& v = vs[n];
+         BV& o = bvAt(n);
+@@ -1087,6 +1310,11 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
+         }
+         float x[4];
+         Transform(v.pos, v.pnmtx, x, o.pos);
++        if (!(std::isfinite(o.pos[0]) && std::isfinite(o.pos[1]) && std::isfinite(o.pos[2]) && std::isfinite(o.pos[3]))) {
++            if (!anyBad) badV.assign(count, 0);
++            anyBad = true;
++            badV[n] = 1;
++        }
+     }
+     {  // NICECRASH_BIGLOG=<n>: log the first n draws with a vertex far outside the screen (bad positions/matrices)
+         static int left = NC_ENV("NICECRASH_BIGLOG") ? atoi(NC_ENV("NICECRASH_BIGLOG")) : 0;
+@@ -1107,22 +1335,28 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
+         }
+     }
+     // Triangles join the batch; lines and points are drawn on their own.
+-    auto add = [&](int i) { g_batchIdx.push_back((unsigned)(base + i)); };
++    bool dropBad = anyBad && !keepNaN;
++    auto addTri = [&](int a, int b, int c) {
++        if (dropBad && (badV[a] || badV[b] || badV[c])) return;
++        g_batchIdx.push_back((unsigned)(base + a));
++        g_batchIdx.push_back((unsigned)(base + b));
++        g_batchIdx.push_back((unsigned)(base + c));
++    };
+     switch (kind) {
+     case 0: case 1:  // quads
+-        for (int i = 0; i + 3 < count; i += 4) { add(i); add(i + 1); add(i + 2); add(i); add(i + 2); add(i + 3); }
++        for (int i = 0; i + 3 < count; i += 4) { addTri(i, i + 1, i + 2); addTri(i, i + 2, i + 3); }
+         break;
+     case 2:  // triangles
+-        for (int i = 0; i + 2 < count; i += 3) { add(i); add(i + 1); add(i + 2); }
++        for (int i = 0; i + 2 < count; i += 3) addTri(i, i + 1, i + 2);
+         break;
+     case 3:  // strip (alternate winding; culling is off)
+         for (int i = 0; i + 2 < count; i++) {
+-            if (i & 1) { add(i + 1); add(i); add(i + 2); }
+-            else { add(i); add(i + 1); add(i + 2); }
++            if (i & 1) addTri(i + 1, i, i + 2);
++            else addTri(i, i + 1, i + 2);
+         }
+         break;
+     case 4:  // fan
+-        for (int i = 1; i + 1 < count; i++) { add(0); add(i); add(i + 1); }
++        for (int i = 1; i + 1 < count; i++) addTri(0, i, i + 1);
+         break;
+     default: {
+         gxr_flush_batch();
+diff --git a/sdk/gxtev.cpp b/sdk/gxtev.cpp
+index 0a964cf..2335e64 100644
+--- a/sdk/gxtev.cpp
++++ b/sdk/gxtev.cpp
+@@ -250,7 +250,7 @@ std::string BuildFS(int nStages, const bool texOk[8]) {
+                     snprintf(b, sizeof b, "  itr = ishift[%d] >= 0.0 ? floor(itr / exp2(ishift[%d])) : itr * exp2(-ishift[%d]);\n", m,
+                              m, m);
+                     s += b;
+-                    s += "  tc += itr;\n";
++                    if (!NC_ENV("NICECRASH_NOIND")) s += "  tc += itr;\n";  // NICECRASH_NOIND: experiment
+                 }
+             }
+             if (addprev) s += "  tc += prevtc;\n";
+diff --git a/sdk/os.cpp b/sdk/os.cpp
+index 3df7fb2..6157937 100644
+--- a/sdk/os.cpp
++++ b/sdk/os.cpp
+@@ -82,10 +82,16 @@ s64 OSGetTime(void) {
+ u32 OSGetTick(void) { return (u32)OSGetTime(); }
+ 
+ // Caches: coherent on the host.
+-void DCFlushRange(void*, u32) {}
+-void DCFlushRangeNoSync(void*, u32) {}
+-void DCStoreRange(void*, u32) {}
+-void DCStoreRangeNoSync(void*, u32) {}
++bool sdk_fifo_capturing();
++extern "C++" void gxi_flush();
++static void CacheSync() {
++    static const int mode = getenv("NICECRASH_DCSYNC") ? atoi(getenv("NICECRASH_DCSYNC")) : 0;  // experiment
++    if (mode && !sdk_fifo_capturing()) gxi_flush();
++}
++void DCFlushRange(void*, u32) { CacheSync(); }
++void DCFlushRangeNoSync(void*, u32) { CacheSync(); }
++void DCStoreRange(void*, u32) { CacheSync(); }
++void DCStoreRangeNoSync(void*, u32) { CacheSync(); }
+ void DCInvalidateRange(void*, u32) {}
+ void ICInvalidateRange(void*, u32) {}
+ void ICFlashInvalidate(void) {}
+diff --git a/sdk/vi.cpp b/sdk/vi.cpp
+index 9b29e32..237c1c6 100644
+--- a/sdk/vi.cpp
++++ b/sdk/vi.cpp
+@@ -372,12 +372,21 @@ void sdk_vi_window_size(int* w, int* h) {
+ }
+ 
+ static void Present() {
+-    gxi_flush();  // drain the FIFO: draws land in the EFB, display copies in their XFBs (sdk/xfb.cpp)
++    {
++        u32 gxr_draws_since_copy();
++        static const bool noMid = getenv("NICECRASH_NOMIDFLUSH") != nullptr;  // experiment
++        if (!(noMid && gxr_draws_since_copy())) gxi_flush();  // drain the FIFO: draws land in the EFB, display copies in their XFBs (sdk/xfb.cpp)
++    }
+     // The TV shows the XFB the game selected (VISetNextFrameBuffer), once per retrace, as the VI does.
+     if (xfb_active() && g_dc) {
+         // The retrace can land in the middle of the game's frame: draw what is batched and release the game's GL
+         // state (TEV program, logic op) so the presentation quad is drawn plainly; the next draw re-applies it all.
+         // (Before this, every third race frame came out black: presented while a TEV program and logic op were live.)
++        {
++            u32 gxr_draws_since_copy();
++            static const bool midLog = getenv("NICECRASH_MIDLOG") != nullptr;
++            if (midLog && gxr_draws_since_copy()) fprintf(stderr, "[mid] retrace %u draws %u\n", g_retrace, gxr_draws_since_copy());
++        }
+         gxr_end_batch();
+         glDisable(GL_COLOR_LOGIC_OP);
+         u32 addr = g_nextFb ? (u32)(uintptr_t)g_nextFb : gxi_last_copy_dst();
+@@ -525,7 +534,8 @@ void GXFlush(void) {
+     // land in the middle of the next frame and hold the race at 30 fps).
+     static const bool flushPace = getenv("NICECRASH_FLUSHPACE") != nullptr && getenv("NICECRASH_NOPACE") == nullptr;
+     if (flushPace && sdk_vi_copies_since_retrace() > 0) VIWaitForRetrace();
+-    gxi_flush();
++    static const bool lazy = getenv("NICECRASH_LAZYFLUSH") != nullptr;  // experiment: interpret only at sync points
++    if (!lazy) gxi_flush();
+ }
+ 
+ // Frame pacing: the GPU shows at most one new picture per retrace. A second display copy requested in the same
