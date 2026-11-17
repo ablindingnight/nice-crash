@@ -67,6 +67,14 @@ void OSFatal(u32 fg, u32 bg, const char* msg) {
 // Time base: the Wii's runs at bus clock / 4 = 60.75 MHz. Derived from the host's performance counter.
 void sdk_vi_poll();  // sdk/vi.cpp: the retrace "interrupt"
 
+// Time spent paused (the Nice Crash menu, game.pause_unfocused) in performance-counter ticks: the Wii clock stands
+// still while the game is held, or the game's own watchdogs see the pause as a hang (PhysicsGetStatePacked panics
+// after 10 s of waiting for the physics thread).
+static volatile LONG64 g_pausedQpc;
+void sdk_time_add_pause(long long qpc) {
+    if (qpc > 0) InterlockedAdd64(&g_pausedQpc, qpc);
+}
+
 s64 OSGetTime(void) {
     sdk_vi_poll();
     static LARGE_INTEGER f, t0;
@@ -76,7 +84,7 @@ s64 OSGetTime(void) {
     }
     LARGE_INTEGER t;
     QueryPerformanceCounter(&t);
-    long double ticks = (long double)(t.QuadPart - t0.QuadPart) * 60750000.0L / (long double)f.QuadPart;
+    long double ticks = (long double)(t.QuadPart - t0.QuadPart - InterlockedAdd64(&g_pausedQpc, 0)) * 60750000.0L / (long double)f.QuadPart;
     return (s64)ticks;
 }
 u32 OSGetTick(void) { return (u32)OSGetTime(); }

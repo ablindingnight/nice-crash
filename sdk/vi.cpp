@@ -48,6 +48,7 @@ void sdk_input_key_down(unsigned vk);  // sdk/input.cpp: a tap between two game 
 bool sdk_input_take_menu_request();    // sdk/input.cpp: Esc, Tab or a Start hold asked for the Nice Crash menu
 bool sdk_menu_test_wants_open();
 bool sdk_menu_open();       // sdk/menu.cpp (NICECRASH_MENUTEST)
+extern "C" void sdk_time_add_pause(long long qpc);  // sdk/os.cpp: the Wii clock stands still while paused
 void sdk_menu_begin();
 void sdk_menu_end();
 bool sdk_menu_frame(int w, int h);
@@ -510,18 +511,24 @@ void sdk_vi_poll() {
     Pump();
     // game.pause_unfocused (launched runs): the game stops while another window has the focus.
     if (host_cfg().pauseUnfocused && (GetForegroundWindow() != g_hwnd || IsIconic(g_hwnd))) {
+        LARGE_INTEGER p0;
+        QueryPerformanceCounter(&p0);
         while (GetForegroundWindow() != g_hwnd || IsIconic(g_hwnd)) {
             Pump();
             Sleep(30);
         }
         QueryPerformanceCounter(&g_last);  // no catch-up burst afterwards
+        sdk_time_add_pause(g_last.QuadPart - p0.QuadPart);
     }
     // The Nice Crash menu (sdk/menu.cpp): the game thread waits here, at its retrace, while the menu runs over the
     // last picture; audio underruns to silence (AX isn't ticked). The clock restarts afterwards (no catch-up).
     if (sdk_input_take_menu_request() | sdk_menu_test_wants_open()) {
+        LARGE_INTEGER p0;
+        QueryPerformanceCounter(&p0);
         RunMenu();
         QueryPerformanceCounter(&now);
         g_last = now;
+        sdk_time_add_pause(now.QuadPart - p0.QuadPart);
     }
     // graphics.show_fps: the frame rate (display copies per second) in the title bar.
     if (host_cfg().showFps) {

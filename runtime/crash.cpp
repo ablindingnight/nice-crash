@@ -27,6 +27,24 @@ static void PrintFrame(HANDLE proc, DWORD64 pc, int i) {
 }
 
 static LONG WINAPI OnCrash(EXCEPTION_POINTERS* ep) {
+    // Started directly (no launcher, no console), stderr goes nowhere: write the report to
+    // %LOCALAPPDATA%\NiceCrash\logs\crash_<date>_<time>.txt instead, so every crash leaves a trace.
+    {
+        DWORD t = GetFileType(GetStdHandle(STD_ERROR_HANDLE));
+        if (t != FILE_TYPE_DISK && t != FILE_TYPE_PIPE && t != FILE_TYPE_CHAR) {
+            const char* la = getenv("LOCALAPPDATA");
+            if (la) {
+                char path[MAX_PATH];
+                SYSTEMTIME st;
+                GetLocalTime(&st);
+                snprintf(path, sizeof path, "%s\\NiceCrash\\logs", la);
+                CreateDirectoryA(path, nullptr);
+                snprintf(path, sizeof path, "%s\\NiceCrash\\logs\\crash_%04d-%02d-%02d_%02d-%02d-%02d.txt", la, st.wYear,
+                         st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+                freopen(path, "w", stderr);
+            }
+        }
+    }
     HANDLE proc = GetCurrentProcess();
     SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES);
     SymInitialize(proc, nullptr, TRUE);

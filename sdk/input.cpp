@@ -4,7 +4,7 @@
 //   2 = 2 (confirm / accelerate: the remote is held sideways), 1 = 1 (back / brake), A = A, B = B,
 //   = / + = Plus, - = Minus, Enter or Home = HOME (as in Dolphin's default keyboard mapping),
 //   arrow keys = D-pad (the remote is held sideways, so the pad is rotated: screen-up is the pad's Right).
-//   Tilt: Left/Right arrows also tilt while Shift is held (steering), for early testing.
+//   Shift + Up/Down (or W/S) leans the truck (the remote tilted forward/back); Left/Right (A/D) steer.
 // NICECRASH_INPUT="<frame>:<button>[,...]" presses buttons on given retrace frames (held for 6 frames), for
 // scripted bring-up runs. Buttons: A B 1 2 PLUS MINUS HOME UP DOWN LEFT RIGHT (screen directions).
 #define WIN32_LEAN_AND_MEAN
@@ -458,7 +458,7 @@ static f32 Axis(SHORT v, int dead) {
 }
 
 // Buttons and the stick of pad `chan` as remote bits and a tilt (steer: -1..1 right; lean: -1..1 back/forward).
-static u32 PadHold(int chan, f32* steer, f32* lean) {
+static u32 PadHold(int chan, f32* steer, f32* lean) {  // lean: +1 = back (remote nose up), -1 = forward
     XState s;
     *steer = *lean = 0;
     if (!PadState(chan, &s, true)) return 0;
@@ -509,7 +509,7 @@ static u32 PadHold(int chan, f32* steer, f32* lean) {
     // Lean (tilting the remote forward/back): the right stick, or the left stick's forward/back, whichever is
     // pushed further.
     f32 ll = Axis(s.ly, 7849), rl = Axis(s.ry, 8689);
-    *lean = fabsf(rl) > fabsf(ll) ? rl : ll;
+    *lean = -(fabsf(rl) > fabsf(ll) ? rl : ll);  // stick up = lean forward (nose down), like pushing a flight stick
     return hold;
 }
 
@@ -550,16 +550,33 @@ static volatile int g_apAir;     // airborne (as of the Hybrid's last update)
 static volatile int g_apFrames;  // game frames since takeoff
 static volatile u32 g_apWhen;    // retrace of that update: menus and loading screens run no Hybrid, so it goes stale
 static volatile float g_apSteer;  // the AI's last steering on the ground (car 0x25F0, -1..1)
+static volatile int g_apLastAI = 1;  // the AI drove the last frame (its steering is in 0x25F0)
+static volatile int g_apGround;      // a ground frame given to the player's driver (NICECRASH_AUTOPILOT=2)
+// NICECRASH_AUTOPILOT=2: on the ground too, every other frame goes to the player's driver holding gas and turbo
+// (2 s on, 1 s off) with the AI's steering, for lessons that want turbo all the way (Cooling Down).
+static int AutopilotMode() {
+    static const int m = getenv("NICECRASH_AUTOPILOT") ? atoi(getenv("NICECRASH_AUTOPILOT")) : 0;
+    return m;
+}
 extern "C" int port_autopilot_air(int airborne, float steer) {
-    if (!airborne && steer == steer) g_apSteer = steer;  // keep the ground steering for the flight
+    if (!airborne && g_apLastAI && steer == steer) g_apSteer = steer;  // the AI's steering, for the other frames
     g_apAir = airborne;
     g_apFrames = airborne ? g_apFrames + 1 : 0;
     g_apWhen = sdk_vi_retrace_count();
-    return airborne;
+    static unsigned tick;
+    int ground = !airborne && AutopilotMode() >= 2 && (tick++ & 1);
+    g_apGround = ground;
+    g_apLastAI = !(airborne || ground);
+    return airborne || ground;
 }
 static bool AutopilotAirborne(f32* lean, f32* steer) {
     // A stale "airborne" (the title's demo truck, then a menu) would hold 2 down and no menu press would register.
-    if (!port_autopilot() || !g_apAir || sdk_vi_retrace_count() - g_apWhen > 4) return false;
+    if (!port_autopilot() || sdk_vi_retrace_count() - g_apWhen > 4) return false;
+    if (g_apGround) {  // a ground frame for the player's driver: the AI's steering, gas, turbo pulses
+        *steer = fmaxf(-1.0f, fminf(1.0f, g_apSteer));
+        return true;
+    }
+    if (!g_apAir) return false;
     // Nor a truck parked off the ground behind a lesson menu (the Hybrid still runs there): real jumps last seconds.
     if (g_apFrames > 300) return false;
     *steer = fmaxf(-1.0f, fminf(1.0f, g_apSteer));  // point along the course, as the AI was steering at takeoff
@@ -568,15 +585,19 @@ static bool AutopilotAirborne(f32* lean, f32* steer) {
     if (mode && !_stricmp(mode, "down")) *lean = -1;
     return true;
 }
-static bool AutopilotTurboNow() { return g_apFrames >= 2 && g_apFrames <= 10; }
+static bool AutopilotTurboNow() {
+    if (g_apGround) return (sdk_vi_retrace_count() / 60) % 3 != 2;  // on the ground: 2 s of turbo, 1 s to cool
+    return g_apFrames >= 2 && g_apFrames <= 10;                      // in the air: just after takeoff
+}
 
-static u32 CurrentHold(f32* tilt) {
+static u32 CurrentHold(f32* tilt, f32* keyLean) {
     if (g_nscript < 0) LoadScript();
     u32 hold = 0;
     u32 now = sdk_vi_retrace_count();
     for (int i = 0; i < g_nscript; i++)
         if (now >= g_script[i].frame && now < g_script[i].frame + g_script[i].len) hold |= g_script[i].bits;
     *tilt = 0;
+    *keyLean = 0;
     if (sdk_vi_has_focus()) {
         bool shift = Key(VK_SHIFT);
         // The remote's 1 and 2: the number keys (Dolphin-like), and . and / for the right hand while WASD steers.
@@ -590,11 +611,18 @@ static u32 CurrentHold(f32* tilt) {
         if (Key(VK_OEM_MINUS) || Key(VK_SUBTRACT)) hold |= BTN_MINUS;
         if (Key(VK_HOME)) hold |= BTN_HOME;
         // Directions: the arrows or WASD (screen directions; the remote is held sideways, so screen up = pad right).
-        if (Key(VK_UP) || Key('W')) hold |= BTN_RIGHT;  // up = turbo in a race
-        if (Key(VK_DOWN) || Key('S')) hold |= BTN_LEFT;
+        // With Shift, Up/W and Down/S lean the truck instead (tilting the remote forward/back, as the sticks'
+        // up/down do); without it they are the D-pad (any direction = turbo in a race).
+        bool up = Key(VK_UP) || Key('W'), down = Key(VK_DOWN) || Key('S');
+        if (shift) {
+            *keyLean = (down ? 1.0f : 0.0f) - (up ? 1.0f : 0.0f);  // Up = forward, Down = back
+        } else {
+            if (up) hold |= BTN_RIGHT;  // up = turbo in a race
+            if (down) hold |= BTN_LEFT;
+        }
         // Left/Right steer (the remote's tilt; KPADRead doubles *tilt, so 0.5 = full lock) and are also the D-pad
         // for menus (the races don't use those D-pad directions). The steering ramps in over ~0.15 s and back out,
-        // so a tap is a small correction; Shift halves it.
+        // so a tap is a small correction.
         bool l = Key(VK_LEFT) || Key('A'), r = Key(VK_RIGHT) || Key('D');
         if (l) hold |= BTN_UP;
         if (r) hold |= BTN_DOWN;
@@ -606,7 +634,7 @@ static u32 CurrentHold(f32* tilt) {
         if (step > 1.0f) step = 1.0f;
         lastFrame = now;
         steer = want > steer ? (steer + step < want ? steer + step : want) : (steer - step > want ? steer - step : want);
-        *tilt = (shift ? 0.25f : 0.5f) * steer;
+        *tilt = 0.5f * steer;
     }
     memset(g_keyTapped, 0, sizeof g_keyTapped);  // taps since the last read have been counted
     return hold;
@@ -663,9 +691,10 @@ s32 KPADRead(s32 chan, void* buf, u32 n) {
     if (chan < 0 || chan > 3 || !buf || !n) return 0;
     f32 steer = 0, lean = 0;
     u32 hold = 0;
+    f32 keyLean = 0;
     if (chan == 0) {  // the keyboard (and the bring-up script) drive remote 1, together with pad 1
         f32 tilt;
-        hold = CurrentHold(&tilt);
+        hold = CurrentHold(&tilt, &keyLean);
         steer = tilt * 2.0f;
     }
     f32 ps, pl;
@@ -675,9 +704,10 @@ s32 KPADRead(s32 chan, void* buf, u32 n) {
     // controls.tilt_sensitivity: how far the remote turns for the same stick or key (100% = the original).
     steer = fmaxf(-1.0f, fminf(1.0f, steer * host_cfg().tiltSens));
     lean = pl;
+    if (keyLean != 0) lean = keyLean;  // Shift + Up/Down (W/S)
     // Scripted stick (NICECRASH_INPUT STICKUP/STICKDOWN/STICKLEFT/STICKRIGHT): full deflection, for tests.
-    if (hold & STICK_UP) lean = 1;
-    if (hold & STICK_DOWN) lean = -1;
+    if (hold & STICK_UP) lean = -1;
+    if (hold & STICK_DOWN) lean = 1;
     if (hold & STICK_LEFT) steer = -1;
     if (hold & STICK_RIGHT) steer = 1;
     hold &= ~(u32)(STICK_UP | STICK_DOWN | STICK_LEFT | STICK_RIGHT);
