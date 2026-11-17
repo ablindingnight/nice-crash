@@ -249,6 +249,14 @@ def gas_name(s):
 def main():
     if '--nocompile' not in sys.argv:
         subprocess.run([sys.executable, '-I', os.path.join(HERE, 'trial.py'), '--jobs', '12', '--obj'], check=True)
+        # A unit that fails to compile would silently become stubs (a broken patch did, 2026-11-16): stop instead,
+        # unless PORT_ALLOW_BROKEN=1.
+        with open(os.path.join(HERE, 'out', 'summary.tsv'), encoding='utf-8') as f:
+            broken = [l.split('\t') for l in f if l.split('\t')[1] != '0']
+        if broken and not os.environ.get('PORT_ALLOW_BROKEN'):
+            for b in broken:
+                print('UNIT DOES NOT COMPILE: %s (%s errors): %s' % (b[0], b[1], b[2].strip()))
+            sys.exit('link stopped: fix the units above (tools/gametrial/out/<unit>.log) or set PORT_ALLOW_BROKEN=1')
     objdir = os.path.join(HERE, 'out', 'obj')
     good = []
     units = set(os.listdir(os.path.join(B, 'gamesrc', 'game')))  # objects of removed units stay out of the link

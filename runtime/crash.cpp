@@ -525,3 +525,33 @@ static DWORD WINAPI Profiler(void*) {
 __attribute__((constructor(102))) static void InstallProfiler() {
     if (getenv("NICECRASH_PROF")) CloseHandle(CreateThread(nullptr, 0, Profiler, nullptr, 0, nullptr));
 }
+
+// operator delete of a pointer outside the game heaps (patches/host-allocator.patch.txt): free() it only if it really
+// is a malloc block. A pointer into the exe image (a static object) or a thread stack would make Windows end the
+// game with heap corruption (0xC0000374); those are logged once per caller and skipped.
+extern "C" void free(void* p);
+extern "C" void port_host_free(void* p, void* caller) {
+    MEMORY_BASIC_INFORMATION mi{};
+    bool heap = VirtualQuery(p, &mi, sizeof mi) && mi.State == MEM_COMMIT && mi.Type == MEM_PRIVATE;
+    if (heap) {
+        // A thread stack is MEM_PRIVATE too: compare with this thread's stack bounds.
+        ULONG_PTR lo = 0, hi = 0;
+        GetCurrentThreadStackLimits(&lo, &hi);
+        if ((ULONG_PTR)p >= lo && (ULONG_PTR)p < hi) heap = false;
+    }
+    if (heap && HeapValidate(GetProcessHeap(), 0, p)) {
+        free(p);
+        return;
+    }
+    static void* seen[32];
+    static int nseen;
+    for (int i = 0; i < nseen; i++)
+        if (seen[i] == caller) return;
+    if (nseen < 32) seen[nseen++] = caller;
+    HANDLE proc = GetCurrentProcess();
+    SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES);
+    SymInitialize(proc, nullptr, TRUE);
+    fprintf(stderr, "[delete] %p is not a heap block (%s); not freed. Caller:\n", p,
+            mi.Type == MEM_IMAGE ? "inside the exe image" : heap ? "not from malloc" : "stack or unmapped");
+    PrintFrame(proc, (DWORD64)(uintptr_t)caller, 0);
+}

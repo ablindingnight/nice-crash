@@ -1,0 +1,8 @@
+@@@ mutphob.cpp | the three pure padding slots (a matching aid) make MutPhob abstract here, so clang compiles its destructor as a trap; phob.cpp deletes MutPhobs when a race ends (Tutorial Exit crashed). The decomp marks them "PORT: drop these three"
+<<<
+    virtual void vf54(void) = 0;
+    virtual void vf58(void) = 0;
+    virtual void vf5C(void) = 0;
+===
+    // PORT: the three pure padding slots are dropped (patches/mutphob-pure-slots.patch.txt)
+>>>

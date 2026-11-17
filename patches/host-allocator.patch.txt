@@ -23,9 +23,10 @@ void operator delete(void* p) { MemFree(p, 3); }
 
 void operator delete[](void* p) { MemFree(p, 0); }
 ===
+extern "C" void port_host_free(void* p, void* caller);  // runtime/crash.cpp: free() only real malloc blocks
 void operator delete(void* p) {
     if (p && !PortIsGamePtr(p)) {
-        free(p);
+        port_host_free(p, __builtin_return_address(0));
         return;
     }
     MemFree(p, 3);
@@ -33,7 +34,7 @@ void operator delete(void* p) {
 
 void operator delete[](void* p) {
     if (p && !PortIsGamePtr(p)) {
-        free(p);
+        port_host_free(p, __builtin_return_address(0));
         return;
     }
     MemFree(p, 0);

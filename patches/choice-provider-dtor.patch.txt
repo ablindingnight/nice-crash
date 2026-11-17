@@ -1,0 +1,6 @@
+@@@ widgets.cpp | the providers are MenuWidgets (menuwidget.h), whose slot 0x18 is the virtual destructor: one slot in MWCC, two in Itanium. Declared as a plain Slot18, Text() called the deleting destructor (Options deleted a stack object and closed the game with 0xC0000374)
+<<<
+virtual int AcceptsKeys();virtual void Slot14();virtual void Slot18();virtual const char* Text();
+===
+virtual int AcceptsKeys();virtual void Slot14();virtual ~ChoiceProviderDispatch();virtual const char* Text();
+>>>

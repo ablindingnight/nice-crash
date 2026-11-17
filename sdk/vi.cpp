@@ -38,8 +38,13 @@ static LARGE_INTEGER g_freq, g_last;
 static void ApplyWindowMode(bool windowed);
 static bool g_windowed;
 
+void sdk_input_key_down(unsigned vk);  // sdk/input.cpp: a tap between two game frames still counts
+
 static LRESULT CALLBACK WndProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
+    case WM_KEYDOWN:
+        sdk_input_key_down((unsigned)wp);
+        break;
     case WM_SYSKEYDOWN:  // Alt+Enter: windowed <-> borderless full screen
         if (wp == VK_RETURN && (HIWORD(lp) & KF_ALTDOWN)) {
             ApplyWindowMode(!g_windowed);
@@ -125,8 +130,18 @@ static RECT MonitorRect() {
 static void ApplyWindowMode(bool windowed) {
     g_windowed = windowed;
     // NICECRASH_HIDEWINDOW=1: never shown (the launcher's movie frame dump renders off screen).
-    static const bool hidden = getenv("NICECRASH_HIDEWINDOW") != nullptr;
-    if (hidden) {
+    // NICECRASH_HIDEWINDOW=offscreen: shown (so it renders and screenshots work) but far off the desktop, never
+    // focused: test runs that don't get in the player's way.
+    static const char* hideMode = getenv("NICECRASH_HIDEWINDOW");
+    if (hideMode && !strcmp(hideMode, "offscreen")) {
+        RECT r{0, 0, host_cfg().windowW, host_cfg().windowH};
+        AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, FALSE);
+        SetWindowLongA(g_hwnd, GWL_STYLE, WS_OVERLAPPEDWINDOW | WS_VISIBLE);
+        SetWindowPos(g_hwnd, HWND_BOTTOM, -20000, -20000, r.right - r.left, r.bottom - r.top,
+                     SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        return;
+    }
+    if (hideMode) {
         SetWindowPos(g_hwnd, nullptr, 0, 0, host_cfg().windowW, host_cfg().windowH, SWP_NOZORDER | SWP_NOACTIVATE | SWP_HIDEWINDOW);
         return;
     }
@@ -258,6 +273,21 @@ static void MaybeShot() {
     free(px);
 }
 
+// NICECRASH_HEAPCHECK=1 (debugging): validate every Windows heap once per presented frame and report the first frame
+// where one is damaged, to find host-side buffer overruns (exit 0xC0000374 only shows up later, at a free).
+static void HeapCheck() {
+    static const bool on = getenv("NICECRASH_HEAPCHECK") != nullptr;
+    static bool reported;
+    if (!on || reported) return;
+    HANDLE heaps[64];
+    DWORD n = GetProcessHeaps(64, heaps);
+    for (DWORD i = 0; i < n && i < 64; i++)
+        if (!HeapValidate(heaps[i], 0, nullptr)) {
+            fprintf(stderr, "[heapcheck] heap %lu (%p) damaged at retrace %u\n", (unsigned long)i, heaps[i], (unsigned)g_retrace);
+            reported = true;
+        }
+}
+
 void sdk_vi_present_now() {
     if (!g_dc) return;
     LumLog();
@@ -287,6 +317,7 @@ static void Present() {
         glDisable(GL_COLOR_LOGIC_OP);
         u32 addr = g_nextFb ? (u32)(uintptr_t)g_nextFb : gxi_last_copy_dst();
         port_trace("present", addr, g_retrace);
+        HeapCheck();
         if (xfb_present(addr, g_black && getenv("NICECRASH_HONOR_BLACK"), g_w, g_h)) {
             LumLog();
             MaybeShot();
