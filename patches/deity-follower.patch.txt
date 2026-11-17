@@ -1,0 +1,16 @@
+@@@ deity.cpp | ROBUSTNESS (port-only, as the swap-detect deity hunk): a car reset (CarBody::SetState -> fn_801B30C0) starts the car's IdealFollower with no start point; when the follower was never positioned its segment is null and LineFollower::Step reads it (access violation in an Excite Race, found by the autopilot). Start at the follower line's first point in that case only; no change when the follower already has a segment
+<<<
+    c->follower->Start(&pos, &dir, reset, start);
+===
+    if (!start && !c->follower->il.seg && c->follower->line) start = c->follower->line->points;  // port
+    c->follower->Start(&pos, &dir, reset, start);
+>>>
+@@@ idealline.cpp | (same): a follower with no segment (no line near the car, or no line at all) has nothing to step along: return instead of reading a null segment
+<<<
+int LineFollower::Step(V2* p) {
+    if (!fn_801355B8(this, p, &il.seg, &il.t)) {
+===
+int LineFollower::Step(V2* p) {
+    if (!il.seg) return 0;  // port
+    if (!fn_801355B8(this, p, &il.seg, &il.t)) {
+>>>

@@ -1,0 +1,6 @@
+@@@ trackobj.cpp | ABI: SolFile::done (offset 0x14) is sphcoll's fn_801A4538(void* a), which walks the resource set the loaded file belongs to; the decomp declares the pointer as taking no argument, so on the PC the callee read a garbage `a` (access violation in fn_8012BC50 after track.sol loads, Tutorial). Pass the file, as retail's register r3 evidently did (to confirm against the retail call site)
+<<<
+        f->done();
+===
+        ((void (*)(void*))f->done)(f);  // port: the callee takes the file
+>>>
