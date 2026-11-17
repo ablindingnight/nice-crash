@@ -97,7 +97,8 @@ def run(zig, src, obj):
                        creationflags=0x08000000)
     log = p.stdout + p.stderr
     open(os.path.join(OUT, b + '.log'), 'w', encoding='utf-8').write(log)
-    errs = re.findall(r' error: (.*)', log)
+    # zig always reports "failed to rename ... .obj" when only checking syntax (no object written): not a compile error.
+    errs = [e for e in re.findall(r' error: (.*)', log) if not e.startswith('failed to rename')]
     return b, len(errs), errs[0] if errs else ''
 
 

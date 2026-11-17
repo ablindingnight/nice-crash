@@ -32,7 +32,7 @@ extern "C" void port_trace(const char* what, unsigned a, unsigned b);  // runtim
 #endif
 
 extern "C" void sdk_vi_present_now();  // sdk/vi.cpp: swap buffers
-extern "C" u32 sdk_vi_retrace_count();
+u32 sdk_vi_retrace_count();  // sdk/vi.cpp (C++ linkage; extern "C" here left it to a link stub returning 0)
 extern "C" void sdk_vi_note_copy();
 extern "C" void sdk_vi_window_size(int* w, int* h);
 

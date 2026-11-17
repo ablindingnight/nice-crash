@@ -18,6 +18,7 @@ extern "C" void port_trace(const char* what, unsigned a, unsigned b);  // runtim
 void sdk_cpu_release();
 void sdk_cpu_acquire();
 void sdk_ax_tick();
+void gxr_drawlog_dump(const char* path);  // sdk/gxrender.cpp (NICECRASH_FLASHDRAWS)
 
 typedef void (*VIRetraceCallback)(u32 retraceCount);
 
@@ -270,7 +271,6 @@ static void LumLog() {
         saved++;
         char path[64];
         snprintf(path, sizeof path, "build/t3/flash_%u.txt", g_retrace);
-        void gxr_drawlog_dump(const char* path);
         gxr_drawlog_dump(path);  // the draws of the frames before (sdk/gxrender.cpp)
         snprintf(path, sizeof path, "build/t3/flash_%u.bmp", g_retrace);
         BITMAPFILEHEADER fh{};
