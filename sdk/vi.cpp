@@ -13,6 +13,7 @@
 #include "project.h"
 #include "sdk.h"
 #include "hostcfg.h"
+extern "C" void port_trace(const char* what, unsigned a, unsigned b);  // runtime/trace.cpp (NICECRASH_TRACE)
 
 void sdk_cpu_release();
 void sdk_cpu_acquire();
@@ -285,6 +286,7 @@ static void Present() {
         gxr_end_batch();
         glDisable(GL_COLOR_LOGIC_OP);
         u32 addr = g_nextFb ? (u32)(uintptr_t)g_nextFb : gxi_last_copy_dst();
+        port_trace("present", addr, g_retrace);
         if (xfb_present(addr, g_black && getenv("NICECRASH_HONOR_BLACK"), g_w, g_h)) {
             LumLog();
             MaybeShot();

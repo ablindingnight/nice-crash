@@ -13,6 +13,8 @@
 #include "sdk.h"
 #include "xfb.h"
 #include "hostcfg.h"
+#include "gxinterp.h"
+extern "C" void port_trace(const char* what, unsigned a, unsigned b);  // runtime/trace.cpp (NICECRASH_TRACE)
 
 namespace {
 
@@ -90,6 +92,7 @@ bool xfb_active() { return Load(); }
 void xfb_bind_efb(int w, int h) {
     if (!Load()) return;
     if (!g_fbo || w != g_w || h != g_h) {
+        port_trace("efb-alloc", w, h);
         if (!g_fbo) {
             p_glGenFramebuffers(1, &g_fbo);
             glGenTextures(1, &g_color);
@@ -153,6 +156,18 @@ void xfb_resolve(bool depth) {
         if (g_fbo) p_glBindFramebuffer(GL_FRAMEBUFFER_, g_fbo);
         return;
     }
+    port_trace("resolve", g_w, depth);
+    // The game's last draw state is still set: a blit is affected by the scissor and the masks, and with logic op
+    // on the driver ended the process (0xC0000409 at the Tutorial's loading copy). Plain state for the blit; the
+    // next draw sets everything up again.
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_COLOR_LOGIC_OP);
+    glDisable(GL_BLEND);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_ALPHA_TEST);
+    glColorMask(1, 1, 1, 1);
+    glDepthMask(1);
+    gxr_state_dirty();
     p_glBindFramebuffer(GL_READ_FRAMEBUFFER_, g_msFbo);
     p_glBindFramebuffer(GL_DRAW_FRAMEBUFFER_, g_fbo);
     p_glBlitFramebuffer(0, 0, g_w, g_h, 0, 0, g_w, g_h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
@@ -169,6 +184,7 @@ void xfb_copy(u32 addr, int lines) {
     Xfb& x = g_xfbs[addr];
     if (NC_ENV("NICECRASH_XFBLOG")) fprintf(stderr, "[xfb] copy %08x lines %d%c", addr, lines, 10);
     if (!x.tex) glGenTextures(1, &x.tex);
+    port_trace("xfb-copy", addr, lines);
     xfb_resolve();  // binds g_fbo
     glBindTexture(GL_TEXTURE_2D, x.tex);
     if (x.w != g_w || x.h != g_h) {
@@ -252,6 +268,7 @@ unsigned xfb_efb_color() { return g_color; }
 
 bool xfb_target_tex(unsigned tex, int w, int h) {
     if (!Load() || !g_fbo) return false;
+    port_trace("target-tex", tex, w);
     static GLuint fbo;
     if (!fbo) p_glGenFramebuffers(1, &fbo);
     p_glBindFramebuffer(GL_FRAMEBUFFER_, fbo);

@@ -20,6 +20,7 @@
 #include "gxtev.h"
 #include "xfb.h"
 #include "texpack.h"
+extern "C" void port_trace(const char* what, unsigned a, unsigned b);  // runtime/trace.cpp (NICECRASH_TRACE)
 #include "hostcfg.h"
 
 #ifndef GL_CLAMP_TO_EDGE
@@ -399,6 +400,7 @@ bool BindTexMap(int m) {
             }
         }
         if (!t.id) glGenTextures(1, &t.id);
+        port_trace("tex-upload", addr, (unsigned)(fmt << 24 | w << 12 | h));
         glBindTexture(GL_TEXTURE_2D, t.id);
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
@@ -756,6 +758,7 @@ void gxr_state_dirty() { g_stateDirty = true; }
 
 void gxr_flush_batch() {
     if (!g_batchN) return;
+    port_trace("draw", (unsigned)g_batchN, (unsigned)g_batchIdx.size());
     g_nFlush++;
     if (!g_batchIdx.empty())
         gxt_draw_arrays(GL_TRIANGLES, g_batch.data(), BvStride(g_bNTex), (int)g_batchN, g_bNTex, g_batchIdx.data(),
@@ -1138,6 +1141,7 @@ void ResolveCopies(int before) {
             continue;
         }
         p_bindBuffer(GL_PIXEL_PACK_BUFFER_, pc.pbo);
+        port_trace("pbo-map", pc.dst, (unsigned)(pc.tw << 16 | pc.th));
         auto it = g_efbCopies.find(pc.dst);
         if (const u8* m = it != g_efbCopies.end() ? (const u8*)p_mapBuffer(GL_PIXEL_PACK_BUFFER_, GL_READ_ONLY_) : nullptr) {
             std::vector<u8> small(m, m + (size_t)pc.tw * pc.th * 4);
@@ -1283,6 +1287,7 @@ bool GpuCopy(EfbCopy& c, u32 dst, int real, bool inten, int px0, int py0, int pw
 }
 
 void gxr_copy(u32 bp52) {
+    port_trace("copy", bp52, g_gx.bp[0x4B]);
     gxr_end_batch();
     bool toXfb = (bp52 >> 14) & 1, clear = (bp52 >> 11) & 1;
     if (toXfb && NC_ENV("NICECRASH_COPYLOG")) {
