@@ -1261,7 +1261,6 @@ void PageLanguage() {
     PickerRow(L"Language", "game.language", {"en"}, {L"English (from your disc)"},
               L"The languages your disc has. A USA disc has English.");
     SubHead(L"Game");
-    ToggleRow(L"Skip intro movies", "game.skip_intro", L"Skips the opening movies only. The title screen stays.");
     ToggleRow(L"Pause in background", "game.pause_unfocused", L"Opens the Nice Crash menu when the game loses focus.");
     ToggleRow(L"Open menu with Tab", "game.menu_on_tab", L"Esc always opens it.");
     SegRow(L"Screenshot key", "game.screenshot_key",
