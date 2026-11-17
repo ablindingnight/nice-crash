@@ -29,6 +29,10 @@ share is logged, and frames that jump are saved as `build/t3/flash_<retrace>.bmp
 - Long thin / big green triangles at the GPU hand-off (client arrays as drawn): none found with vertex colour green;
   but the bars' colour is not a vertex colour, so this check could not see them.
 
+- Stale batched state (TC's idea): GL state set up again for every draw (no batching): bars still appear
+  (a slow run, so speed is not strictly required either).
+- glFinish after every draw: untestable (~30,000 draws a frame; the race is never reached).
+
 ## Not yet tried / ideas
 - Find what draws with the truck's paint at 2x: the truck's own passes (reflection/shine, shadow, damage), or
   something sampling the paint texture through another stage (SKIPTEX only checks stage 0). Skip the truck's draws
