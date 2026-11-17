@@ -14,6 +14,7 @@
 #include <cstring>
 #include "sdk.h"
 #include "hostcfg.h"
+#include "settings.h"
 bool sdk_vi_has_focus();
 
 typedef void (*AXCallback)(void);
@@ -256,7 +257,27 @@ void OpenOutput() {
     wf.wBitsPerSample = 16;
     wf.nBlockAlign = 4;
     wf.nAvgBytesPerSec = kRate * 4;
-    if (waveOutOpen(&g_wo, WAVE_MAPPER, &wf, 0, 0, CALLBACK_NULL) != MMSYSERR_NOERROR) {
+    // audio.device: the launcher's choice by name (waveOut's device name, UTF-8); "default", an empty value or a
+    // device that is no longer there: the system default (WAVE_MAPPER).
+    UINT dev = WAVE_MAPPER;
+    if (const char* want = Settings_Get("audio.device")) {
+        if (*want && strcmp(want, "default") != 0) {
+            UINT n = waveOutGetNumDevs();
+            for (UINT i = 0; i < n; i++) {
+                WAVEOUTCAPSW caps;
+                char name[128];
+                if (waveOutGetDevCapsW(i, &caps, sizeof caps) == MMSYSERR_NOERROR &&
+                    WideCharToMultiByte(CP_UTF8, 0, caps.szPname, -1, name, sizeof name, nullptr, nullptr) &&
+                    strcmp(name, want) == 0) {
+                    dev = i;
+                    break;
+                }
+            }
+            sdk_log(dev == WAVE_MAPPER ? "ax: audio device \"%s\" not found: system default" : "ax: audio device \"%s\"", want);
+        }
+    }
+    if (waveOutOpen(&g_wo, dev, &wf, 0, 0, CALLBACK_NULL) != MMSYSERR_NOERROR &&
+        (dev == WAVE_MAPPER || waveOutOpen(&g_wo, WAVE_MAPPER, &wf, 0, 0, CALLBACK_NULL) != MMSYSERR_NOERROR)) {
         sdk_log("ax: no audio output device");
         g_wo = nullptr;
         return;
