@@ -62,6 +62,9 @@ const Def kDefs[] = {
     {"game.screenshot_key", "F12", 0, nullptr},
     {"game.menu_on_tab", "1", 0, nullptr},
     {"launcher.dump_path", "", 0, nullptr},
+    // Where the bulky game data lives (the extracted disc, enhanced files, texture packs and dumps); settings, logs
+    // and saves stay in %LOCALAPPDATA%\NiceCrash. Environment variables are expanded.
+    {"launcher.data_dir", "%USERPROFILE%\\Games\\Nice Crash", kRestart, nullptr},
     {"launcher.close_on_play", "1", 0, nullptr},
     {"launcher.check_updates", "1", 0, nullptr},
     {"launcher.channel", "stable", 0, nullptr},
@@ -287,6 +290,20 @@ bool EraseLocked(const std::string& sec, const std::string& name) {
 }
 
 }  // namespace
+
+std::string Settings_DataDir(void) {
+    char out[MAX_PATH * 2] = {};
+    std::string v = Settings_Get("launcher.data_dir");
+    if (v.empty()) v = Settings_Default("launcher.data_dir");
+    if (!ExpandEnvironmentStringsA(v.c_str(), out, sizeof out) || strchr(out, '%')) return portcfg::Dir();
+    std::string d = out;
+    while (d.size() > 3 && (d.back() == '\\' || d.back() == '/')) d.pop_back();
+    // Create it, parent by parent (the default's Games folder may not exist yet).
+    for (size_t i = 3; i <= d.size(); i++)
+        if (i == d.size() || d[i] == '\\' || d[i] == '/') CreateDirectoryA(d.substr(0, i).c_str(), nullptr);
+    DWORD a = GetFileAttributesA(d.c_str());
+    return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY) ? d : portcfg::Dir();
+}
 
 const char* Settings_Path(void) {
     EnsureLoaded();

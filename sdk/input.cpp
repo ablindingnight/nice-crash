@@ -94,7 +94,13 @@ static void LoadScript() {
     }
 }
 
-static bool Key(int vk) { return (GetAsyncKeyState(vk) & 0x8000) != 0; }
+// Keys pressed since the last read (sdk/vi.cpp's window procedure calls sdk_input_key_down): a quick tap between
+// two game frames still counts once. CurrentHold clears them after each read.
+static bool g_keyTapped[256];
+void sdk_input_key_down(unsigned vk) {
+    if (vk < 256) g_keyTapped[vk] = true;
+}
+static bool Key(int vk) { return (GetAsyncKeyState(vk) & 0x8000) != 0 || (vk < 256 && g_keyTapped[vk]); }
 
 // ---- Pads: XInput and DirectInput (both part of Windows, loaded at run time; nothing to install) ----
 // Pad slots 0-3 are the connected XInput pads first, then DirectInput game controllers that are not XInput
@@ -283,6 +289,7 @@ struct Slot {
 static Slot g_slots[4];             // pad thread's table
 static Slot g_slotsPub[4];          // published copy (under g_padLock)
 static XState g_padState[4];        // latest states (under g_padLock)
+static XState g_padLatch[4];        // buttons pressed / triggers pulled since the last read (under g_padLock)
 static bool g_padOn[4];
 static CRITICAL_SECTION g_padLock;
 
@@ -345,6 +352,13 @@ static DWORD WINAPI PadThread(LPVOID) {
             }
         }
         EnterCriticalSection(&g_padLock);
+        // Presses since the game last read the pad (PadState with consume): the game samples the remote once per
+        // game frame (33 ms in 30 fps screens), so a quick tap between two reads would never be seen.
+        for (int c = 0; c < 4; c++) {
+            g_padLatch[c].buttons |= st[c].buttons;
+            if (st[c].lt > g_padLatch[c].lt) g_padLatch[c].lt = st[c].lt;
+            if (st[c].rt > g_padLatch[c].rt) g_padLatch[c].rt = st[c].rt;
+        }
         memcpy(g_padState, st, sizeof st);
         memcpy(g_padOn, on, sizeof on);
         memcpy(g_slotsPub, g_slots, sizeof g_slots);
@@ -355,7 +369,7 @@ static DWORD WINAPI PadThread(LPVOID) {
     return 0;
 }
 
-static bool PadState(int chan, XState* s) {
+static bool PadState(int chan, XState* s, bool consume = false) {
     static bool started;
     if (!started) {
         started = true;
@@ -367,6 +381,12 @@ static bool PadState(int chan, XState* s) {
     EnterCriticalSection(&g_padLock);
     bool on = g_padOn[chan];
     if (on) *s = g_padState[chan];
+    if (on && consume) {  // the buttons pressed since the last read count as held now (see PadThread)
+        s->buttons |= g_padLatch[chan].buttons;
+        if (g_padLatch[chan].lt > s->lt) s->lt = g_padLatch[chan].lt;
+        if (g_padLatch[chan].rt > s->rt) s->rt = g_padLatch[chan].rt;
+    }
+    if (consume) memset(&g_padLatch[chan], 0, sizeof g_padLatch[chan]);
     LeaveCriticalSection(&g_padLock);
     return on;
 }
@@ -385,12 +405,12 @@ static f32 Axis(SHORT v, int dead) {
 static u32 PadHold(int chan, f32* steer, f32* lean) {
     XState s;
     *steer = *lean = 0;
-    if (!PadState(chan, &s)) return 0;
+    if (!PadState(chan, &s, true)) return 0;
     enum { DUP = XDUP, DDOWN = XDDOWN, DLEFT = XDLEFT, DRIGHT = XDRIGHT, START = XSTART, BACK = XBACK, LB = XLB,
            RB = XRB };
     u32 hold = 0;
     WORD b = s.buttons;
-    if ((b & XA) || s.rt > 64) hold |= BTN_2;
+    if (b & XA) hold |= BTN_2;  // gas / OK
     if ((b & XB) || s.lt > 64) hold |= BTN_1;
     if (b & START) hold |= BTN_PLUS;
     if (b & LB) hold |= BTN_MINUS;
@@ -400,10 +420,13 @@ static u32 PadHold(int chan, f32* steer, f32* lean) {
     if (b & DDOWN) hold |= BTN_LEFT;
     if (b & DLEFT) hold |= BTN_UP;
     if (b & DRIGHT) hold |= BTN_DOWN;
-    if ((b & XX) || (b & RB)) hold |= BTN_RIGHT;  // turbo
+    if ((b & XX) || (b & RB) || s.rt > 64) hold |= BTN_RIGHT;  // turbo: R2 (user's choice), also X and RB
     *steer = Axis(s.lx, 7849);
     if (host_cfg().invertSteer) *steer = -*steer;  // controls.invert_steer
-    *lean = Axis(s.ly, 7849);
+    // Lean (tilting the remote forward/back): the right stick, or the left stick's forward/back, whichever is
+    // pushed further.
+    f32 ll = Axis(s.ly, 7849), rl = Axis(s.ry, 8689);
+    *lean = fabsf(rl) > fabsf(ll) ? rl : ll;
     return hold;
 }
 
@@ -444,6 +467,7 @@ static u32 CurrentHold(f32* tilt) {
         steer = want > steer ? (steer + step < want ? steer + step : want) : (steer - step > want ? steer - step : want);
         *tilt = (shift ? 0.25f : 0.5f) * steer;
     }
+    memset(g_keyTapped, 0, sizeof g_keyTapped);  // taps since the last read have been counted
     return hold;
 }
 
@@ -525,8 +549,11 @@ s32 KPADRead(s32 chan, void* buf, u32 n) {
     XState pad;
     bool havePad = (sdk_vi_has_focus() || chan != 0) && PadState(chan, &pad);
     if (havePad) {
-        f32 rx = Axis(pad.rx, 8689), ry = Axis(pad.ry, 8689);
-        if (fn_802ECC10()) {  // in the HOME menu the left stick and the D-pad move the pointer too
+        // The right stick is the pointer in the HOME menu only (elsewhere it leans the truck, PadHold).
+        f32 rx = 0, ry = 0;
+        if (fn_802ECC10()) {  // in the HOME menu the right stick, the left stick and the D-pad move the pointer
+            rx = Axis(pad.rx, 8689);
+            ry = Axis(pad.ry, 8689);
             if (rx == 0 && ry == 0) {
                 rx = Axis(pad.lx, 7849);
                 ry = Axis(pad.ly, 7849);

@@ -273,7 +273,7 @@ Replacement* Find(const std::string& base) {
     auto it = g_repl.find(base);
     if (it == g_repl.end()) {
         Replacement& r = g_repl[base];
-        std::string path = portcfg::Dir() + "\\cache\\enhanced\\" + base + ".mp4";
+        std::string path = Settings_DataDir() + "\\cache\\enhanced\\" + base + ".mp4";
         if (GetFileAttributesA(path.c_str()) == INVALID_FILE_ATTRIBUTES || !Open(r, path)) r.failed = true;
         it = g_repl.find(base);
     }

@@ -226,7 +226,86 @@ static void RemoveTree(const std::string& dir) {  // only ever our own disc cach
     RemoveDirectoryA(dir.c_str());
 }
 
-std::string DiscCacheDir() { return portcfg::Dir() + "\\disc"; }
+std::string DiscCacheDir() { return Settings_DataDir() + "\\disc"; }
+
+// ---- the game data folder (launcher.data_dir) ----
+static const char* kDataSubdirs[] = {"disc", "cache", "textures", "dump"};
+
+// Moves one folder (any drive) with the shell's own mover; false if it failed.
+static bool MoveTree(const std::string& from, const std::string& to) {
+    if (MoveFileExA(from.c_str(), to.c_str(), MOVEFILE_WRITE_THROUGH)) return true;  // same drive: a rename
+    std::wstring f = W(from) + L'\0', t = W(to) + L'\0';  // double-null-terminated lists
+    SHFILEOPSTRUCTW op{};
+    op.wFunc = FO_MOVE;
+    op.pFrom = f.c_str();
+    op.pTo = t.c_str();
+    op.fFlags = FOF_NO_UI;
+    return SHFileOperationW(&op) == 0 && !op.fAnyOperationsAborted;
+}
+
+// dump.ini points at the extracted disc: follow it when the disc folder moves.
+static void RebaseDumpIni(const std::string& from, const std::string& to) {
+    portcfg::Values v;
+    if (!portcfg::Read(portcfg::DumpIniPath(), v)) return;
+    bool changed = false;
+    for (const char* k : {"disc", "dol"}) {
+        std::string p = v[k];
+        if (p.size() >= from.size() && !_strnicmp(p.c_str(), from.c_str(), from.size())) {
+            v[k] = to + p.substr(from.size());
+            changed = true;
+        }
+    }
+    if (changed) portcfg::Write(portcfg::DumpIniPath(), v, "written by the dump importer; paths to the player's own dump");
+}
+
+static bool MoveData(const std::string& from, const std::string& to, std::string& err) {
+    bool ok = true;
+    for (const char* sub : kDataSubdirs) {
+        std::string a = from + "\\" + sub, b = to + "\\" + sub;
+        if (!IsDir(a)) continue;
+        if (IsDir(b)) {
+            err += std::string("A ") + sub + " folder is already in the new place; the old one was left. ";
+            ok = false;
+            continue;
+        }
+        if (!MoveTree(a, b)) {
+            err += std::string("Couldn't move ") + sub + ". ";
+            ok = false;
+            continue;
+        }
+        RebaseDumpIni(a, b);
+    }
+    return ok;
+}
+
+bool ChangeDataDir(const std::string& to, std::string& err) {
+    std::string from = Settings_DataDir(), dest = Full(to);
+    if (!_stricmp(from.c_str(), dest.c_str())) return true;
+    CreateDirectoryA(dest.c_str(), nullptr);
+    if (!IsDir(dest)) {
+        err = "That folder can't be created.";
+        return false;
+    }
+    bool ok = MoveData(from, dest, err);
+    Settings_Set("launcher.data_dir", dest.c_str());
+    Settings_Flush();
+    LogLine("[launcher] game data folder: %s -> %s%s%s", from.c_str(), dest.c_str(), ok ? "" : ": ", err.c_str());
+    return ok;
+}
+
+// Before launcher.data_dir existed everything lived in the settings folder: move it once into the data folder.
+void MigrateLegacyData() {
+    std::string legacy = portcfg::Dir(), to = Settings_DataDir();
+    if (!_stricmp(legacy.c_str(), to.c_str())) return;
+    std::string err;
+    for (const char* sub : kDataSubdirs)
+        if (IsDir(legacy + "\\" + sub)) {
+            MoveData(legacy, to, err);
+            LogLine("[launcher] moved the game data from %s to %s%s%s", legacy.c_str(), to.c_str(), err.empty() ? "" : ": ",
+                    err.c_str());
+            return;
+        }
+}
 
 // The image's game ID, and (for the USA disc) the extracted folder. False with why when it can't be used.
 static bool PrepareImage(const std::string& img, std::string& folder, std::string& id, std::string& why) {
@@ -828,8 +907,8 @@ Checklist Snapshot() { Lk lk; return s_check; }
 
 // ---------------------------------------------------------------- enhance my game
 
-std::string EnhancedDir() { return portcfg::Dir() + "\\cache\\enhanced"; }
-static std::string FramesDir() { return portcfg::Dir() + "\\cache\\frames"; }
+std::string EnhancedDir() { return Settings_DataDir() + "\\cache\\enhanced"; }
+static std::string FramesDir() { return Settings_DataDir() + "\\cache\\frames"; }
 
 static long long FileBytes(const std::string& p) {
     WIN32_FILE_ATTRIBUTE_DATA fa;
@@ -872,14 +951,14 @@ static std::string Upscaler() {
 static DWORD WINAPI EnhanceThread(void*) {
     enum { SPACE, FRAMES, SCALE, SWITCH, CLEAN };
     std::string frames = FramesDir(), out = EnhancedDir();
-    CreateDirectoryA((portcfg::Dir() + "\\cache").c_str(), nullptr);
+    CreateDirectoryA((Settings_DataDir() + "\\cache").c_str(), nullptr);
     CreateDirectoryA(out.c_str(), nullptr);
     int scale = Settings_GetInt("graphics.upscale_scale");
     if (scale != 4) scale = 2;
     std::string up = Upscaler();
     {
         SetStep(SPACE, ACTIVE);
-        long long need = (long long)2200 << 20, have = FreeBytes(portcfg::Dir());  // ~1.7 GB of frames + the video
+        long long need = (long long)2200 << 20, have = FreeBytes(Settings_DataDir());  // ~1.7 GB of frames + the video
         if (have >= 0 && have < need) {
             Fail(SPACE, L"About " + FormatBytes(need) + L" free space is needed; " + FormatBytes(have) + L" is free.");
             goto out;

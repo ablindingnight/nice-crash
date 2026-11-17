@@ -227,7 +227,7 @@ void DoPlayAction() {
     }
 }
 
-std::string PickFolder() {
+std::string PickFolder(const wchar_t* title = L"Choose your extracted Wii disc folder") {
     std::string out;
     IFileOpenDialog* dlg = nullptr;
     if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_IFileOpenDialog, (void**)&dlg)))
@@ -235,7 +235,7 @@ std::string PickFolder() {
     DWORD opt = 0;
     dlg->GetOptions(&opt);
     dlg->SetOptions(opt | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST);
-    dlg->SetTitle(L"Choose your extracted Wii disc folder");
+    dlg->SetTitle(title);
     if (SUCCEEDED(dlg->Show(A.hwnd))) {
         IShellItem* item = nullptr;
         if (SUCCEEDED(dlg->GetResult(&item))) {
@@ -1078,6 +1078,23 @@ void PageFiles() {
         if (Button2(L"Change\u2026", kMainX + kMainW - bw, cy - 4) || (Focused(idx) && g.in.accept && !g.consumed)) {
             g.consumed = true;
             Go(DISC);
+        }
+    }
+    {
+        int idx = Row(L"Game data folder", L"The extracted disc, enhanced files and texture packs.", nullptr, 36, &cy);
+        std::wstring p = Ellipsize(ui::W(Settings_DataDir()), F_MONO, 12.5f, 240);
+        Text(p, F_MONO, 12.5f, kCtlX, cy + 10, col::fg);
+        float bw = TextWidth(L"CHANGE…", F_DISPLAY, 17, 0.12f) + 52;
+        g.focusCount--;  // the button shares the row's focus slot
+        if (Button2(L"Change…", kMainX + kMainW - bw, cy - 4) || (Focused(idx) && g.in.accept && !g.consumed)) {
+            g.consumed = true;
+            std::string to = PickFolder(L"Choose where Nice Crash keeps its game data");
+            if (!to.empty()) {
+                std::string err;
+                bool ok = tasks::ChangeDataDir(to, err);
+                A.st = tasks::Refresh();
+                Toast(ok ? L"Moved. Nice Crash keeps its game data there now." : ui::W(err));
+            }
         }
     }
     {
@@ -2085,6 +2102,7 @@ int LauncherMain() {
         MessageBoxA(nullptr, "GDI+ failed to start.", PROJECT_NAME, MB_ICONERROR);
         return 1;
     }
+    tasks::MigrateLegacyData();  // older builds kept the game data next to the settings
     A.st = tasks::Refresh();
     if (!A.st.haveDump) A.screen = DISC;
     if (HMODULE x = LoadLibraryA("xinput1_4.dll")) g_xget = (XInputGetStateFn)GetProcAddress(x, "XInputGetState");

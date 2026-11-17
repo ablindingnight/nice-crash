@@ -118,7 +118,7 @@ void Index() {
     g_indexed = true;
     g_loading = Settings_GetInt("graphics.enhanced_assets") != 0;
     if (!g_loading) return;
-    std::string dir = portcfg::Dir() + "\\textures\\REXE01";
+    std::string dir = Settings_DataDir() + "\\textures\\REXE01";
     Scan(dir);
     if (!SelfTest()) {
         fprintf(stderr, "[texpack] XXH64 self-test failed: texture packs off\n");
@@ -265,7 +265,7 @@ void texpack_dump(const std::string& name, const std::vector<u8>& rgba, int w, i
     if (!done.insert(name).second) return;
     static std::string dir;
     if (dir.empty()) {
-        std::string base = portcfg::Dir();
+        std::string base = Settings_DataDir();
         for (const char* sub : {"\\dump", "\\textures", "\\REXE01"}) {  // each level appended in turn
             base += sub;
             CreateDirectoryA(base.c_str(), nullptr);

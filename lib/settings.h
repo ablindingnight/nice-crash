@@ -40,6 +40,9 @@ bool Settings_IsSetInFile(const char* key);
 void Settings_Flush(void);                         // write now if a debounced write is pending
 void Settings_Reload(void);                        // re-read the file (another program may have changed it)
 const char* Settings_Path(void);
+// launcher.data_dir expanded and created (default %USERPROFILE%\Games\Nice Crash): the extracted disc, enhanced
+// files, texture packs and dumps. Falls back to the settings folder when it can't be created.
+std::string Settings_DataDir(void);
 
 // C++ helpers.
 namespace settings {

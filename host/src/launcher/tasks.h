@@ -30,7 +30,10 @@ struct DumpInfo {
 };
 DumpInfo InspectDump(const std::string& path, bool measure);  // a folder or a disc image (extracted once, cached)
 bool IsDiscImage(const std::string& path);                     // .iso .rvz .wia .wbfs .ciso .gcz .nfs
-std::string DiscCacheDir();                                    // %LOCALAPPDATA%\NiceCrash\disc
+std::string DiscCacheDir();                                    // <game data folder>\disc
+// The game data folder (launcher.data_dir, default %USERPROFILE%\Games\Nice Crash): disc, cache, textures, dump.
+bool ChangeDataDir(const std::string& to, std::string& err);  // moves what is there, then switches
+void MigrateLegacyData();                                       // once: from the settings folder (older builds)
 
 // The dump the launcher uses: launcher.dump_path, else dump.ini's disc. Re-checked on demand.
 struct State {
