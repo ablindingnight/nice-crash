@@ -13,12 +13,17 @@
         ctl = fn_80134E90();
     }
 >>>
-@@@ playcar.cpp | (same): with the autopilot on, the Hybrid always lets the AI driver (offset 0x8) drive, never the player's driver
+@@@ playcar.cpp | (same): with the autopilot on, the Hybrid lets the AI driver (offset 0x8) drive on the ground and the player's driver (0xC) in the air
 <<<
     if (!lbl_8055E529) {
 ===
     extern int port_autopilot(void);  // sdk/input.cpp
     if (port_autopilot()) {
-        fn_80191084(p, U32(p, 0x8));
+        // In the air the player's driver takes over, fed by the autopilot's own presses (turbo just after
+        // takeoff, the lean the lesson wants): sdk/input.cpp port_autopilot_air. On the ground the AI drives.
+        // The car's steering (0x25F0, written by whichever driver drives) goes along: in the air the autopilot keeps
+        // the AI's last steering from the ground, so the truck stays pointed along the course.
+        extern int port_autopilot_air(int airborne, float steer);  // sdk/input.cpp
+        fn_80191084(p, port_autopilot_air(!U8(p, 0x24), F32(PTR(p, 0x20), 0x25F0)) ? U32(p, 0xC) : U32(p, 0x8));
     } else if (!lbl_8055E529) {
 >>>

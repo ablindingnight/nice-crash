@@ -542,6 +542,32 @@ void sdk_input_swallow_held() {
     }
 }
 
+// Autopilot in the air (patches/autopilot): playcar's Hybrid reports each game frame whether the truck is airborne
+// and hands it to the player's driver while it is; the remote then holds gas, taps turbo frames 2-10 after takeoff
+// and leans as NICECRASH_AUTOPILOT_LEAN says.
+extern "C" int port_autopilot(void);
+static volatile int g_apAir;     // airborne (as of the Hybrid's last update)
+static volatile int g_apFrames;  // game frames since takeoff
+static volatile u32 g_apWhen;    // retrace of that update: menus and loading screens run no Hybrid, so it goes stale
+static volatile float g_apSteer;  // the AI's last steering on the ground (car 0x25F0, -1..1)
+extern "C" int port_autopilot_air(int airborne, float steer) {
+    if (!airborne && steer == steer) g_apSteer = steer;  // keep the ground steering for the flight
+    g_apAir = airborne;
+    g_apFrames = airborne ? g_apFrames + 1 : 0;
+    g_apWhen = sdk_vi_retrace_count();
+    return airborne;
+}
+static bool AutopilotAirborne(f32* lean, f32* steer) {
+    // A stale "airborne" (the title's demo truck, then a menu) would hold 2 down and no menu press would register.
+    if (!port_autopilot() || !g_apAir || sdk_vi_retrace_count() - g_apWhen > 4) return false;
+    *steer = fmaxf(-1.0f, fminf(1.0f, g_apSteer));  // point along the course, as the AI was steering at takeoff
+    static const char* mode = getenv("NICECRASH_AUTOPILOT_LEAN");
+    if (mode && !_stricmp(mode, "up")) *lean = 1;
+    if (mode && !_stricmp(mode, "down")) *lean = -1;
+    return true;
+}
+static bool AutopilotTurboNow() { return g_apFrames >= 2 && g_apFrames <= 10; }
+
 static u32 CurrentHold(f32* tilt) {
     if (g_nscript < 0) LoadScript();
     u32 hold = 0;
@@ -653,6 +679,12 @@ s32 KPADRead(s32 chan, void* buf, u32 n) {
     if (hold & STICK_LEFT) steer = -1;
     if (hold & STICK_RIGHT) steer = 1;
     hold &= ~(u32)(STICK_UP | STICK_DOWN | STICK_LEFT | STICK_RIGHT);
+    // The autopilot in the air (patches/autopilot: the player's driver has the truck): gas held, turbo tapped just
+    // after takeoff (a turbo jump), and NICECRASH_AUTOPILOT_LEAN=up|down leans the truck back or forward.
+    if (chan == 0 && AutopilotAirborne(&lean, &steer)) {
+        hold |= BTN_2;
+        if (AutopilotTurboNow()) hold |= BTN_RIGHT;  // the remote's up: turbo
+    }
     // The pointer (the HOME menu points and presses A). Each pad's right stick moves its remote's pointer; on
     // remote 1 the mouse does too, and whichever moved last wins. A left click is A; in the HOME menu the pad's A
     // is the remote's A as well (elsewhere it stays button 2).
