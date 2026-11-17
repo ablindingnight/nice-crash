@@ -557,3 +557,12 @@
   realesrgan-x4plus at 2x: 27 minutes on the RTX 3090, 96 MB, plays in the game (1381b2b). Copies for the user:
   Videos\Nice Crash\Excite Truck intro - original (640x448).mp4 and ... - AI upscaled Real-ESRGAN (1280x896).mp4
   (video only, no sound).
+
+## Texture packs (2026-11-16, c680436) and next launcher step
+- Texture packs: Dolphin-compatible names (XXH64, palette ranges, "_m", "_$" wildcard); replacements under
+  %LOCALAPPDATA%\NiceCrash\textures\REXE01\ when enhanced files are on (any size, mipmapped; shaders keep the Wii
+  size); NICECRASH_TEXPACK_DUMP=1 dumps PNGs to ...\dump\textures\REXE01\. Verified with a Real-ESRGAN 4x race
+  ground. To do for real packs: background loading, BC7 compression, DDS, a launcher page, "Enhance" for textures.
+- Keyboard (ba0823d, 28f0303): 2 or / = 2, 1 or . = 1, WASD/arrows = directions (A/D steer, W turbo), Space = A.
+- Next: disc images in the launcher (ISO/RVZ/WIA/WBFS/CISO/GCZ via decomp-toolkit's `dtk vfs`, verify REXE01 +
+  main.dol SHA-1, extract to %LOCALAPPDATA%\NiceCrash\disc\, no-op on the same image); needs the user's image to test.
