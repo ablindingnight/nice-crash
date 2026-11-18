@@ -803,6 +803,15 @@ void gxr_drawlog_dump(const char* path) {
 
 void gxr_draw(int prim, int vat, int count, const u8* data) {
     if (!count) return;
+    // NICECRASH_SKIPINVIS (debugging the green flashes): 1 = skip draws with colour writes off (PE_CMODE0 bit 3:
+    // shadow volumes, depth-only geometry), 2 = skip additive/subtractive blends, 3 = both.
+    static const int skipInvis = NC_ENV("NICECRASH_SKIPINVIS") ? atoi(NC_ENV("NICECRASH_SKIPINVIS")) : 0;
+    if (skipInvis) {
+        u32 cm = g_gx.bp[0x41];
+        bool invis = !((cm >> 3) & 1);
+        bool addsub = (cm & 0x800) || ((cm & 1) && ((cm >> 8) & 7) == 1 && ((cm >> 5) & 7) == 1);
+        if (((skipInvis & 1) && invis) || ((skipInvis & 2) && addsub)) return;
+    }
     // NICECRASH_SKIPTEX=<hex image address>[,...]: skip draws whose stage-0 texture is one of these (debugging).
     static std::vector<u32> skipTex = [] {
         std::vector<u32> v;

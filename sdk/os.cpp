@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include "../runtime/wiimem.h"
 #include "sdk.h"
 
@@ -99,6 +100,20 @@ void ICInvalidateRange(void*, u32) {}
 void ICFlashInvalidate(void) {}
 void LCEnable(void) {}
 void LCDisable(void) {}
+// Locked-cache DMA (runtime/wiimem.cpp maps the 16 KB locked cache at 0xE0000000): done at once, so LCQueueWait has
+// nothing to wait for. These were unimplemented stubs that copied nothing: drsurf's batched deform flush
+// (FlushYMorph, the wobbling grass and tree meshes) then left its output vertices unwritten, and those meshes drew
+// whatever stale data the frame ring held, the green bars at trees (2026-11-17).
+u32 LCLoadData(void* dst, const void* src, u32 len) {
+    memcpy(dst, src, len);
+    return (len + 4095) / 4096;  // DMA transactions queued (4 KB each)
+}
+u32 LCStoreData(void* dst, const void* src, u32 len) {
+    memcpy(dst, src, len);
+    return (len + 4095) / 4096;
+}
+void LCQueueWait(u32) {}
+u32 LCQueueLength(void) { return 0; }
 
 // Interrupts: single-threaded host for now.
 int OSDisableInterrupts(void) { return 1; }

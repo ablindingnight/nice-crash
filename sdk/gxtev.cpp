@@ -601,8 +601,9 @@ void gxt_blend(u32 cm, u32 cm1, u32 pe) {
     const GLenum ADD = 0x8006, REVSUB = 0x800B, CONST_ALPHA = 0x8003;
     bool blend = false;
     GLenum eq = ADD, s = GL_ONE, d = GL_ZERO;
-    if (cm & 0x800) {  // subtract: dst - src
-        blend = true; eq = REVSUB;
+    if (cm & 0x800) {  // subtract: dst - src, the factors ignored (GL: dst * ONE - src * ONE; with the default
+        // dst factor ZERO it was 0 - src, which wiped instead of subtracting: the shadow volumes' second pass)
+        blend = true; eq = REVSUB; s = GL_ONE; d = GL_ONE;
     } else if (cm & 1) {
         blend = true; s = fix(srcF[(cm >> 8) & 7]); d = fix(dstF[(cm >> 5) & 7]);
     }
