@@ -120,11 +120,17 @@ bool WriteBmp(const char* path, const std::vector<u8>& rgb, u32 w, u32 h) {
 // ---- dump ----
 void Dump(const std::string& base, u32* bink, const VideoH* v) {
     static const char* dir = NC_ENV("NICECRASH_VIDEODUMP");
-    static std::string first;
+    // One movie per run: NICECRASH_VIDEODUMP_MOVIE names it (default uisingle, the intro "Enhance my game" upscales).
+    // Not "the first one seen": on a fresh install another movie plays behind the save-file prompt first.
+    static const std::string want = NC_ENV("NICECRASH_VIDEODUMP_MOVIE") ? NC_ENV("NICECRASH_VIDEODUMP_MOVIE") : "uisingle";
     static std::vector<bool> done;
     static u32 written;
-    if (first.empty()) first = base;
-    if (base != first) return;  // one movie per run
+    static std::string lastSeen;
+    if (base != lastSeen) {
+        fprintf(stderr, "[movie] dump: sees %s (frame %u of %u)\n", base.c_str(), bink[3], bink[2]);
+        lastSeen = base;
+    }
+    if (base != want) return;
     u32 frames = bink[2], frame = bink[3];  // BINK: Width, Height, Frames, FrameNum (1-based)
     if (!frame || frame > frames) return;
     if (done.size() != frames) done.assign(frames, false);
@@ -142,7 +148,12 @@ void Dump(const std::string& base, u32* bink, const VideoH* v) {
     char path[MAX_PATH];
     CreateDirectoryA(dir, nullptr);
     snprintf(path, sizeof path, "%s/%s_%05u.bmp", dir, base.c_str(), frame);
-    if (!WriteBmp(path, rgb, v->width, v->height)) return;
+    if (!WriteBmp(path, rgb, v->width, v->height)) {
+        static bool warned;
+        if (!warned) fprintf(stderr, "[movie] dump: can't write %s\n", path);
+        warned = true;
+        return;
+    }
     done[frame - 1] = true;
     written++;
     if (NC_ENV("NICECRASH_VIDEODUMP_LOG")) {

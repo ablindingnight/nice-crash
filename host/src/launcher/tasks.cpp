@@ -1051,8 +1051,15 @@ static DWORD WINAPI EnhanceThread(void*) {
         DeleteFrames();
         std::string exe = GameExe();
         if (!IsFile(exe)) { Fail(FRAMES, L"NiceCrashGame.exe isn't built yet."); goto out; }
+        // A throwaway Wii system memory: the player's save is never touched, and a fresh one always shows "create a
+        // save file?" first, over a still picture (no video), so the run presses 2 there (and once more in case the
+        // prompt came late; on the title or profile list that's harmless, the intro keeps playing behind them).
+        std::string dumpNand = Settings_DataDir() + "\\cache\\dumpnand";
+        RemoveTree(dumpNand);
+        CreateDirectoryA(dumpNand.c_str(), nullptr);
         int code = RunCapture(Quote(W(exe)), RepoRoot().empty() ? ExeDir() : RepoRoot(),
                               {{"NICECRASH_VIDEODUMP", frames}, {"NICECRASH_VIDEODUMP_QUIT", "1"},
+                               {"NICECRASH_NAND", dumpNand}, {"NICECRASH_INPUT", "200:2,600:2"},
                                {"NICECRASH_MUTE", "1"}, {"NICECRASH_HIDEWINDOW", "1"},
                                {"NICECRASH_DISPLAY_WINDOW_MODE", "windowed"}, {"NICECRASH_LAUNCHED", ""}},
                               [&](const std::string& l) {

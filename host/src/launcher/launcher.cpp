@@ -2113,6 +2113,34 @@ int LauncherJudgeTest(const char* path) {
 static int FollowChecklist();
 int LauncherEnhanceTest() {
     tasks::StartEnhance();
+    // NICECRASH_ENHANCE_PLAYTEST=<seconds>: once upscaling runs, start the game for that long, then stop it, printing
+    // the upscale progress and the paused flag every second (checks the pause-while-playing path).
+    if (const char* pt = getenv("NICECRASH_ENHANCE_PLAYTEST")) {
+        int secs = atoi(pt);
+        for (;;) {  // wait for the upscale step
+            tasks::Checklist c = tasks::Snapshot();
+            if (!c.running) break;
+            if (c.steps.size() > 2 && c.steps[2].state == tasks::ACTIVE && c.steps[2].progress > 0.02f) break;
+            Sleep(500);
+        }
+        std::string err;
+        if (!tasks::StartGame(err)) printf("playtest: game didn't start: %s\n", err.c_str());
+        auto show = [](const char* tag) {
+            tasks::Checklist c = tasks::Snapshot();
+            float p = c.steps.size() > 2 ? c.steps[2].progress : -1;
+            printf("playtest %s: game %d paused %d upscale %.3f\n", tag, (int)tasks::GameRunning(), (int)c.paused, p);
+            fflush(stdout);
+        };
+        for (int i = 0; i < secs; i++) {
+            show("playing");
+            Sleep(1000);
+        }
+        tasks::StopGame();
+        for (int i = 0; i < 10; i++) {
+            show("after");
+            Sleep(1000);
+        }
+    }
     return FollowChecklist();
 }
 
