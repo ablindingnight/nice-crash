@@ -11,12 +11,13 @@ import concurrent.futures
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PORT = os.path.normpath(os.path.join(HERE, '..', '..'))
-ET = os.path.normpath(os.path.join(PORT, '..', 'excite-truck'))
-MSC = os.path.join(ET, 'libs', 'msc')
 OUT = os.path.join(PORT, 'build', 'sdksrc')
 OBJ = os.path.join(PORT, 'build', 'sdkobj')
 sys.path.insert(0, HERE)
 import trial  # noqa: E402
+import decomp  # noqa: E402
+ET = decomp.root()
+MSC = os.path.join(ET, 'libs', 'msc')
 
 # GX, plus MEM (the heaps: the HOME button library allocates from expanded/frame/unit heaps in memory it is given).
 LIBS = ['gx', 'mem']

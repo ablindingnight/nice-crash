@@ -50,6 +50,8 @@ def unit_defines(base):
 
 
 def find_zig():
+    if os.environ.get('ZIG') and os.path.exists(os.environ['ZIG']):  # the launcher's bundled zig (tester package)
+        return os.environ['ZIG']
     for p in os.environ.get('PATH', '').split(os.pathsep):
         z = os.path.join(p, 'zig.exe')
         if os.path.exists(z):

@@ -2110,8 +2110,28 @@ int LauncherJudgeTest(const char* path) {
 }
 
 // --enhance: runs "Enhance my game" without the window and prints each step as it changes (testing).
+static int FollowChecklist();
 int LauncherEnhanceTest() {
     tasks::StartEnhance();
+    return FollowChecklist();
+}
+
+// --setup <disc image or folder> [--rebuild]: the first-run checklist (find, verify, tools, source, index, build)
+// without the window, each step printed as it changes; on a failure the checklist's log follows. For testing a
+// clean install (docs/TESTER_PACKAGE.md) and for a tester to rerun a failed setup from a console.
+int LauncherSetupTest(const char* path, bool rebuild) {
+    tasks::StartChecklist(path, rebuild);
+    int r = FollowChecklist();
+    if (r) {
+        tasks::Checklist c = tasks::Snapshot();
+        printf("---- log (last %d lines)\n", (int)c.log.size());
+        for (auto& l : c.log) printf("%s\n", l.c_str());
+    }
+    return r;
+}
+
+static int FollowChecklist() {
+    Sleep(50);  // the worker thread marks the checklist running
     std::vector<int> lastState, lastTenth;
     for (;;) {
         tasks::Checklist c = tasks::Snapshot();
@@ -2124,7 +2144,14 @@ int LauncherEnhanceTest() {
             if (s.state == lastState[i] && tenth == lastTenth[i]) continue;  // print state changes and each 10%
             lastState[i] = s.state;
             lastTenth[i] = tenth;
-            printf("%ls: %s %ls\n", s.title.c_str(), st[s.state], s.detail.c_str());
+            // UTF-8 (%ls stops at the first non-ASCII character in the C locale: the hash's ellipsis, "·").
+            auto u8 = [](const std::wstring& w) {
+                int n = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), (int)w.size(), nullptr, 0, nullptr, nullptr);
+                std::string r(n, 0);
+                WideCharToMultiByte(CP_UTF8, 0, w.c_str(), (int)w.size(), &r[0], n, nullptr, nullptr);
+                return r;
+            };
+            printf("%s: %s %s\n", u8(s.title).c_str(), st[s.state], u8(s.detail).c_str());
             fflush(stdout);
         }
         if (!c.running) {

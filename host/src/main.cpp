@@ -3,6 +3,7 @@
 //
 //   NiceCrash                                   the launcher
 //   NiceCrash --ui-shot <screen> <out.bmp> [w h]  render a launcher screen to a .bmp (launcher.h lists them)
+//   NiceCrash --setup <disc> [--rebuild]         the first-run checklist (import + build) without the window
 //   NiceCrash --launch-game [seconds]            start the game as PLAY does, end it after N s, print the run
 //   NiceCrash --viewer [--disc ...] [--tex ...]   the phase-0 viewer; --disc, --tex, --dol, --scan and
 //                                               --screenshot also select it
@@ -42,6 +43,11 @@ int main(int argc, char** argv) {
         AttachParentConsole();
         int LauncherJudgeTest(const char* path);
         return LauncherJudgeTest(argv[2]);
+    }
+    if (argc >= 3 && std::string(argv[1]) == "--setup") {  // the first-run checklist without the window
+        AttachParentConsole();
+        int LauncherSetupTest(const char* path, bool rebuild);
+        return LauncherSetupTest(argv[2], argc >= 4 && std::string(argv[3]) == "--rebuild");
     }
     if (argc >= 2 && std::string(argv[1]) == "--launch-game") {
         AttachParentConsole();

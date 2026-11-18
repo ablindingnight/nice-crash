@@ -28,10 +28,13 @@ static void PrintFrame(HANDLE proc, DWORD64 pc, int i) {
 
 static LONG WINAPI OnCrash(EXCEPTION_POINTERS* ep) {
     // Started directly (no launcher, no console), stderr goes nowhere: write the report to
-    // %LOCALAPPDATA%\NiceCrash\logs\crash_<date>_<time>.txt instead, so every crash leaves a trace.
+    // %LOCALAPPDATA%\NiceCrash\logs\crash_<date>_<time>.txt instead, so every crash leaves a trace. The same when
+    // the launcher started us with "Save error logs" off (stderr is NUL then): its Logs page shows that file.
     {
         DWORD t = GetFileType(GetStdHandle(STD_ERROR_HANDLE));
-        if (t != FILE_TYPE_DISK && t != FILE_TYPE_PIPE && t != FILE_TYPE_CHAR) {
+        const char* el = getenv("NICECRASH_ERROR_LOG");
+        bool logsOff = el && !strcmp(el, "0");
+        if (logsOff || (t != FILE_TYPE_DISK && t != FILE_TYPE_PIPE && t != FILE_TYPE_CHAR)) {
             const char* la = getenv("LOCALAPPDATA");
             if (la) {
                 char path[MAX_PATH];

@@ -38,12 +38,8 @@ COMMON = ['-DVERSION=3', '-D__REVOLUTION_SDK__', '-DGAME_REXE01', '-DNDEBUG=1',
 
 def msc_units():
     """The msc HBM units Excite Truck links, from configure.py at the pinned commit."""
-    r = decomp.ref()
-    if r == 'live':
-        cfg = open(os.path.join(decomp.LIVE, 'configure.py'), encoding='utf-8').read()
-    else:
-        cfg = subprocess.run(['git', '-C', decomp.LIVE, 'show', '%s:configure.py' % r], capture_output=True,
-                             text=True, encoding='utf-8', creationflags=0x08000000).stdout
+    # configure.py is part of the pinned export (decomp.PATHS), so no git is needed (tester packages have none).
+    cfg = open(os.path.join(decomp.root(), 'configure.py'), encoding='utf-8').read()
     return re.findall(r'Object\(\w+, "RVL_SDK/hbm/([^"]+\.cpp)"', cfg)
 
 

@@ -146,6 +146,7 @@ static long long DirSize(const std::string& d, int depth = 0) {
 }
 
 static std::string FileDate(const std::string& p);
+static std::string RunCrashPath(const Run& r);
 // ---- disc images (.iso .rvz .wia .wbfs .ciso .gcz .nfs) ----
 // Read with decomp-toolkit's disc layer (dtk vfs; nod handles the formats and the Wii partition): the player's own
 // image is checked (game ID from sys/boot.bin) and extracted once into %LOCALAPPDATA%\NiceCrash\disc\DATA\ (sys
@@ -700,6 +701,39 @@ static int RunCapture(const std::wstring& cmd, const std::string& cwd,
 
 static Checklist s_check;
 
+// The build's zig and Python. A tester package ships both under tools\ next to the launcher (tools\zig\zig.exe,
+// tools\python\python.exe, docs/TESTER_PACKAGE.md); a source checkout uses the developer's own. A bare "python.exe"
+// on PATH can be Windows' Microsoft Store stub, which only opens the Store: it must answer a version probe.
+struct BuildTools {
+    std::string python, zig;
+    bool bundled = false;
+};
+static bool PythonWorks(const std::string& py) {
+    std::string out;
+    int code = RunCapture(Quote(W(py)) + L" -I -c \"import sys; print('py', *sys.version_info[:2])\"", ExeDir(), {},
+                          [&](const std::string& l) { out += l; });
+    int maj = 0, min = 0;
+    return code == 0 && sscanf(out.c_str(), "py %d %d", &maj, &min) == 2 && (maj > 3 || (maj == 3 && min >= 11));
+}
+static BuildTools FindBuildTools() {
+    BuildTools t;
+    std::string bpy = ExeDir() + "tools\\python\\python.exe", bzig = ExeDir() + "tools\\zig\\zig.exe";
+    if (IsFile(bpy) && IsFile(bzig)) {
+        t.python = bpy;
+        t.zig = bzig;
+        t.bundled = true;
+        return t;
+    }
+    t.python = IsFile(bpy) ? bpy : FindOnPath("python.exe");
+    if (!t.python.empty() && !PythonWorks(t.python)) t.python.clear();
+    t.zig = IsFile(bzig) ? bzig : getenv("ZIG") ? getenv("ZIG") : FindOnPath("zig.exe");
+    if (t.zig.empty()) {  // trial.py also finds a winget zig; it reports its own error if that fails too
+        const char* la = getenv("LOCALAPPDATA");
+        if (la && IsDir(std::string(la) + "\\Microsoft\\WinGet\\Packages")) t.zig = "(winget)";
+    }
+    return t;
+}
+
 static void SetStep(int i, StepState st, const std::wstring& detail = L"\x01", float progress = -2) {
     Lk lk;
     Step& s = s_check.steps[i];
@@ -779,18 +813,15 @@ static DWORD WINAPI CheckThread(void* p) {
                 goto out;
             }
         }
-        std::string py = FindOnPath("python.exe");
-        std::string zig = getenv("ZIG") ? getenv("ZIG") : FindOnPath("zig.exe");
-        if (zig.empty()) {  // trial.py also finds a winget zig; it reports its own error if that fails too
-            const char* la = getenv("LOCALAPPDATA");
-            if (la && IsDir(std::string(la) + "\\Microsoft\\WinGet\\Packages")) zig = "(winget)";
-        }
-        if (py.empty() || zig.empty()) {
-            Fail(TOOLS, py.empty() ? L"Python wasn't found on this PC. The player download will bundle it."
-                                   : L"zig wasn't found on this PC. The player download will bundle it.");
+        BuildTools t = FindBuildTools();
+        if (t.python.empty() || t.zig.empty()) {
+            Fail(TOOLS, t.python.empty()
+                            ? L"Python wasn't found. The Nice Crash download has it in tools\\python; download it again."
+                            : L"zig wasn't found. The Nice Crash download has it in tools\\zig; download it again.");
             goto out;
         }
-        SetStep(TOOLS, DONE, L"Using zig and Python already on this PC (developer setup)");
+        SetStep(TOOLS, DONE, t.bundled ? L"Using the bundled zig and Python"
+                                       : L"Using zig and Python already on this PC (developer setup)");
     }
     if (Cancelled(SOURCE)) goto out;
 
@@ -803,7 +834,8 @@ static DWORD WINAPI CheckThread(void* p) {
     } else {
         State st = Refresh();
         SetStep(SOURCE, DONE,
-                L"Using the local source" + (st.decompRef.empty() ? L"" : L" · decomp " + W(st.decompRef)));
+                (IsDir(root + "\\.git") ? L"Using this PC's checkout" : L"Using the source in this download") +
+                    (st.decompRef.empty() ? L"" : L" · decomp " + W(st.decompRef)));
     }
     if (Cancelled(INDEX)) goto out;
 
@@ -844,10 +876,13 @@ static DWORD WINAPI CheckThread(void* p) {
         FILETIME before{};
         WIN32_FILE_ATTRIBUTE_DATA a;
         if (GetFileAttributesExA(GameExe().c_str(), GetFileExInfoStandard, &a)) before = a.ftLastWriteTime;
-        std::string py = FindOnPath("python.exe");
-        std::wstring cmd = Quote(W(py)) + L" -I " + Quote(W(root + "\\tools\\gametrial\\link.py"));
+        BuildTools t = FindBuildTools();
+        std::wstring cmd = Quote(W(t.python)) + L" -I " + Quote(W(root + "\\tools\\gametrial\\link.py"));
         std::string last;
-        int code = RunCapture(cmd, root, {{"NICECRASH_DOL", d.dol}, {"PYTHONUNBUFFERED", "1"}}, [&](const std::string& l) {
+        std::vector<std::pair<std::string, std::string>> env = {{"NICECRASH_DOL", d.dol}, {"PYTHONUNBUFFERED", "1"}};
+        if (!t.zig.empty() && t.zig[0] != '(') env.push_back({"ZIG", t.zig});  // tools/gametrial/trial.py find_zig
+        AddLog("[launcher] python " + t.python + ", zig " + t.zig);
+        int code = RunCapture(cmd, root, env, [&](const std::string& l) {
             AddLog("[build] " + l);
             last = l;
             if (l.size() < 120) SetStep(BUILD, ACTIVE, W(l));
@@ -1356,6 +1391,15 @@ std::string BugReport() {
     } else {
         r += "(no log: \"Save error logs\" is off or the game hasn't run yet)\n";
     }
+    if (!runs.empty()) {  // logs off: the last run's crash report, if it wrote one (runtime/crash.cpp)
+        std::string cp = RunCrashPath(runs[0]);
+        if (FILE* cf = cp.empty() ? nullptr : fopen(cp.c_str(), "r")) {
+            r += "\n## " + cp.substr(cp.find_last_of('\\') + 1) + "\n";
+            char b[2048];
+            for (int n = 0; n < 200 && fgets(b, sizeof b, cf); n++) r += b;
+            fclose(cf);
+        }
+    }
     return Scrub(r);
 }
 
@@ -1408,9 +1452,38 @@ std::string SaveReport() {
     return ok ? dir : "";
 }
 
+// Minutes since year 0 (roughly; only differences matter) from "YYYY-MM-DD HH:MM" or "YYYY-MM-DD_HH-MM".
+static long long StampMinutes(const char* s) {
+    int y, mo, d, h, mi;
+    char a, b;
+    if (sscanf(s, "%d-%d-%d%c%d%c%d", &y, &mo, &d, &a, &h, &b, &mi) != 7) return -1;
+    static const int before[] = {0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334};
+    long long days = y * 365LL + y / 4 + before[(mo + 11) % 12] + d;
+    return (days * 24 + h) * 60 + mi;
+}
+
+// A run without a log that crashed: the game wrote logs\crash_<date>_<time>.txt itself (runtime/crash.cpp).
+static std::string RunCrashPath(const Run& r) {
+    if (r.status != "Crashed") return "";
+    long long t0 = StampMinutes(r.when.c_str());
+    if (t0 < 0) return "";
+    long long t1 = t0 + r.seconds / 60 + 2;
+    std::string best;
+    WIN32_FIND_DATAA fd;
+    HANDLE h = FindFirstFileA((LogDir() + "\\crash_*.txt").c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) return "";
+    do {
+        long long t = StampMinutes(fd.cFileName + 6);
+        if (t >= t0 && t <= t1 && (best.empty() || strcmp(fd.cFileName, best.c_str()) > 0)) best = fd.cFileName;
+    } while (FindNextFileA(h, &fd));
+    FindClose(h);
+    return best.empty() ? "" : LogDir() + "\\" + best;
+}
+
 std::string RunLogPath(int runIndex) {
     std::vector<Run> runs = Runs();
-    if (runIndex < 0 || runIndex >= (int)runs.size() || !runs[runIndex].logged) return "";
+    if (runIndex < 0 || runIndex >= (int)runs.size()) return "";
+    if (!runs[runIndex].logged) return RunCrashPath(runs[runIndex]);
     int k = 0;  // logged runs newer than this one = how many times its log has been rotated
     for (int i = 0; i < runIndex; i++) k += runs[i].logged ? 1 : 0;
     if (k > 4) return "";

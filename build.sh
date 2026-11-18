@@ -4,7 +4,7 @@
 # Only Windows system libraries are linked: nothing to download.
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
-B="$HERE/build"
+B="${NICECRASH_OUT:-$HERE/build}"  # NICECRASH_OUT: another output folder (tools/package)
 L="$HERE/lib"
 Z=${ZIG:-$(command -v zig || find /c/Users/theop/AppData/Local/Microsoft/WinGet/Packages/zig.zig* -name zig.exe | head -1)}
 [ -x "$Z" ] || { echo "zig not found (set ZIG=...)"; exit 1; }
@@ -19,7 +19,7 @@ echo "built $B/import.exe"
 "$Z" c++ -target x86_64-windows-gnu -std=c++17 -O2 -o "$B/enhance.exe" "$HERE/tools/enhance/enhance.cpp"   -lmfplat -lmfreadwrite -lole32 -lwindowscodecs
 echo "built $B/enhance.exe"
 # The program icon (assets/icon): a resource object both executables embed.
-(cd "$HERE/assets/icon" && MSYS_NO_PATHCONV=1 "$Z" rc /fo ../../build/nicecrash.res nicecrash.rc)
+(cd "$HERE/assets/icon" && MSYS_NO_PATHCONV=1 "$Z" rc /fo "$(cygpath -w "$B/nicecrash.res")" nicecrash.rc)
 H="$HERE/host/src"
 cxx -o "$B/NiceCrash.exe" "$H/main.cpp" "$H/viewer.cpp" "$H/launcher/launcher.cpp" "$H/launcher/ui.cpp" \
   "$H/launcher/tasks.cpp" "$H/launcher/truckrun.cpp" "$B/nicecrash.res" -lopengl32 -lgdi32 -luser32 -lgdiplus -lole32 -lshell32 -lwinmm \
