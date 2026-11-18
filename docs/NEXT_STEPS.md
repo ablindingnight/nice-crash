@@ -11,7 +11,10 @@
   - `874b61a`: the Tutorial autopilot now passes Basics 1 and 2 up to Terrain Morph.
 
 ## To do, in order
-1. **Rebuild and check the three commits above together.** Full `sh tools/gametrial/link.sh` and `sh build.sh`,
+1. **DONE 2026-11-17 late** (build/NiceCrashGame.exe + launcher rebuilt at 91d7e87): Sharp menus are crisper than
+   "game" at 1920x1080, the truck paint is smooth (no blocks), and 33 lesson starts + 3 HOME opens in one 400 s run ran
+   with no crash or PANIC. Still worth a look: ground ripples/overlays (indirect lookups) and an Excite Race with AI.
+   Original step: **Rebuild and check the three commits above together.** Full `sh tools/gametrial/link.sh` and `sh build.sh`,
    then:
    - the truck from behind in the Tree Run: smooth reflections like the user's reference
      (`build/t3/reflhunt/reference_truck_reflections.webp`);
