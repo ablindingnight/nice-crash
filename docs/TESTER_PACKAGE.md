@@ -39,7 +39,7 @@ driven by hand, an `.rvz` image, another PC.
 | --- | --- | --- | --- |
 | `Start Nice Crash.cmd`, `README.txt` | starts `build\NiceCrash.exe`; the tester's steps | this repo | ours |
 | `build/NiceCrash.exe`, `import.exe`, `enhance.exe` | launcher, dump importer, movie encoder | compiled by `build.sh` at package time | ours (unpublished) |
-| `sdk/ runtime/ shim/ lib/ patches/ assets/ tools/gametrial/` | the port source the build needs (git-tracked files) | this repo | ours |
+| `sdk/ runtime/ shim/ lib/ patches/ assets/ tools/gametrial/` | the port source the build needs, as committed at HEAD (other sessions' uncommitted edits never ship) | this repo | ours |
 | `assets/fonts/` | Barlow, Barlow Condensed, JetBrains Mono | Google Fonts | SIL OFL 1.1 |
 | `build/decomp/<pin>/` | the decomp source at `tools/gametrial/decomp_ref.txt` (src, include, config, libs, configure.py, tools/datagen.py), without `src/sdk_mp3` | `git archive` of the matching repo | CC0 1.0 (the decomp's LICENSE) |
 | `build/tools/dtk/dtk.exe` | decomp-toolkit 1.8.0: reads the tester's disc image (.iso .rvz .wbfs .wia .gcz .ciso) | copied from the matching repo's `build/tools` | MIT OR Apache-2.0 (MIT text shipped) |

@@ -15,7 +15,7 @@ from the decomp source at the pinned commit plus the port source. What goes in:
     build/tools/python/        Python embeddable package (from --python-zip; python.org)
     build/tools/realesrgan/    optional AI upscaler (exe, OpenMP dll, the models the launcher uses)
     build/decomp/<pin12>/      the decomp source export at tools/gametrial/decomp_ref.txt, minus src/sdk_mp3
-    sdk/ runtime/ shim/ lib/ patches/ assets/ tools/gametrial/   port source (git-tracked files only)
+    sdk/ runtime/ shim/ lib/ patches/ assets/ tools/gametrial/   port source as committed at HEAD (git archive)
 
 After assembling, tools/package/scan_package.py checks the folder for anything from the disc or main.dol; the
 script fails if it finds any. --dol/--disc give it the developer's own dump to compare against (read only).
@@ -42,18 +42,19 @@ def log(*a):
 
 
 def copy_tracked():
-    files = subprocess.run(['git', '-C', PORT, 'ls-files', '-z', '--', *PORT_DIRS], capture_output=True,
-                           check=True).stdout.decode('utf-8').split('\0')
-    n = 0
-    for rel in filter(None, files):
-        src = os.path.join(PORT, rel)
-        if not os.path.isfile(src):
-            continue  # deleted in the working tree
-        dst = os.path.join(PKG, rel)
-        os.makedirs(os.path.dirname(dst), exist_ok=True)
-        shutil.copy2(src, dst)
-        n += 1
-    log('port source        %d files' % n)
+    """The port source as committed at HEAD (git archive): other sessions' uncommitted edits never ship."""
+    import io, tarfile
+    tar = subprocess.run(['git', '-C', PORT, 'archive', '--format=tar', 'HEAD', '--', *PORT_DIRS],
+                         capture_output=True, check=True).stdout
+    with tarfile.open(fileobj=io.BytesIO(tar)) as t:
+        n = len([m for m in t.getmembers() if m.isfile()])
+        t.extractall(PKG, filter='data')
+    head = subprocess.run(['git', '-C', PORT, 'rev-parse', '--short', 'HEAD'], capture_output=True, text=True).stdout
+    log('port source        %d files at %s' % (n, head.strip()))
+    dirty = subprocess.run(['git', '-C', PORT, 'status', '--porcelain', '--', 'host', 'lib', 'build.sh',
+                            'tools/import', 'tools/enhance', 'assets/icon'], capture_output=True, text=True).stdout
+    if dirty.strip():
+        log('WARNING: the launcher is compiled from the working tree, which has uncommitted changes:\n' + dirty)
 
 
 def copy_decomp():
