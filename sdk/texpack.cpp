@@ -257,6 +257,8 @@ bool texpack_replace(const std::string& name, int fmt) {
     typedef void(APIENTRY * GenMip_t)(GLenum);
     static GenMip_t genMip = (GenMip_t)(void*)wglGetProcAddress("glGenerateMipmap");
     if (genMip) genMip(GL_TEXTURE_2D);
+    // 2D art (no "_m": menus, HUD, fonts) is often drawn smaller than an enhanced image: favour the sharpest mip.
+    if (key.find("_m_") == std::string::npos) glTexParameterf(GL_TEXTURE_2D, 0x8501 /* GL_TEXTURE_LOD_BIAS */, -0.5f);
     static int told;
     if (told++ < 20) fprintf(stderr, "[texpack] %s -> %ux%u\n", name.c_str(), w, h);
     return true;

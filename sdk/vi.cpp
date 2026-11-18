@@ -560,6 +560,13 @@ void sdk_vi_poll() {
         }
     }
     g_retrace++;
+    // NICECRASH_QUIT_AT=<retrace>: exit cleanly there (the launcher's scripted texture dump, "Enhance my game").
+    static const int quitAt = getenv("NICECRASH_QUIT_AT") ? atoi(getenv("NICECRASH_QUIT_AT")) : 0;
+    if (quitAt > 0 && (int)g_retrace >= quitAt) {
+        fprintf(stderr, "[vi] quit at retrace %d\n", quitAt);
+        fflush(stderr);
+        ExitProcess(0);
+    }
     g_copiesSinceRetrace = 0;
     g_copyCallsSinceRetrace = 0;
     if (g_pre) g_pre(g_retrace);

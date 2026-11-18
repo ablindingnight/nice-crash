@@ -21,6 +21,7 @@
 #include "gxtev.h"
 #include "xfb.h"
 #include "texpack.h"
+#include "uiscale.h"
 extern "C" void port_trace(const char* what, unsigned a, unsigned b);  // runtime/trace.cpp (NICECRASH_TRACE)
 #include "hostcfg.h"
 
@@ -403,9 +404,11 @@ bool BindTexMap(int m) {
         if (!t.id) glGenTextures(1, &t.id);
         port_trace("tex-upload", addr, (unsigned)(fmt << 24 | w << 12 | h));
         glBindTexture(GL_TEXTURE_2D, t.id);
+        // graphics.ui_filter (sdk/uiscale.cpp): 2D art uploaded bigger and smoothed, with mip levels.
+        bool upscaled = t.changes <= 3 && uiscale_upload(rgba.data(), w, h, mode0, fmt);
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
-        if (host_cfg().texFilter >= 2) {  // trilinear / anisotropic: mip levels made on the GPU
+        if (!upscaled) glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+        if (!upscaled && host_cfg().texFilter >= 2) {  // trilinear / anisotropic: mip levels made on the GPU
             typedef void(APIENTRY * GenMip_t)(GLenum);
             static GenMip_t genMip = (GenMip_t)(void*)wglGetProcAddress("glGenerateMipmap");
             if (genMip) genMip(GL_TEXTURE_2D);
@@ -413,7 +416,7 @@ bool BindTexMap(int m) {
         t.sum = sum;
         t.w = w;
         t.h = h;
-        t.replaced = false;
+        t.replaced = upscaled;  // a bigger image: drawn with its mip levels, as a pack replacement
         if (!packName.empty()) texpack_dump(packName, rgba, w, h);
     }
     glBindTexture(GL_TEXTURE_2D, t.id);

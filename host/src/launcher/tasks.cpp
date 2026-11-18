@@ -1127,7 +1127,176 @@ out:
     return 0;
 }
 
+// ---- menus, HUD and fonts: a texture pack made from the player's own game ----
+// The game walks its menus by itself (hidden, muted, on a copy of the player's save so their profile's menus show;
+// the save itself is never touched): title, profiles, main menu, Tutorial, Options, Records, then an Excite Race the
+// game's AI drives, for the HUD. Every texture it uses is dumped (NICECRASH_TEXPACK_DUMP); enhance.exe --textures
+// AI-upscales the 2D art among them into UiPackDir(), Dolphin-named, which the game loads with enhanced files on.
+std::string UiPackDir() { return Settings_DataDir() + "\\textures\\REXE01\\enhanced"; }
+static std::string UiDumpDir() { return Settings_DataDir() + "\\dump\\textures\\REXE01"; }
+static long long TreeBytes(const std::string& dir, int* files) {
+    long long n = 0;
+    WIN32_FIND_DATAA fd;
+    HANDLE h = FindFirstFileA((dir + "\\*.png").c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) return 0;
+    do
+        if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+            n += ((long long)fd.nFileSizeHigh << 32) | fd.nFileSizeLow;
+            if (files) ++*files;
+        }
+    while (FindNextFileA(h, &fd));
+    FindClose(h);
+    return n;
+}
+long long EnhancedUiBytes() {
+    int files = 0;
+    long long n = TreeBytes(UiPackDir(), &files);
+    return files ? n : -1;
+}
+bool HaveEnhancedUi() { return EnhancedUiBytes() > 0; }
+bool RemoveEnhancedUi() {
+    RemoveTree(UiPackDir());
+    return !HaveEnhancedUi();
+}
+static void CopyTree(const std::string& from, const std::string& to) {
+    CreateDirectoryA(to.c_str(), nullptr);
+    WIN32_FIND_DATAA fd;
+    HANDLE h = FindFirstFileA((from + "\\*").c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) return;
+    do {
+        std::string n = fd.cFileName;
+        if (n == "." || n == "..") continue;
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) CopyTree(from + "\\" + n, to + "\\" + n);
+        else CopyFileA((from + "\\" + n).c_str(), (to + "\\" + n).c_str(), FALSE);
+    } while (FindNextFileA(h, &fd));
+    FindClose(h);
+}
+
+// The walk, in retraces (60 a second) from the game's start. Buttons on screens that aren't there are harmless
+// (2 = OK, 1 = back), and the cursor never goes near Options > Erase Data (and the save is a copy anyway).
+static const char kUiWalk[] =
+    "790:2,950:2,"                                       // title, first profile
+    "1150:DOWN,1250:DOWN,1350:2,1600:1,"                 // Tutorial and back
+    "1750:DOWN,1850:2,2350:1,"                           // Options and back
+    "2500:DOWN,2600:2,2950:1,"                           // Records and back
+    "3100:UP,3200:UP,3300:UP,3400:UP,3500:2,"            // Excite Race: difficulty, level, track, truck...
+    "3700:2,3900:2,4100:2,4300:2,4500:2,4700:2,4900:2";  // ...and the race (the AI drives)
+static const int kUiWalkEnd = 7200;
+
+static DWORD WINAPI EnhanceUiThread(void*) {
+    enum { SPACE, DUMP, SCALE, SWITCH, CLEAN };
+    std::string dump = UiDumpDir(), out = UiPackDir();
+    std::string up = Upscaler();
+    {
+        SetStep(SPACE, ACTIVE);
+        long long need = (long long)400 << 20, have = FreeBytes(Settings_DataDir());  // ~100 MB pack + the dump
+        if (have >= 0 && have < need) {
+            Fail(SPACE, L"About " + FormatBytes(need) + L" free space is needed; " + FormatBytes(have) + L" is free.");
+            goto out;
+        }
+        SetStep(SPACE, DONE, have >= 0 ? FormatBytes(have) + L" free" : L"");
+    }
+    {
+        SetStep(DUMP, ACTIVE, L"The game walks its menus and drives one race by itself, hidden and muted (about two minutes).", 0);
+        std::string exe = GameExe();
+        if (!IsFile(exe)) { Fail(DUMP, L"NiceCrashGame.exe isn't built yet."); goto out; }
+        RemoveTree(dump);
+        std::string nand = Settings_DataDir() + "\\cache\\texnand";
+        const char* e = getenv("NICECRASH_NAND");
+        std::string mine = e && *e ? e : portcfg::Dir() + "\\nand";
+        RemoveTree(nand);
+        CreateDirectoryA((Settings_DataDir() + "\\cache").c_str(), nullptr);
+        CopyTree(mine, nand);
+        int code = RunCapture(Quote(W(exe)), RepoRoot().empty() ? ExeDir() : RepoRoot(),
+                              {{"NICECRASH_TEXPACK_DUMP", "1"}, {"NICECRASH_NAND", nand},
+                               {"NICECRASH_GRAPHICS_ENHANCED_ASSETS", "0"},  // every original texture, none replaced
+                               {"NICECRASH_INPUT", kUiWalk}, {"NICECRASH_AUTOPILOT", "1"},
+                               {"NICECRASH_QUIT_AT", std::to_string(kUiWalkEnd)}, {"NICECRASH_MUTE", "1"},
+                               {"NICECRASH_HIDEWINDOW", "offscreen"}, {"NICECRASH_DISPLAY_WINDOW_MODE", "windowed"},
+                               {"NICECRASH_GAME_PAUSE_UNFOCUSED", "0"}, {"NICECRASH_GAME_SKIP_INTRO", "0"},
+                               {"NICECRASH_LAUNCHED", ""}},
+                              [&](const std::string& l) {
+                                  AddLog(l);
+                                  unsigned a = 0;
+                                  if (sscanf(l.c_str(), "[texpack] dumped %u", &a) == 1)
+                                      SetStep(DUMP, ACTIVE, std::to_wstring(a) + L" textures so far", -2);
+                              });
+        RemoveTree(nand);
+        if (s_cancel) { Cancelled(DUMP); goto out; }
+        int files = 0;
+        TreeBytes(dump, &files);
+        if (code != 0 || files == 0) {
+            Fail(DUMP, L"The game stopped before the walk finished (exit code " + std::to_wstring(code) + L").");
+            goto out;
+        }
+        SetStep(DUMP, DONE, std::to_wstring(files) + L" textures", 1);
+    }
+    {
+        SetStep(SCALE, ACTIVE, up.empty() ? L"Scaling with Windows' high-quality filter (no AI upscaler installed)."
+                                          : L"AI upscaling the menus, HUD and fonts with Real-ESRGAN.", 0);
+        std::wstring cmd = Quote(W(ExeDir() + "enhance.exe")) + L" --textures " + Quote(W(dump)) + L" --out " +
+                           Quote(W(out));
+        if (!up.empty()) cmd += L" --upscaler " + Quote(W(up)) + L" --model realesr-animevideov3";
+        int code = RunCapture(cmd, ExeDir(), {}, [&](const std::string& l) {
+            AddLog(l);
+            unsigned a = 0, b = 0;
+            if (sscanf(l.c_str(), "progress %u %u", &a, &b) == 2 && b)
+                SetStep(SCALE, ACTIVE, std::to_wstring(a) + L" of " + std::to_wstring(b) + L" textures", (float)a / b);
+        });
+        if (s_cancel) { Cancelled(SCALE); goto out; }
+        if (code != 0 || !HaveEnhancedUi()) { Fail(SCALE, L"enhance.exe failed (exit code " + std::to_wstring(code) + L")."); goto out; }
+        SetStep(SCALE, DONE, FormatBytes(EnhancedUiBytes()), 1);
+    }
+    SetStep(SWITCH, ACTIVE);
+    Settings_Set("graphics.enhanced_assets", "1");
+    Settings_Flush();
+    SetStep(SWITCH, DONE, L"Settings > Graphics > Use enhanced files is on.");
+    SetStep(CLEAN, ACTIVE);
+    RemoveTree(dump);
+    SetStep(CLEAN, DONE);
+out:
+    RemoveTree(dump);
+    Lk lk;
+    s_check.running = false;
+    s_check.finished = !s_check.failed && !s_cancel;
+    s_check.cancelled = s_cancel != 0;
+    return 0;
+}
+
+static bool s_lastUi;
+void RetryEnhance() {
+    if (s_lastUi) StartEnhanceUi();
+    else StartEnhance();
+}
+
+void StartEnhanceUi() {
+    {
+        Lk lk;
+        if (s_check.running) return;
+        s_check = Checklist();
+        s_check.kind = 1;
+        s_check.title = L"Enhancing your menus and HUD";
+        s_check.sub = L"The game shows its menus and one race to itself, hidden; their art is upscaled on this PC and "
+                      L"kept next to your settings. Your save and disc dump are only read.";
+        const wchar_t* titles[] = {L"Check free space", L"Collect the menu and HUD art", L"Upscale",
+                                   L"Turn on enhanced files", L"Remove the temporary files"};
+        for (auto t : titles) {
+            Step s;
+            s.title = t;
+            s_check.steps.push_back(s);
+        }
+        s_check.running = true;
+        s_cancel = 0;
+        s_lastUi = true;
+    }
+    HANDLE t = CreateThread(nullptr, 0, EnhanceUiThread, nullptr, 0, nullptr);
+    if (t) CloseHandle(t);
+    t = CreateThread(nullptr, 0, PauseWatch, nullptr, 0, nullptr);
+    if (t) CloseHandle(t);
+}
+
 void StartEnhance() {
+    if (!s_check.running) s_lastUi = false;
     {
         Lk lk;
         if (s_check.running) return;

@@ -85,6 +85,14 @@ std::string EnhancedDir();          // %LOCALAPPDATA%\NiceCrash\cache\enhanced
 bool HaveEnhancedVideo();           // the enhanced intro exists
 long long EnhancedBytes();          // its size on disk, -1 if none
 bool RemoveEnhanced();              // deletes the enhanced files and turns the setting off
+// Menus, HUD and fonts: the game walks its menus hidden and dumps their textures, which enhance.exe --textures
+// AI-upscales into UiPackDir() (a texture pack, loaded with graphics.enhanced_assets on). Same checklist screen.
+void StartEnhanceUi();
+void RetryEnhance();                // "Try again": whichever of the two ran last
+std::string UiPackDir();            // <data>\textures\REXE01\enhanced
+bool HaveEnhancedUi();
+long long EnhancedUiBytes();        // -1 if none
+bool RemoveEnhancedUi();
 void CancelChecklist();
 Checklist Snapshot();
 

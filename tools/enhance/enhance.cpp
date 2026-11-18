@@ -8,6 +8,15 @@
 //   enhance.exe --frames <dir> --name uisingle [--scale 2] [--fps 29.97] [--out file.mp4]
 //               [--upscaler <exe> [--model <name>]] [--bitrate <Mbit/s>]
 // Prints "progress <done> <total> <stage>" lines for the launcher.
+//
+// Textures ("Enhance my game" for menus, HUD and fonts): the textures the game dumped while walking its menus
+// (NICECRASH_TEXPACK_DUMP, sdk/texpack.cpp, Dolphin's names) become a texture pack the game loads with
+// graphics.enhanced_assets on:
+//   enhance.exe --textures <dump dir> --out <pack dir> [--upscaler <exe> [--model realesr-animevideov3]]
+// Only 2D art is taken: textures drawn without mip levels (menus, HUD, fonts, sky cards) and small intensity
+// textures (HUD digits, arrows, glows). Up to 512 pixels they are upscaled 4x, 1024 pixels 2x (nothing above
+// 2048). Each result is kept inside the colour and alpha range of its 2x2 source cell (a little margin): no halos,
+// no haze in clear areas, opaque art stays opaque. Textures already in the pack are skipped.
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <initguid.h>
@@ -98,8 +107,173 @@ static int RunUpscaler(const std::string& cmd, const std::string& cwd, const std
     return (int)code;
 }
 
+static bool SavePng(IWICImagingFactory* f, const std::string& path, const std::vector<BYTE>& bgra, UINT w, UINT h) {
+    IWICStream* st = nullptr;
+    IWICBitmapEncoder* enc = nullptr;
+    IWICBitmapFrameEncode* fr = nullptr;
+    bool ok = SUCCEEDED(f->CreateStream(&st)) && SUCCEEDED(st->InitializeFromFilename(W(path).c_str(), GENERIC_WRITE)) &&
+              SUCCEEDED(f->CreateEncoder(GUID_ContainerFormatPng, nullptr, &enc)) &&
+              SUCCEEDED(enc->Initialize(st, WICBitmapEncoderNoCache)) && SUCCEEDED(enc->CreateNewFrame(&fr, nullptr)) &&
+              SUCCEEDED(fr->Initialize(nullptr)) && SUCCEEDED(fr->SetSize(w, h));
+    if (ok) {
+        WICPixelFormatGUID pf = GUID_WICPixelFormat32bppBGRA;
+        ok = SUCCEEDED(fr->SetPixelFormat(&pf)) && IsEqualGUID(pf, GUID_WICPixelFormat32bppBGRA) &&
+             SUCCEEDED(fr->WritePixels(h, w * 4, (UINT)bgra.size(), (BYTE*)bgra.data())) && SUCCEEDED(fr->Commit()) &&
+             SUCCEEDED(enc->Commit());
+    }
+    if (fr) fr->Release();
+    if (enc) enc->Release();
+    if (st) st->Release();
+    return ok;
+}
+
+// The 2D art among the dumped textures (tex1_<w>x<h>[_m]_<hash>[_<tlut hash>]_<fmt>.png): the scale to enhance it
+// at (4 or 2), or 0 to leave it out.
+static int TextureScale(const std::string& leaf) {
+    int w = 0, h = 0;
+    if (sscanf(leaf.c_str(), "tex1_%dx%d", &w, &h) != 2 || w < 4 || h < 4) return 0;
+    bool mips = leaf.find("_m_") != std::string::npos;
+    size_t dot = leaf.rfind('.'), us = leaf.rfind('_', dot);
+    int fmt = atoi(leaf.substr(us + 1, dot - us - 1).c_str());
+    int big = w > h ? w : h;
+    if (mips && !(fmt <= 3 && big <= 256)) return 0;  // a 3D world texture (small intensity HUD art stays in)
+    return big <= 512 ? 4 : big <= 1024 ? 2 : 0;
+}
+
+static std::vector<std::string> Pngs(const std::string& dir) {
+    std::vector<std::string> out;
+    WIN32_FIND_DATAA fd;
+    HANDLE h = FindFirstFileA((dir + "\\*.png").c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) return out;
+    do
+        if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) out.push_back(fd.cFileName);
+    while (FindNextFileA(h, &fd));
+    FindClose(h);
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
+// Keep each upscaled pixel inside the range of the source's 2x2 cell around it (plus a margin): the AI keeps its
+// sharper edges but cannot add halos, haze in clear areas or holes in opaque art.
+static void ClampToSource(const std::vector<BYTE>& s, UINT sw, UINT sh, std::vector<BYTE>& d, UINT dw, UINT dh) {
+    const int margin = 6;
+    for (UINT y = 0; y < dh; y++) {
+        float sy = (y + 0.5f) * sh / dh - 0.5f;
+        int y0 = sy < 0 ? 0 : (int)sy, y1 = y0 + 1 < (int)sh ? y0 + 1 : y0;
+        for (UINT x = 0; x < dw; x++) {
+            float sx = (x + 0.5f) * sw / dw - 0.5f;
+            int x0 = sx < 0 ? 0 : (int)sx, x1 = x0 + 1 < (int)sw ? x0 + 1 : x0;
+            const BYTE* p[4] = {&s[((size_t)y0 * sw + x0) * 4], &s[((size_t)y0 * sw + x1) * 4],
+                                &s[((size_t)y1 * sw + x0) * 4], &s[((size_t)y1 * sw + x1) * 4]};
+            BYTE* o = &d[((size_t)y * dw + x) * 4];
+            for (int c = 0; c < 4; c++) {
+                int lo = 255, hi = 0;
+                for (auto q : p) lo = q[c] < lo ? q[c] : lo, hi = q[c] > hi ? q[c] : hi;
+                int m = c == 3 && (lo == 0 || hi == 255) ? 0 : margin;  // fully clear / fully opaque stays exact
+                lo = lo - m < 0 ? 0 : lo - m;
+                hi = hi + m > 255 ? 255 : hi + m;
+                o[c] = (BYTE)(o[c] < lo ? lo : o[c] > hi ? hi : o[c]);
+            }
+        }
+    }
+}
+
+static int Textures(const std::string& dump, const std::string& out, const std::string& upscaler, std::string model) {
+    CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    IWICImagingFactory* wic = nullptr;
+    if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic)))) return 6;
+    CreateDirectoryA(out.c_str(), nullptr);
+    std::vector<std::string> have = Pngs(out), todo[2];  // [0] 4x, [1] 2x
+    for (const std::string& leaf : Pngs(dump)) {
+        int k = TextureScale(leaf);
+        if (k && !std::binary_search(have.begin(), have.end(), leaf)) todo[k == 4 ? 0 : 1].push_back(leaf);
+    }
+    size_t total = todo[0].size() + todo[1].size(), done = 0;
+    printf("textures: %zu to enhance (%zu already in the pack)\n", total, have.size());
+    printf("progress 0 %zu upscale\n", total);
+    fflush(stdout);
+    // The photo model (realesrgan-x4plus, best for the intro video) smears flat UI art: the anime video model keeps
+    // text and outlines faithful.
+    if (model.empty() || model == "realesrgan-x4plus") model = "realesr-animevideov3";
+    std::string updir = upscaler.substr(0, upscaler.find_last_of("\\/") + 1);
+    std::string bin = out + "\\_in", bout = out + "\\_up";
+    int failed = 0;
+    for (int g = 0; g < 2; g++) {
+        if (todo[g].empty()) continue;
+        int k = g ? 2 : 4;
+        for (const std::string& d : {bin, bout}) {
+            for (auto& f : Pngs(d)) DeleteFileA((d + "\\" + f).c_str());
+            CreateDirectoryA(d.c_str(), nullptr);
+        }
+        for (const std::string& leaf : todo[g])
+            if (!CreateHardLinkA((bin + "\\" + leaf).c_str(), (dump + "\\" + leaf).c_str(), nullptr))
+                CopyFileA((dump + "\\" + leaf).c_str(), (bin + "\\" + leaf).c_str(), FALSE);
+        bool x4only = model.find("x4plus") != std::string::npos;
+        int run = x4only ? 4 : k;
+        if (!upscaler.empty()) {
+            std::string cmd = "\"" + upscaler + "\" -i \"" + bin + "\" -o \"" + bout + "\" -s " + std::to_string(run) +
+                              " -n " + model + (x4only ? "" : "-x" + std::to_string(run)) + " -f png";
+            STARTUPINFOA si{sizeof si};
+            PROCESS_INFORMATION pi{};
+            std::string c = cmd;
+            if (!CreateProcessA(nullptr, &c[0], nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, updir.c_str(), &si,
+                                &pi)) {
+                fprintf(stderr, "enhance: cannot start %s\n", cmd.c_str());
+                return 4;
+            }
+            size_t last = (size_t)-1;
+            while (WaitForSingleObject(pi.hProcess, 500) == WAIT_TIMEOUT) {
+                size_t n = Pngs(bout).size();
+                if (n != last) printf("progress %zu %zu upscale\n", done + n, total), fflush(stdout), last = n;
+            }
+            DWORD code = 1;
+            GetExitCodeProcess(pi.hProcess, &code);
+            CloseHandle(pi.hProcess);
+            CloseHandle(pi.hThread);
+            if (code) fprintf(stderr, "enhance: the upscaler exited %lu: %s\n", code, cmd.c_str());
+        }
+        for (const std::string& leaf : todo[g]) {
+            std::vector<BYTE> src, dst;
+            UINT sw = 0, sh = 0;
+            std::string up = bout + "\\" + leaf;
+            if (!Load(wic, dump + "\\" + leaf, 0, 0, src, &sw, &sh)) {
+                failed++;
+                continue;
+            }
+            // The AI's image at k x the size (scaled when the model only does 4x); without an upscaler, WIC's cubic.
+            bool ai = !upscaler.empty() && GetFileAttributesA(up.c_str()) != INVALID_FILE_ATTRIBUTES;
+            if (!upscaler.empty() && !ai) {
+                failed++;
+                continue;
+            }
+            if (!Load(wic, ai ? up : dump + "\\" + leaf, sw * k, sh * k, dst, nullptr, nullptr)) {
+                failed++;
+                continue;
+            }
+            ClampToSource(src, sw, sh, dst, sw * k, sh * k);
+            std::string tmp = out + "\\" + leaf + ".part";
+            if (!SavePng(wic, tmp, dst, sw * k, sh * k) ||
+                !MoveFileExA(tmp.c_str(), (out + "\\" + leaf).c_str(), MOVEFILE_REPLACE_EXISTING)) {
+                DeleteFileA(tmp.c_str());
+                failed++;
+                continue;
+            }
+            done++;
+            printf("progress %zu %zu upscale\n", done, total);
+            fflush(stdout);
+        }
+    }
+    for (const std::string& d : {bin, bout}) {
+        for (auto& f : Pngs(d)) DeleteFileA((d + "\\" + f).c_str());
+        RemoveDirectoryA(d.c_str());
+    }
+    wic->Release();
+    printf("wrote %zu textures to %s (%d failed)\n", done, out.c_str(), failed);
+    return failed && !done ? 5 : 0;
+}
+
 int main(int argc, char** argv) {
-    std::string frames, name = "uisingle", out, upscaler, model = "realesrgan-x4plus";
+    std::string frames, name = "uisingle", out, upscaler, model = "realesrgan-x4plus", textures;
     int scale = 2, mbit = 0;
     double fps = 30000.0 / 1001.0;
     for (int i = 1; i + 1 < argc; i += 2) {
@@ -112,6 +286,7 @@ int main(int argc, char** argv) {
         else if (k == "--upscaler") upscaler = v;
         else if (k == "--model") model = v;
         else if (k == "--bitrate") mbit = atoi(v.c_str());
+        else if (k == "--textures") textures = v;
     }
     auto full = [](std::string& p) {  // the upscaler runs from its own folder: every path absolute
         if (p.empty()) return;
@@ -121,6 +296,14 @@ int main(int argc, char** argv) {
     full(frames);
     full(out);
     full(upscaler);
+    full(textures);
+    if (!textures.empty()) {
+        if (out.empty()) {
+            fprintf(stderr, "usage: enhance.exe --textures <dump dir> --out <pack dir> [--upscaler exe] [--model name]\n");
+            return 2;
+        }
+        return Textures(textures, out, upscaler, model);
+    }
     if (frames.empty() || scale < 1 || scale > 4) {
         fprintf(stderr, "usage: enhance.exe --frames <dir> --name <movie> [--scale 2] [--out file.mp4] [--upscaler exe]\n");
         return 2;

@@ -43,6 +43,7 @@ const Def kDefs[] = {
     {"graphics.enhanced_assets", "0", kRestart, nullptr},      // use the player's locally enhanced files when present
     {"graphics.upscale_model", "realesrgan", 0, nullptr}, // realesrgan (x4plus, best) | fast (animevideov3)
     {"graphics.upscale_scale", "2", 0, nullptr},         // 2 | 4
+    {"graphics.ui_filter", "sharp", kRestart, nullptr},     // menus/HUD/fonts upscaled live: game | smooth | sharp (sdk/uiscale.cpp)
     {"graphics.video_sharpen", "1", 0, nullptr},         // movies: sharpened, smooth upscale live (sdk/movie.cpp)
     {"audio.master", "80", 0, nullptr},
     {"audio.music", "100", 0, nullptr},

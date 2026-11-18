@@ -48,6 +48,8 @@ static HostCfg Load() {
     c.texFilter = !strcmp(tf, "bilinear") ? 1 : !strcmp(tf, "trilinear") ? 2 : !strcmp(tf, "aniso16") ? 3 : 0;
     c.menuOnTab = Settings_GetInt("game.menu_on_tab") != 0;
     c.videoSharpen = Settings_GetInt("graphics.video_sharpen") != 0;
+    const char* uf = Settings_Get("graphics.ui_filter");
+    c.uiFilter = !strcmp(uf, "smooth") ? 1 : !strcmp(uf, "sharp") ? 2 : 0;
     return c;
 }
 

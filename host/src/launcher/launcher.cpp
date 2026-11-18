@@ -464,7 +464,8 @@ void HomeScreen() {
     // Newest version, or the intro video while "Enhance my game" runs in the background.
     tasks::Checklist ec = tasks::Snapshot();
     if (ec.kind == 1 && ec.running && ec.steps.size() > 2) {
-        HomeRow(ry, rowH, col::gold, L"Intro video", [&](float vx, float vy) {
+        HomeRow(ry, rowH, col::gold, ec.title.find(L"menus") != std::wstring::npos ? L"Menus and HUD" : L"Intro video",
+                [&](float vx, float vy) {
             const tasks::Step& sc = ec.steps[2];
             float w = Text(L"Enhancing in the background", F_BODY, 18, vx, vy, col::fg);
             if (ec.paused) Badge(L"Paused while you play", vx + w + 10, vy + 1, col::warn, false);
@@ -877,7 +878,7 @@ void FirstRunScreen() {
         int ti = g.focusCount;
         if (Button2(L"Try again", bx - bw, fy)) {
             bool rebuild = c.title.find(L"Rebuild") != std::wstring::npos;
-            if (c.kind == 1) tasks::StartEnhance();
+            if (c.kind == 1) tasks::RetryEnhance();
             else if (c.steps[0].state == tasks::FAILED || c.steps[1].state == tasks::FAILED) Go(DISC);
             else { A.checkRefreshed = false; tasks::StartChecklist(A.st.dump.path, rebuild); }
         }
@@ -1213,6 +1214,8 @@ void PageGraphics() {
     SegRow(L"Texture filtering", "graphics.texture_filter",
            {{"game", L"Game"}, {"bilinear", L"Bilinear"}, {"trilinear", L"Trilinear"}, {"aniso16", L"Aniso 16\u00D7"}},
            L"Game keeps the original. The others sharpen angled textures.");
+    SegRow(L"Menu and HUD art", "graphics.ui_filter", {{"game", L"Game"}, {"smooth", L"Smooth"}, {"sharp", L"Sharp"}},
+           L"Menus, HUD and text upscaled live for big windows. Sharp keeps text and outlines crisp.");
     ToggleRow(L"Show FPS", "graphics.show_fps");
     // "Enhance my game" (ENHANCE_MY_GAME_2026-11-15.md): the player's own intro video is upscaled on this PC into
     // the cache (tasks::StartEnhance; menus, HUD and truck textures come later), never touching the originals.
@@ -1233,6 +1236,25 @@ void PageGraphics() {
         if (have) {
             float rw = TextWidth(L"REMOVE", F_DISPLAY, 17, 0.12f) + 52;
             if (Button2(L"Remove", kMainX + kMainW - bw - 16 - rw, cy)) tasks::RemoveEnhanced();
+        }
+    }
+    {
+        // Menus, HUD and fonts: a texture pack of the player's own menu art, AI-upscaled (tasks::StartEnhanceUi).
+        bool have = tasks::HaveEnhancedUi();
+        float cy;
+        std::wstring help = have ? L"Enhanced on this PC (" + tasks::FormatBytes(tasks::EnhancedUiBytes()) +
+                                       L"). Used when enhanced files are on."
+                                 : L"Upscales the menu, HUD and font art with AI on this PC (a few minutes).";
+        Row(L"Menus and HUD", help, nullptr, 48, &cy);
+        g.focusCount--;  // the button shares the row's focus slot
+        float bw = TextWidth(have ? L"ENHANCE AGAIN" : L"ENHANCE…", F_DISPLAY, 17, 0.12f) + 52;
+        if (Button2(have ? L"Enhance again" : L"Enhance…", kMainX + kMainW - bw, cy)) {
+            tasks::StartEnhanceUi();
+            Go(FIRSTRUN);
+        }
+        if (have) {
+            float rw = TextWidth(L"REMOVE", F_DISPLAY, 17, 0.12f) + 52;
+            if (Button2(L"Remove", kMainX + kMainW - bw - 16 - rw, cy)) tasks::RemoveEnhancedUi();
         }
     }
     SegRow(L"AI model", "graphics.upscale_model", {{"realesrgan", L"Best quality"}, {"fast", L"Fast"}},

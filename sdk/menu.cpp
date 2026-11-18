@@ -336,6 +336,10 @@ void BuildRows() {
                               {"bilinear", "Bilinear", "Smooth, no mipmaps."},
                               {"trilinear", "Trilinear", "Smooth with mipmaps: less shimmer far away."},
                               {"aniso16", "Anisotropic 16x", "The sharpest roads and ground at an angle."}}});
+    graphics.rows.push_back({"Menu and HUD art", "graphics.ui_filter", kChoice, "How menus, the HUD and text look in a big window.",
+                             {{"game", "As the game draws it", "The Wii's own 480p art, scaled as it is."},
+                              {"smooth", "Smooth", "Upscaled smoothly when the game starts."},
+                              {"sharp", "Sharp", "Upscaled with crisp text and outlines (the default)."}}});
     graphics.rows.push_back({"Show frame rate", "graphics.show_fps", kToggle, "Frames per second in the window's title bar (Windowed mode).", {}});
     graphics.rows.push_back({"Enhanced files", "graphics.enhanced_assets", kToggle,
                              "Use the AI-enhanced intro video and your texture packs when they are there.", {}});
