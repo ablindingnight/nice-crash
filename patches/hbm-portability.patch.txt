@@ -1,66 +1,3 @@
-@@@ tp:HBMBase.cpp | C++: a case label may not jump past an initialised declaration (MWCC allows it): declare, then assign
-<<<
-        case 16:
-            GroupAnmController* anim = mpGroupAnmController[mSelectAnmNum];
-===
-        case 16:
-            GroupAnmController* anim;
-            anim = mpGroupAnmController[mSelectAnmNum];
->>>
-@@@ tp:HBMBase.cpp | same: declare, then assign
-<<<
-#ifdef GAME_REXE01
-            BOOL result = WPADSaveConfig(NULL);
-#else
-===
-#ifdef GAME_REXE01
-            BOOL result;
-            result = WPADSaveConfig(NULL);
-#else
->>>
-@@@ tp:HBMBase.cpp | the hooks take u32 = unsigned int in axfx.h, unsigned long in the HBM's types: same 32 bits
-<<<
-        AXFXSetHooks(&HBMAllocMem, &HBMFreeMem);
-===
-        AXFXSetHooks((AXFXAllocHook)&HBMAllocMem, &HBMFreeMem);
->>>
-@@@ tp:nw4hbm/lyt/lyt_arcResourceAccessor.cpp | the archive's layout/animation/font files are big-endian: swap each in place the first time it is handed out (sdk/hbmres.cpp)
-<<<
-            if (pSize) {
-                *pSize = ARCGetLength(&arcFileInfo);
-            }
-===
-            port_hbm_res_fix(resPtr, ARCGetLength(&arcFileInfo));
-
-            if (pSize) {
-                *pSize = ARCGetLength(&arcFileInfo);
-            }
->>>
-@@@ tp:nw4hbm/lyt/lyt_arcResourceAccessor.cpp | (same): the converter's declaration
-<<<
-    void* GetResourceSub(ARCHandle* pArcHandle, const char* resRootDir, u32 resType,
-===
-    extern "C" void port_hbm_res_fix(void* p, u32 size);
-
-    void* GetResourceSub(ARCHandle* pArcHandle, const char* resRootDir, u32 resType,
->>>
-@@@ tp:HBMBase.cpp | home.csv is UTF-16 big-endian (BOM FE FF): swap it to native before the parser walks it as wchar_t (sdk/hbmres.cpp)
-<<<
-        wchar_t* message = static_cast<wchar_t*>(mpHBInfo->msgBuf);
-        for (; message[i]; i++) {
-===
-        wchar_t* message = static_cast<wchar_t*>(mpHBInfo->msgBuf);
-        port_hbm_text_fix(message);
-        for (; message[i]; i++) {
->>>
-@@@ tp:HBMBase.cpp | (same): declaration
-<<<
-#include <new>
-===
-#include <new>
-
-extern "C" void port_hbm_text_fix(void* text);
->>>
 @@@ tp:HBMBase.cpp | TODO sound: HomeButtonSe.brsar (a big-endian NW4R sound archive) is not converted yet; the sound heap is still made (HBMDeleteSound destroys it) but the archive is only opened with NICECRASH_HBMSOUND=1 (sdk/hbmglue.cpp)
 <<<
     MEMInitAllocatorForFrmHeap(&sSoundAllocator, MEMCreateFrmHeapEx(memBuf, memSize, 0), 32);
@@ -77,18 +14,4 @@ extern "C" void port_hbm_text_fix(void* text);
 ===
 extern "C" void port_hbm_text_fix(void* text);
 extern "C" int port_hbm_sound_enabled(void);
->>>
-@@@ tp:HBMBase.cpp | the host build compiles nw4hbm asserts out (NW4HBM_DEBUG=0), which would drop this call with its assertion: make the call itself, then assert
-<<<
-        NW4R_DB_ASSERTMSG(3841, mpMemorySoundArchive->Setup(path), "Cannot setup MemorySoundArchive");
-===
-        bool portSetup = mpMemorySoundArchive->Setup(path);
-        NW4R_DB_ASSERTMSG(3841, portSetup, "Cannot setup MemorySoundArchive");
->>>
-@@@ tp:HBMBase.cpp | (same)
-<<<
-        NW4R_DB_ASSERTMSG(3819, mpDvdSoundArchive->Open(path), "Cannot open \"%s\"", path);
-===
-        bool portOpen = mpDvdSoundArchive->Open(path);
-        NW4R_DB_ASSERTMSG(3819, portOpen, "Cannot open \"%s\"", path);
 >>>

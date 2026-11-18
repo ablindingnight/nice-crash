@@ -855,8 +855,15 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
     bool le = false;  // set by attrPtr: the attribute came from a host-order array
     // NICECRASH_NORINGLE=1: judge ring arrays by the positions too (the old behaviour: green flashes at trees).
     static const bool ringLE = !NC_ENV("NICECRASH_NORINGLE") && !NC_ENV("NICECRASH_ARRAYBE") && !NC_ENV("NICECRASH_ARRAYLE");
+    // Per array (TC's GXSetArray census, handoff/dossier/port_arrays/GXSETARRAY_CENSUS.md: 71 game calls): every
+    // CPU-built array is in the ring except two position arrays (gmat's ocean corners, rest poses converted at load),
+    // so: ring = host order; positions outside it = the plausibility guess; any other array = the model's big-endian
+    // data. (Applying the positions' answer to all arrays read a skinned mesh's model colours/uvs as host order.)
     bool arrLE[12];
-    for (int i = 0; i < 12; i++) arrLE[i] = arraysLE || (ringLE && InDynRing(Phys(g_gx.cp[0xA0 + i])));
+    for (int i = 0; i < 12; i++) {
+        bool ring = InDynRing(Phys(g_gx.cp[0xA0 + i]));
+        arrLE[i] = ringLE ? (ring || (i == 0 && arraysLE)) : arraysLE;
+    }
     auto attrPtr = [&](int type, int arr, int directSize) -> const u8* {
         le = type >= 2 && arrLE[arr];
         if (type == 1) {
