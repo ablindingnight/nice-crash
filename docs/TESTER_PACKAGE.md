@@ -142,4 +142,6 @@ read, to compare against. `--zip` writes `build/package/NiceCrash-<date>-<port c
 
 Testing a clean install on a developer PC: copy the package outside the repo and run `--setup` with
 `LOCALAPPDATA`, `NICECRASH_LAUNCHER_DATA_DIR` and `NICECRASH_SHORTCUT_DIR` pointed at a scratch folder and PATH cut
-down to Windows' own folders.
+down to Windows' own folders. For any boot check (`--launch-game`), also set `NICECRASH_HIDEWINDOW=offscreen` and
+`NICECRASH_DISPLAY_WINDOW_MODE=windowed`: a scratch install defaults to borderless full screen and would cover the
+developer's monitor. Offscreen still renders, so `NICECRASH_SHOT=<retrace>:<file.bmp>` works.
