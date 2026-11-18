@@ -37,6 +37,22 @@ share is logged, and frames that jump are saved as `build/t3/flash_<retrace>.bmp
 - Grass tufts skipped (SKIPTEX 1157b980,11570880, the only draws lit to paint x2): still 2-9 flashes a run.
 - glFinish after every draw: untestable (~30,000 draws a frame; the race is never reached).
 
+## Evening 2026-11-17
+- Reliable repro: the Tutorial save (`build/t3/nand_tut`, copied), `NICECRASH_AUTOPILOT=2`, inputs in
+  `build/t3/pz/fl_inputs.txt` (790:2,950:2,1150:DOWN,1250:DOWN,1350:2 then 2 every 200 frames), `NICECRASH_LUMLOG=1800:6600`:
+  the autopilot drives Basics 1's Tree Run and 5-8 real flash frames appear per run (frames ~5700-7000).
+- The shapes, seen clearly now: flat green acacia trunks and arches (trunk + branches), whole tree crowns, thin
+  vertical bars; taller than / offset from the real trees, which draw normally in the same frame.
+- Fixed on the way, flashes unchanged: LCLoadData/LCStoreData were unimplemented stubs (drsurf's batched y-morph
+  deform flush never wrote its output), GX subtract blend was 0 - src instead of dst - src.
+- Ruled out this evening (flashes unchanged): skipping draws with colour writes off (`NICECRASH_SKIPINVIS=1`, shadow
+  volumes), skipping additive/subtractive blends (`=2`), a 4x bigger "gc:dyndata" frame ring, the trees in the water
+  reflection render (water.cpp fn_802BDD8C), synchronous DVD (already synchronous).
+- `NICECRASH_FLASHDRAWS` on a flash lists only legitimate near-camera geometry: the green shapes are not wild vertices
+  in the frame's own draws. Next: an offscreen pass (ground lightmap / tree shadow layer, gndtex.cpp) leaking into the
+  frame, or the tree instance batch (gndtex FlushBatch: 10 instances per draw, per-instance colour/uv arrays built in
+  host order while positions come from the model) reading the wrong order for its colour/uv arrays.
+
 ## Not yet tried / ideas
 - Find what draws with the truck's paint at 2x: the truck's own passes (reflection/shine, shadow, damage), or
   something sampling the paint texture through another stage (SKIPTEX only checks stage 0). Skip the truck's draws
