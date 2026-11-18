@@ -520,6 +520,21 @@ void sdk_vi_poll() {
         QueryPerformanceCounter(&g_last);  // no catch-up burst afterwards
         sdk_time_add_pause(g_last.QuadPart - p0.QuadPart);
     }
+    // Test hook, NICECRASH_PAUSETEST=<first retrace>:<every n retraces>:<ms>: the same pause as a background window,
+    // on a schedule (the 2026-11-17 watchdog crash: a pause while the game waited for the physics thread).
+    static const char* pt = getenv("NICECRASH_PAUSETEST");
+    if (pt) {
+        static unsigned first = 0, every = 0, ms = 0;
+        if (!every) sscanf(pt, "%u:%u:%u", &first, &every, &ms);
+        if (every && g_retrace >= first && (g_retrace - first) % every == 0) {
+            LARGE_INTEGER p0;
+            QueryPerformanceCounter(&p0);
+            fprintf(stderr, "[pausetest] retrace %u: pausing %u ms\n", g_retrace, ms);
+            Sleep(ms);
+            QueryPerformanceCounter(&g_last);
+            sdk_time_add_pause(g_last.QuadPart - p0.QuadPart);
+        }
+    }
     // The Nice Crash menu (sdk/menu.cpp): the game thread waits here, at its retrace, while the menu runs over the
     // last picture; audio underruns to silence (AX isn't ticked). The clock restarts afterwards (no catch-up).
     if (sdk_input_take_menu_request() | sdk_menu_test_wants_open()) {

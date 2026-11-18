@@ -73,7 +73,8 @@ void sdk_vi_poll();  // sdk/vi.cpp: the retrace "interrupt"
 // after 10 s of waiting for the physics thread).
 static volatile LONG64 g_pausedQpc;
 void sdk_time_add_pause(long long qpc) {
-    if (qpc > 0) InterlockedAdd64(&g_pausedQpc, qpc);
+    static const bool off = getenv("NICECRASH_NOPAUSECLOCK") != nullptr;  // testing: the old behaviour
+    if (qpc > 0 && !off) InterlockedAdd64(&g_pausedQpc, qpc);
 }
 
 s64 OSGetTime(void) {
