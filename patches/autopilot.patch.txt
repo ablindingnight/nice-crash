@@ -23,7 +23,9 @@
         // takeoff, the lean the lesson wants): sdk/input.cpp port_autopilot_air. On the ground the AI drives.
         // The car's steering (0x25F0, written by whichever driver drives) goes along: in the air the autopilot keeps
         // the AI's last steering from the ground, so the truck stays pointed along the course.
-        extern int port_autopilot_air(int airborne, float steer);  // sdk/input.cpp
-        fn_80191084(p, port_autopilot_air(!U8(p, 0x24), F32(PTR(p, 0x20), 0x25F0)) ? U32(p, 0xC) : U32(p, 0x8));
+        // Also the engine heat (car 0x25A0, 0..1) and the overheat timer (0x2588), for turbo by heat (G7's notes).
+        extern int port_autopilot_air(int airborne, float steer, float heat, float overheat);  // sdk/input.cpp
+        fn_80191084(p, port_autopilot_air(!U8(p, 0x24), F32(PTR(p, 0x20), 0x25F0), F32(PTR(p, 0x20), 0x25A0),
+                                          F32(PTR(p, 0x20), 0x2588)) ? U32(p, 0xC) : U32(p, 0x8));
     } else if (!lbl_8055E529) {
 >>>

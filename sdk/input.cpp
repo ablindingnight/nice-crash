@@ -552,19 +552,23 @@ static volatile u32 g_apWhen;    // retrace of that update: menus and loading sc
 static volatile float g_apSteer;  // the AI's last steering on the ground (car 0x25F0, -1..1)
 static volatile int g_apLastAI = 1;  // the AI drove the last frame (its steering is in 0x25F0)
 static volatile int g_apGround;      // a ground frame given to the player's driver (NICECRASH_AUTOPILOT=2)
-// NICECRASH_AUTOPILOT=2: on the ground too, every other frame goes to the player's driver holding gas and turbo
-// (2 s on, 1 s off) with the AI's steering, for lessons that want turbo all the way (Cooling Down).
+// NICECRASH_AUTOPILOT=2: on the ground too, three frames in four go to the player's driver holding gas, with turbo
+// by engine heat, and the AI's steering (the fourth frame lets the AI steer and refresh it). For lessons that want
+// speed all the way (Cooling Down: 13.5 s from 20 mph to the end line; G7's notes, tutorial.cpp:1189).
 static int AutopilotMode() {
     static const int m = getenv("NICECRASH_AUTOPILOT") ? atoi(getenv("NICECRASH_AUTOPILOT")) : 0;
     return m;
 }
-extern "C" int port_autopilot_air(int airborne, float steer) {
+static volatile float g_apHeat, g_apOverheat;  // car 0x25A0 (0..1) and its overheat timer 0x2588 (turbo locked out)
+extern "C" int port_autopilot_air(int airborne, float steer, float heat, float overheat) {
     if (!airborne && g_apLastAI && steer == steer) g_apSteer = steer;  // the AI's steering, for the other frames
+    g_apHeat = heat;
+    g_apOverheat = overheat;
     g_apAir = airborne;
     g_apFrames = airborne ? g_apFrames + 1 : 0;
     g_apWhen = sdk_vi_retrace_count();
     static unsigned tick;
-    int ground = !airborne && AutopilotMode() >= 2 && (tick++ & 1);
+    int ground = !airborne && AutopilotMode() >= 2 && (tick++ & 3) != 0;
     g_apGround = ground;
     g_apLastAI = !(airborne || ground);
     return airborne || ground;
@@ -586,8 +590,14 @@ static bool AutopilotAirborne(f32* lean, f32* steer) {
     return true;
 }
 static bool AutopilotTurboNow() {
-    if (g_apGround) return (sdk_vi_retrace_count() / 60) % 3 != 2;  // on the ground: 2 s of turbo, 1 s to cool
-    return g_apFrames >= 2 && g_apFrames <= 10;                      // in the air: just after takeoff
+    if (g_apGround) {  // on the ground: turbo while the engine has room (off at 95% heat, on again below 85%)
+        static bool on = true;
+        if (g_apOverheat > 0 || g_apHeat >= 0.95f) on = false;
+        else if (g_apHeat < 0.85f) on = true;
+        return on;
+    }
+    if (AutopilotMode() >= 2) return true;       // in the air the engine doesn't heat: hold it
+    return g_apFrames >= 2 && g_apFrames <= 10;  // mode 1, in the air: just after takeoff
 }
 
 static u32 CurrentHold(f32* tilt, f32* keyLean) {
