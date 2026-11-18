@@ -552,6 +552,7 @@ static volatile u32 g_apWhen;    // retrace of that update: menus and loading sc
 static volatile float g_apSteer;  // the AI's last steering on the ground (car 0x25F0, -1..1)
 static volatile int g_apLastAI = 1;  // the AI drove the last frame (its steering is in 0x25F0)
 static volatile int g_apGround;      // a ground frame given to the player's driver (NICECRASH_AUTOPILOT=2)
+// NICECRASH_AUTOPILOT=3: the AI drives on the ground with turbo by heat (port_ai_turbo); in the air as mode 2.
 // NICECRASH_AUTOPILOT=2: on the ground too, three frames in four go to the player's driver holding gas, with turbo
 // by engine heat, and the AI's steering (the fourth frame lets the AI steer and refresh it). For lessons that want
 // speed all the way (Cooling Down: 13.5 s from 20 mph to the end line; G7's notes, tutorial.cpp:1189).
@@ -560,15 +561,36 @@ static int AutopilotMode() {
     return m;
 }
 static volatile float g_apHeat, g_apOverheat;  // car 0x25A0 (0..1) and its overheat timer 0x2588 (turbo locked out)
-extern "C" int port_autopilot_air(int airborne, float steer, float heat, float overheat) {
+static volatile float g_apPitch;  // see port_autopilot_air
+static volatile float g_apSpeed;  // car 0x25D4
+static inline float CarF(const u8* car, int o) { float v; memcpy(&v, car + o, 4); return v; }
+extern "C" int port_autopilot_air(const u8* car) {
+    // The CarBody (include/game/carbody.h): 0x25F0 steering, 0x25A0 heat, 0x2588 overheat timer, 0x260D turbo
+    // held, 0x259C turbo active, 0x2618 airtime, 0x2620 wheels down, 0x25D4 speed. NICECRASH_APLOG=1 logs them.
+    int wheels;
+    memcpy(&wheels, car + 0x2620, 4);
+    int airborne = wheels == 0;
+    float steer = CarF(car, 0x25F0), heat = CarF(car, 0x25A0), overheat = CarF(car, 0x2588);
+    static const bool log = getenv("NICECRASH_APLOG") != nullptr;
+    if (log)
+        fprintf(stderr, "[ap] r %u air %d gnd %d heat %.3f oh %.2f held %d act %d airt %.2f wheels %d speed %.1f steer %.2f pitch %.2f\n",
+                sdk_vi_retrace_count(), airborne, g_apGround, heat, overheat, car[0x260D], car[0x259C], CarF(car, 0x2618),
+                wheels, CarF(car, 0x25D4), steer, g_apPitch);
     if (!airborne && g_apLastAI && steer == steer) g_apSteer = steer;  // the AI's steering, for the other frames
     g_apHeat = heat;
     g_apOverheat = overheat;
+    g_apSpeed = CarF(car, 0x25D4);
+    // Pitch error for leveling in the air: the car's up axis (collision frame row y, 0x48) along its velocity
+    // (0x118). Positive = nose below the flight path.
+    float up[3] = {CarF(car, 0x48), CarF(car, 0x4C), CarF(car, 0x50)};
+    float v[3] = {CarF(car, 0x118), CarF(car, 0x11C), CarF(car, 0x120)};
+    float vm = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+    g_apPitch = vm > 1.0f ? (up[0] * v[0] + up[1] * v[1] + up[2] * v[2]) / vm : 0.0f;
     g_apAir = airborne;
     g_apFrames = airborne ? g_apFrames + 1 : 0;
     g_apWhen = sdk_vi_retrace_count();
     static unsigned tick;
-    int ground = !airborne && AutopilotMode() >= 2 && (tick++ & 3) != 0;
+    int ground = !airborne && AutopilotMode() == 2 && (tick++ & 3) != 0;
     g_apGround = ground;
     g_apLastAI = !(airborne || ground);
     return airborne || ground;
@@ -581,22 +603,44 @@ static bool AutopilotAirborne(f32* lean, f32* steer) {
         return true;
     }
     if (!g_apAir) return false;
-    // Nor a truck parked off the ground behind a lesson menu (the Hybrid still runs there): real jumps last seconds.
-    if (g_apFrames > 300) return false;
+    // Nor a truck parked off the ground behind a lesson menu (the Hybrid still runs there: "airborne" at speed
+    // ~0.5). Holding 2 and turbo (the D-pad's up) there walked the lesson list's cursor to Exit and picked it.
+    if (g_apFrames > 300 || g_apSpeed < 2.0f) return false;
     *steer = fmaxf(-1.0f, fminf(1.0f, g_apSteer));  // point along the course, as the AI was steering at takeoff
     static const char* mode = getenv("NICECRASH_AUTOPILOT_LEAN");
     if (mode && !_stricmp(mode, "up")) *lean = 1;
     if (mode && !_stricmp(mode, "down")) *lean = -1;
+    // By default (NICECRASH_AUTOPILOT_LEAN unset or auto; =none: no lean): keep the truck level with its flight path (lean back when the nose drops below
+    // it), so it lands parallel to a downhill slope: a landing boost wants the car's up within ~13 degrees of the
+    // ground normal after 2 s of air (carbody.cpp, G7's notes).
+    if (!mode || !_stricmp(mode, "auto")) *lean = fmaxf(-1.0f, fminf(1.0f, 6.0f * g_apPitch));
     return true;
 }
+// Turbo while the engine has room: off at 95% heat (an overheat above 99% locks turbo out for 6.25 s), on again
+// below 85%. In the air too: the engine still heats for the first 0.2 s of a jump (carbody.cpp).
+static bool HeatTurbo(float heat, float overheat) {
+    static bool on = true;
+    if (overheat > 0 || heat >= 0.95f) on = false;
+    else if (heat < 0.85f) on = true;
+    return on;
+}
+// NICECRASH_AUTOPILOT=3 (patches/autopilot, aicar.cpp): the AI drives the player's truck on the ground as in mode 1,
+// but its turbo goes by engine heat. The AI's own policy (turbo below 55% heat, then a 4 s wait) ran out of time in
+// Power Item. Other cars keep the AI's choice.
+extern "C" int port_ai_turbo(const u8* car, int aiTurbo) {
+    int who;
+    memcpy(&who, car + 0x1F0, 4);
+    if (AutopilotMode() != 3 || who != 0x50) return aiTurbo;  // 'P': the player's car
+    return HeatTurbo(CarF(car, 0x25A0), CarF(car, 0x2588));
+}
 static bool AutopilotTurboNow() {
-    if (g_apGround) {  // on the ground: turbo while the engine has room (off at 95% heat, on again below 85%)
-        static bool on = true;
-        if (g_apOverheat > 0 || g_apHeat >= 0.95f) on = false;
-        else if (g_apHeat < 0.85f) on = true;
+    if (AutopilotMode() >= 2) {
+        bool on = HeatTurbo(g_apHeat, g_apOverheat);
+        // A turbo jump needs turbo pressed afresh in the first 0.25 s of air (held for < 0.15 s; carbody.cpp):
+        // let go on the first two air frames, then press again.
+        if (!g_apGround && g_apAir && g_apFrames <= 2) return false;
         return on;
     }
-    if (AutopilotMode() >= 2) return true;       // in the air the engine doesn't heat: hold it
     return g_apFrames >= 2 && g_apFrames <= 10;  // mode 1, in the air: just after takeoff
 }
 
@@ -835,4 +879,11 @@ void KPADInit(void) {}
 extern "C" int port_autopilot(void) {  // C name: playcar.cpp declares it inside its extern "C" block
     static const int on = getenv("NICECRASH_AUTOPILOT") ? 1 : 0;
     return on;
+}
+
+// NICECRASH_TUTLEVEL=<n> (testing, patches/autopilot): the profile's Tutorial progress reads as at least lesson n
+// (1 = Drive ... 6 = Cooling Down), so a scripted run can start at a later lesson without replaying the earlier ones.
+extern "C" int port_tutlevel(int level) {
+    static const int want = getenv("NICECRASH_TUTLEVEL") ? atoi(getenv("NICECRASH_TUTLEVEL")) : 0;
+    return level > want ? level : want;
 }

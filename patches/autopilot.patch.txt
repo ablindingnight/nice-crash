@@ -23,10 +23,63 @@
         // takeoff, the lean the lesson wants): sdk/input.cpp port_autopilot_air. On the ground the AI drives.
         // The car's steering (0x25F0, written by whichever driver drives) goes along: in the air the autopilot keeps
         // the AI's last steering from the ground, so the truck stays pointed along the course.
-        // Also the engine heat (car 0x25A0, 0..1) and the overheat timer (0x2588), for turbo by heat (G7's notes).
-        extern int port_autopilot_air(int airborne, float steer, float heat, float overheat);  // sdk/input.cpp
+        // The car itself goes along too: sdk/input.cpp reads its engine heat (0x25A0), overheat timer (0x2588),
+        // airtime and wheel contacts for turbo by heat and the lessons' stunts (G7's notes).
+        // Airborne = no wheel on the ground (car 0x2620); the Hybrid's byte 0x24 used before is not that flag.
+        extern int port_autopilot_air(const u8* car);  // sdk/input.cpp
         u8* hy = (u8*)this;  // the Hybrid driver (was `p` before the decomp's real classes, cf6990eea)
-        fn_80191084(hy, port_autopilot_air(!U8(hy, 0x24), F32(PTR(hy, 0x20), 0x25F0), F32(PTR(hy, 0x20), 0x25A0),
-                                           F32(PTR(hy, 0x20), 0x2588)) ? U32(hy, 0xC) : U32(hy, 0x8));
+        fn_80191084(hy, port_autopilot_air(PTR(hy, 0x20)) ? U32(hy, 0xC) : U32(hy, 0x8));
     } else if (!lbl_8055E529) {
+>>>
+@@@ tutorial.cpp | (same, testing): NICECRASH_TUTLEVEL=<n> starts the profile's Tutorial at lesson n (1 = Drive, 6 = Cooling Down; the profile's "tutorial_level", 1 + lessons passed), as read for the set menu's locks
+<<<
+    v = 1;
+    fn_801332D0(slot + 0xC, lbl_8055A0B0, &v);
+    return v;
+===
+    v = 1;
+    fn_801332D0(slot + 0xC, lbl_8055A0B0, &v);
+    extern int port_tutlevel(int level);  // sdk/input.cpp
+    return port_tutlevel(v);
+>>>
+@@@ tutorial.cpp | (same): and as read when a lesson set opens
+<<<
+    lbl_8055A0B8 = 1;
+    fn_801332D0(slot + 0xC, lbl_8055A0B0, &lbl_8055A0B8);
+===
+    lbl_8055A0B8 = 1;
+    fn_801332D0(slot + 0xC, lbl_8055A0B0, &lbl_8055A0B8);
+    extern int port_tutlevel(int level);  // sdk/input.cpp
+    lbl_8055A0B8 = port_tutlevel(lbl_8055A0B8);
+>>>
+@@@ tutorial.cpp | (same): with NICECRASH_TUTLEVEL set, the lesson list opens on the current lesson instead of Drive, so a script's 2 press plays it
+<<<
+    virtual void Init(void) {
+        sel = 1;
+        pick = 0;
+===
+    virtual void Init(void) {
+        sel = 1;
+        if (::port_tutlevel(0) > 0 && fn_80160CE4() >= 1 && fn_80160CE4() <= lbl_8042FDEC.count) sel = fn_80160CE4();
+        pick = 0;
+>>>
+@@@ tutorial.cpp | (same): the declaration ChalList::Init needs (in the file's extern "C" block; the class sits in an anonymous namespace)
+<<<
+int fn_80160CE4(void);
+===
+int fn_80160CE4(void);
+int port_tutlevel(int level);  // sdk/input.cpp (patches/autopilot)
+>>>
+@@@ aicar.cpp | (same, testing): NICECRASH_AUTOPILOT=3 lets the AI drive the player's truck on the ground but sets its turbo by engine heat (sdk/input.cpp port_ai_turbo); the AI's own turbo waits 4 s at 55% heat, too slow for the timed lessons (Power Item)
+<<<
+void fn_8018AE24(void* car, int v);
+===
+void fn_8018AE24(void* car, int v);
+int port_ai_turbo(const u8* car, int aiTurbo);  // sdk/input.cpp (patches/autopilot)
+>>>
+@@@ aicar.cpp | (same)
+<<<
+    fn_8018AE24(CAR(d), (S32(d, 0x2D0) >> 10) & 1);
+===
+    fn_8018AE24(CAR(d), ::port_ai_turbo(CAR(d), (S32(d, 0x2D0) >> 10) & 1));
 >>>

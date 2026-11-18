@@ -290,7 +290,9 @@ def main():
             print(r.stderr)
             sys.exit(1)
         rt.append(o)
-    exe = os.path.join(B, 'NiceCrashGame.exe')
+    # NICECRASH_LINK_OUT=<path.exe>: link a test build elsewhere (the launcher's build/NiceCrashGame.exe is locked
+    # while the user plays it).
+    exe = os.path.abspath(os.environ['NICECRASH_LINK_OUT']) if os.environ.get('NICECRASH_LINK_OUT') else os.path.join(B, 'NiceCrashGame.exe')
     # zig's driver will not pass /force:multiple (MWCC weak inline copies are plain duplicate definitions in the
     # decomp). Learn zig's lld-link line once from a probe link, then run lld-link ourselves with the flag.
     probe = zig('build-exe', '-target', 'x86-windows-gnu', '-O', 'ReleaseFast', '-lc', '-lc++', '-lopengl32',
