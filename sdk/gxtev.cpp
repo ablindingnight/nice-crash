@@ -200,12 +200,18 @@ std::string BuildFS(int nStages, const bool texOk[8]) {
         u32 ss = g_gx.bp[0x25 + i / 2] >> ((i & 1) * 8);
         int sS = ss & 15, sT = (ss >> 4) & 15;
         if (texOk[imap]) {
-            // Fixed point as the hardware: the coordinate in 1/128 texels, the texel index wrapped by repeat, then
-            // a texel-centre sample (the GL sampler's own rounding put a row of the Bink ramp lookups one row off).
+            // Fixed point as the hardware: the coordinate in 1/128 texels shifted by the indirect scale, then the
+            // same sampler as a TEV stage (sampleGX: exact texel fetches, so no GL rounding puts a row of the Bink
+            // ramp lookups one row off), with the map's own wrap and filter. The lookup is bilinear when the
+            // texture says so (Dolphin samples it the same way): the truck paint's reflection offsets ("imap%d.tex")
+            // were point-sampled, which drew the envmap as stepped blocks.
+            u32 imode = g_gx.bp[(imap < 4 ? 0x80 : 0xA0) + (imap & 3)];
+            static const int kIWrap[4] = {0, 1, 2, 1};
             snprintf(b, sizeof b,
-                     "  vec2 ic%d = floor(floor(gl_TexCoord[%d].st * tdim[%d] * 128.0 / vec2(%d.0, %d.0)) / 128.0);\n"
-                     "  vec3 ind%d = floor(texture2D(tex[%d], (mod(ic%d, tdim[%d]) + 0.5) / tdim[%d]).abg * 255.0 + 0.5);\n",
-                     i, icoord, imap, 1 << sS, 1 << sT, i, imap, i, imap, imap);
+                     "  vec2 ic%d = floor(floor(gl_TexCoord[%d].st * tdim[%d] * 128.0) / vec2(%d.0, %d.0));\n"
+                     "  vec3 ind%d = floor(sampleGX(tex[%d], ic%d, tdim[%d], vec2(%d.0, %d.0), %d.0).abg * 255.0 + 0.5);\n",
+                     i, icoord, imap, 1 << sS, 1 << sT, i, imap, i, imap, kIWrap[imode & 3], kIWrap[(imode >> 2) & 3],
+                     (int)((imode >> 4) & 1));
         } else {
             snprintf(b, sizeof b, "  vec3 ind%d = vec3(0.0);\n", i);
         }
