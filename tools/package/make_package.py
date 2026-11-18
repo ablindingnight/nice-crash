@@ -149,7 +149,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--python-zip', help='python-3.x.y-embed-amd64.zip from python.org')
     ap.add_argument('--no-upscaler', action='store_true')
-    ap.add_argument('--zip', action='store_true', help='also write build/package/NiceCrash-<date>.zip')
+    ap.add_argument('--zip', action='store_true', help='also write build/package/NiceCrash-<date>-<commit>.zip')
     ap.add_argument('--dol', help='your own main.dol, for the scan (read only)')
     ap.add_argument('--disc', help='your own extracted disc folder (DATA), for the scan (read only)')
     a = ap.parse_args()
@@ -174,7 +174,10 @@ def main():
         sys.exit('make_package: the scan found game data; the package must not be shared')
     if a.zip:
         import datetime
-        zp = os.path.join(OUT, 'NiceCrash-%s.zip' % datetime.date.today().isoformat())
+        head = subprocess.run(['git', '-C', PORT, 'rev-parse', '--short=7', 'HEAD'], capture_output=True,
+                              text=True).stdout.strip()
+        # date + port commit: a tester's bug report names the exact build
+        zp = os.path.join(OUT, 'NiceCrash-%s-%s.zip' % (datetime.date.today().isoformat(), head))
         if os.path.exists(zp):
             os.remove(zp)
         with zipfile.ZipFile(zp, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as z:

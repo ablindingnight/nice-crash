@@ -126,7 +126,7 @@ python -I tools/package/make_package.py --dol "<your main.dol>" --disc "<your ex
 
 The Python embeddable zip is read from `build/package-cache/python-*-embed-amd64.zip` (download it from python.org
 once; without it the package has no Python and the tester needs Python 3.11+ on PATH). `--dol`/`--disc` are only
-read, to compare against. `--zip` writes `build/package/NiceCrash-<date>.zip`.
+read, to compare against. `--zip` writes `build/package/NiceCrash-<date>-<port commit>.zip`.
 
 ## What the launcher does on a clean PC
 
