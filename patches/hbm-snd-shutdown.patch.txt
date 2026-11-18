@@ -1,0 +1,6 @@
+@@@ msc:src/nw4hbm/snd/snd_SoundThread.cpp | PORT-ONLY (scheduling): the host runs the AX frame callback ~5 times in a burst per retrace on the game thread (sdk/ax.cpp), and the sound thread only drains its queue when the game thread blocks, so the queue can be full when HOME closes; a non-blocking send then fails, Shutdown returns FALSE and the assertion halts the game (2nd HOME close, 2026-11-17). On the Wii the higher-priority sound thread runs at once. Wait for room instead.
+<<<
+    if (!OSSendMessageAny(&GetInstance().mMsgQueue, MSG_SHUTDOWN, OS_MESSAGE_NO_FLAGS))
+===
+    if (!OSSendMessageAny(&GetInstance().mMsgQueue, MSG_SHUTDOWN, OS_MESSAGE_BLOCK))
+>>>

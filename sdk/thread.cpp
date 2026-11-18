@@ -219,4 +219,14 @@ int OSReceiveMessage(OSMessageQueue* q, void** msg, s32 flags) {
     return 1;
 }
 
+// Waits (giving the CPU away) until `thread` has returned; its return value goes to *val. HOME's sound thread is
+// joined when the menu closes (SoundThread::Shutdown; was an unimplemented stub that ended the game).
+int OSJoinThread(void* thread, void** val) {
+    HostThread* t = FindThread(thread);
+    if (!t || !t->started) return 0;
+    while (!t->done) SleepConditionVariableSRW(&g_changed, &g_cpu, INFINITE, 0);
+    if (val) *val = t->result;
+    return 1;
+}
+
 }  // extern "C"
