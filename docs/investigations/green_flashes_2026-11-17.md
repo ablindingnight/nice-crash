@@ -1,4 +1,27 @@
-# Green flashes in races (open, 2026-11-17)
+# Green flashes in races (FIXED 2026-11-17 late)
+
+## Cause and fix
+Vertex arrays the game builds with the CPU each frame were sometimes read in the wrong byte order.
+`sdk/gxrender.cpp` decides a draw's array byte order from its float POSITIONS (`ArraysHostOrder`: plausible as
+big-endian model data or as host-order CPU data) and applied that one answer to every array of the draw. Two cases
+went wrong, both with arrays from the game's "gc:dyndata" frame ring (`gx.cpp fn_802CFF64`, 0x177000 bytes):
+- Positions in the ring (drsurf.cpp skinned / deformed surfaces: `Skin2` output, the trees' morph flush) judged
+  big-endian. The judgement scores only the first 12 vertices and is cached per array ADDRESS per frame; on a tie it
+  reuses an older answer for that address, and ring addresses are reused by different arrays every frame. A misread
+  float is mostly tiny/NaN (nothing visible), but now and then a vertex lands far away: the long flat bars, arches and
+  stretched trunks converging on one point. Their flat colour is probably one texel of the tree texture stretched
+  over the huge triangle (not verified; the "paint x2" match was a coincidence). Measured: ~365,000 such draws in one repro run.
+- Mixed draws: the tree instance batch (`gndtex.cpp FlushBatch`) and fogged surfaces (`drsurf.cpp fn_802D5B8C`)
+  take positions from the model (big-endian) but colours / texture coordinates from the ring (host order); those were
+  read big-endian (instance fade alpha lost, lightmap uvs garbage). ~5.2 million draws per run, every frame.
+Fix: an array that lies in the ring is always host order (`InDynRing`); every user of the ring is a CPU-built array
+(drsurf skin/deform/fog outputs, gndtex batch, glare, gmat, water). Other arrays keep the position judgement.
+`NICECRASH_NORINGLE=1` restores the old behaviour for comparison.
+
+Verification (repro below, `build/t3/flashhunt/run1.sh` + `count.sh`, counting LUMLOG JUMPs at retrace >= 5000
+because the detector saves at most 8 frames): fix on: 0, 0, 0 in-race jumps (3 runs; the only flagged frames are the
+menu fade-ins at ~2500 / ~4350 / ~7290). Fix off (`NICECRASH_NORINGLE=1`, same build): 15 jumps, the usual bars.
+A normal race frame with the fix (retrace 6200) looks right. Everything below is the history of the hunt.
 
 ## What they are
 - Single frames (sometimes 2-3 in a row) with solid green bars, wedges or blocks, mostly in the Tutorial's

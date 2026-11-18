@@ -698,6 +698,12 @@ void gxr_tlut_load(u32 bp64, u32 bp65) {
 // with the CPU (terrain heightfield, water, glare) are in host order, as the port skips the Wii's byte swaps. Float
 // positions tell them apart: real coordinates are plausible in one byte order and not in the other. The answer is
 // kept per array base (non-float positions use it, or big-endian). NICECRASH_ARRAYBE / NICECRASH_ARRAYLE force one.
+// The positions' answer is not enough when one draw mixes the two kinds: the tree instance batch (gndtex.cpp
+// FlushBatch) and fogged surfaces (drsurf.cpp fn_802D5B8C) take positions from the model but colours and texture
+// coordinates the CPU just built. Those come from the "gc:dyndata" frame ring (gx.cpp fn_802CFF64), which only ever
+// holds CPU-built arrays, so an array in the ring is host order whatever the positions say (InDynRing).
+extern "C" u8* lbl_8055FDA0;  // game/gx.cpp: the dyndata ring (0x177000 bytes)
+static inline bool InDynRing(const u8* p) { return lbl_8055FDA0 && p >= lbl_8055FDA0 && p < lbl_8055FDA0 + 0x177000; }
 static bool PlausibleF32(u32 bits) {
     u32 e = (bits >> 23) & 0xFF;
     if (e == 0) return (bits & 0x7FFFFFFF) == 0;  // zero ok, denormals not
@@ -847,8 +853,12 @@ void gxr_draw(int prim, int vat, int count, const u8* data) {
     const u8* p = data;
     bool arraysLE = ArraysHostOrder(lo, f, count, data, vat);
     bool le = false;  // set by attrPtr: the attribute came from a host-order array
+    // NICECRASH_NORINGLE=1: judge ring arrays by the positions too (the old behaviour: green flashes at trees).
+    static const bool ringLE = !NC_ENV("NICECRASH_NORINGLE") && !NC_ENV("NICECRASH_ARRAYBE") && !NC_ENV("NICECRASH_ARRAYLE");
+    bool arrLE[12];
+    for (int i = 0; i < 12; i++) arrLE[i] = arraysLE || (ringLE && InDynRing(Phys(g_gx.cp[0xA0 + i])));
     auto attrPtr = [&](int type, int arr, int directSize) -> const u8* {
-        le = type >= 2 && arraysLE;
+        le = type >= 2 && arrLE[arr];
         if (type == 1) {
             const u8* r = p;
             p += directSize;
