@@ -1,16 +1,49 @@
 {
   "$schema": "https://recomp.fyi/schema/v1.json",
   "game": "Excite Truck",
+  "wikidata": "Q430080",
   "system": "Wii",
   "type": "port",
-  "original": { "region": "USA", "serial": "REXE01", "sha1": "e51685814152f377e5c76a50067d8132e25f672b" },
+  "original": {
+    "region": "USA",
+    "serial": "REXE01",
+    "sha1": "e51685814152f377e5c76a50067d8132e25f672b"
+  },
   "project": "Nice Crash",
   "status": "in-progress",
-  "targets": ["Windows"],
-  "toolchain": ["zig", "Decomp-toolkit"],
+  "targets": [
+    "Windows"
+  ],
+  "toolchain": [
+    "zig",
+    "Decomp-toolkit"
+  ],
   "approach": "Native Windows build of the Excite Truck matching decompilation, with its own launcher; you supply your own disc",
-  "maintainers": [{ "name": "ablindingnight", "link": "https://github.com/ablindingnight" }],
-  "links": [{ "label": "Decompilation", "url": "https://github.com/ablindingnight/excite-truck" }],
-  "launchers": [{ "path": "NiceCrash.exe", "in": "release" }],
-  "notes": "Work in progress. No game files are included: the launcher reads your own extracted USA disc at run time."
+  "maintainers": [
+    {
+      "name": "ablindingnight",
+      "link": "https://github.com/ablindingnight"
+    }
+  ],
+  "links": [
+    {
+      "label": "Download (Releases)",
+      "url": "https://github.com/ablindingnight/nice-crash/releases"
+    },
+    {
+      "label": "Decompilation",
+      "url": "https://github.com/ablindingnight/excite-truck"
+    }
+  ],
+  "tags": [
+    "pc-port",
+    "native",
+    "launcher",
+    "bring-your-own-disc"
+  ],
+  "help": [
+    "testing on different PCs and controllers",
+    "Linux and Steam Deck builds"
+  ],
+  "notes": "Early preview (v0.1-preview, Windows). No game files are included: the launcher checks and reads your own USA disc (REXE01, main.dol SHA-1 above) and builds the game on your PC on first run."
 }
