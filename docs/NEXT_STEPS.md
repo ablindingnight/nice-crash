@@ -55,3 +55,12 @@
 - Debug switches: NICECRASH_LUMLOG (green-flash detector), NICECRASH_SKIPINVIS, NICECRASH_NORINGLE,
   NICECRASH_PAUSETEST / NICECRASH_NOPAUSECLOCK, NICECRASH_ENHANCE_PLAYTEST (launcher --enhance),
   NICECRASH_VIDEODUMP_MOVIE, NICECRASH_AUTOPILOT=1|2.
+
+## Planned 2026-11-22: drop the build-on-the-tester's-PC step (no zig/Python in the package)
+Today the package ships source + zig + Python because NiceCrashGame.exe compiles in DUMP_DATA tables generated from the
+player's main.dol (tools/gametrial/link.py -> prep.py -> decomp tools/datagen.py), and link.py reads main.dol again to
+recognise retail vtables. Plan: load those tables from the player's main.dol AT RUN TIME (the launcher already verifies
+the dump), and do the vtable recognition at load time. Then a prebuilt NiceCrashGame.exe with no Nintendo data can ship:
+package ~156 MB -> a few MB, no 7-minute first build, no compiler on the player's PC. scan_package.py must still pass
+(it already checks for main.dol runs and generated tables). Good first task for the Monday port session.
+Repo is public since 2026-11-22: github.com/ablindingnight/nice-crash (CC0). Releases: attach the tester zip.
