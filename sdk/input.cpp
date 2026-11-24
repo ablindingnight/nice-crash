@@ -64,6 +64,14 @@ struct Scripted {
 };
 static Scripted g_script[1024];
 static int g_nscript = -1;
+// NICECRASH_INPUT2 (testing): the same kind of script for remote 2, which then counts as connected without a pad
+// (Versus and other two-player menus in scripted runs).
+static Scripted g_script2[256];
+static int g_nscript2 = -1;
+static bool Remote2Scripted() {
+    static const bool on = getenv("NICECRASH_INPUT2") != nullptr;
+    return on;
+}
 
 static u32 ButtonBits(const char* name) {
     struct { const char* n; u32 b; } map[] = {
@@ -75,23 +83,31 @@ static u32 ButtonBits(const char* name) {
     return 0;
 }
 
-static void LoadScript() {
-    g_nscript = 0;
-    const char* s = getenv("NICECRASH_INPUT");
-    if (!s) return;
+static int ParseScript(const char* s, Scripted* out, int cap) {
+    int n = 0;
+    if (!s) return 0;
     static char buf[32768];
     strncpy(buf, s, sizeof buf - 1);
     buf[sizeof buf - 1] = 0;
-    for (char* tok = strtok(buf, ","); tok && g_nscript < 1024; tok = strtok(nullptr, ",")) {
+    for (char* tok = strtok(buf, ","); tok && n < cap; tok = strtok(nullptr, ",")) {
         char* c = strchr(tok, ':');
         if (!c) continue;
         *c = 0;
-        g_script[g_nscript].frame = (u32)atoi(tok);
+        out[n].frame = (u32)atoi(tok);
         const char* plus = strchr(tok, '+');  // "4000+1500:2" holds 2 for 1500 retraces
-        g_script[g_nscript].len = plus ? (u32)atoi(plus + 1) : 6;
-        g_script[g_nscript].bits = ButtonBits(c + 1);
-        g_nscript++;
+        out[n].len = plus ? (u32)atoi(plus + 1) : 6;
+        out[n].bits = ButtonBits(c + 1);
+        n++;
     }
+    return n;
+}
+static void LoadScript() { g_nscript = ParseScript(getenv("NICECRASH_INPUT"), g_script, 1024); }
+static u32 Script2Hold() {
+    if (g_nscript2 < 0) g_nscript2 = ParseScript(getenv("NICECRASH_INPUT2"), g_script2, 256);
+    u32 hold = 0, now = sdk_vi_retrace_count();
+    for (int i = 0; i < g_nscript2; i++)
+        if (now >= g_script2[i].frame && now < g_script2[i].frame + g_script2[i].len) hold |= g_script2[i].bits;
+    return hold;
 }
 
 // Keys pressed since the last read (sdk/vi.cpp's window procedure calls sdk_input_key_down): a quick tap between
@@ -704,12 +720,13 @@ WPADConnectCallback WPADSetConnectCallback(s32 chan, WPADConnectCallback cb) {
     WPADConnectCallback o = g_connectCb[chan];
     g_connectCb[chan] = cb;
     if (cb && chan == 0) cb(0, WPAD_ERR_NONE);  // remote 0 is connected from the start
+    if (cb && chan == 1 && Remote2Scripted()) cb(1, WPAD_ERR_NONE);
     return o;
 }
 
 s32 WPADProbe(s32 chan, s32* type) {
     XState s;
-    if (chan == 0 || (chan > 0 && chan < 4 && PadState(chan, &s))) {  // remote 1 always (keyboard); 2-4 with a pad
+    if (chan == 0 || (chan == 1 && Remote2Scripted()) || (chan > 0 && chan < 4 && PadState(chan, &s))) {  // remote 1 always (keyboard); 2-4 with a pad
         if (type) *type = 0;  // WPAD_DEV_CORE
         return WPAD_ERR_NONE;
     }
@@ -719,7 +736,7 @@ s32 WPADProbe(s32 chan, s32* type) {
 
 s32 WPADGetInfoAsync(s32 chan, void* info, WPADInfoCallback cb) {
     XState s;
-    if (chan != 0 && !(chan > 0 && chan < 4 && PadState(chan, &s))) return WPAD_ERR_NO_CONTROLLER;
+    if (chan != 0 && !(chan == 1 && Remote2Scripted()) && !(chan > 0 && chan < 4 && PadState(chan, &s))) return WPAD_ERR_NO_CONTROLLER;
     if (info) memset(info, 0, 0x18);  // WPADInfo: no extension, battery etc. zero
     if (info) {  // WPADInfo: battery level 0x14 (4 = full), player LED 0x15
         ((u8*)info)[0x14] = 4;
@@ -751,6 +768,7 @@ s32 KPADRead(s32 chan, void* buf, u32 n) {
         hold = CurrentHold(&tilt, &keyLean);
         steer = tilt * 2.0f;
     }
+    if (chan == 1 && Remote2Scripted()) hold |= Script2Hold();
     f32 ps, pl;
     if (sdk_vi_has_focus() || chan != 0) hold |= PadHold(chan, &ps, &pl);
     else ps = pl = 0;
@@ -825,7 +843,7 @@ s32 KPADRead(s32 chan, void* buf, u32 n) {
         pointing = true;
     }
     XState probe;
-    if (chan != 0 && !PadState(chan, &probe)) return 0;  // no pad: no remote
+    if (chan != 0 && !(chan == 1 && Remote2Scripted()) && !PadState(chan, &probe)) return 0;  // no pad: no remote
     static u32 prev[4];
     KStatus* k = (KStatus*)buf;
     memset(k, 0, sizeof *k);

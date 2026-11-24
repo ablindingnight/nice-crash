@@ -23,8 +23,10 @@ Item** (out of time; see below).
   Race, Challenge, Versus, Tutorial, ...) instead of straight into the Tutorial.
 - So pressing 2 every 200 frames walks through all lessons in order, as long as the autopilot stays off in the
   menus.
-- The scratch save (build/t3/nand_tut) is never written by these runs (the game only saves progress at a proper
-  shutdown), so each run starts from a new profile.
+- The scratch save copy was never written by these runs. CORRECTED 2026-11-23: the cause was the test scripts, not
+  the game. They passed `cygpath -w $PWD/...` unquoted; the path has a space ("Excite Truck"), so NICECRASH_NAND held
+  two lines and every NAND call failed ("rmemcard: NANDCreateAsync failed (-1)" in the .out). Quote the path. The
+  game saves after profile creation, races, lessons and options (content_sweep_2026-11-23.md).
 
 ## Switches
 - `NICECRASH_AUTOPILOT=1` (recommended for the Tutorial): the AI drives on the ground with its own (cautious) turbo.

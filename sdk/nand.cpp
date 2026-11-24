@@ -47,7 +47,12 @@ std::string Home() {
     if (home.empty()) {
         const char* e = getenv("NICECRASH_NAND");
         home = e ? e : portcfg::Dir() + "\\nand";
-        CreateDirectoryA(home.c_str(), nullptr);
+        // Said once, and loudly when the folder can't be used: a broken path (a test script's NICECRASH_NAND split
+        // at a space, 2026-11-23) made every save fail without a word.
+        if (!CreateDirectoryA(home.c_str(), nullptr) && GetLastError() != ERROR_ALREADY_EXISTS)
+            sdk_log("NAND folder [%s] cannot be created (error %lu): saves will fail", home.c_str(), GetLastError());
+        else
+            sdk_log("NAND folder %s", home.c_str());
     }
     return home;
 }
@@ -78,7 +83,10 @@ s32 NANDCreate(const char* path, u8 perm, u8 attr) {
     std::string p = HostPath(path);
     if (GetFileAttributesA(p.c_str()) != INVALID_FILE_ATTRIBUTES) return NAND_RESULT_EXISTS;
     FILE* f = fopen(p.c_str(), "wb");
-    if (!f) return NAND_RESULT_ACCESS;
+    if (!f) {
+        sdk_log("NANDCreate %s: cannot create %s", path, p.c_str());
+        return NAND_RESULT_ACCESS;
+    }
     fclose(f);
     sdk_log("NANDCreate %s", path);
     return NAND_RESULT_OK;
@@ -105,7 +113,10 @@ s32 NANDOpen(const char* path, NANDFileInfo* info, u8 mode) {
     while (fd < 16 && g_fds[fd]) fd++;
     if (fd == 16) return NAND_RESULT_MAXFD;
     FILE* f = fopen(p.c_str(), mode == 1 ? "rb" : "r+b");  // 1 = read, 2 = write, 3 = read/write
-    if (!f) return NAND_RESULT_ACCESS;
+    if (!f) {
+        sdk_log("NANDOpen %s (mode %d): cannot open %s", path, mode, p.c_str());
+        return NAND_RESULT_ACCESS;
+    }
     g_fds[fd] = f;
     memset(info, 0, sizeof *info);
     info->fd = fd;
