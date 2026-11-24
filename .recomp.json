@@ -41,9 +41,5 @@
     "launcher",
     "bring-your-own-disc"
   ],
-  "help": [
-    "testing on different PCs and controllers",
-    "Linux and Steam Deck builds"
-  ],
   "notes": "Early preview (v0.1-preview, Windows). No game files are included: the launcher checks and reads your own USA disc (REXE01, main.dol SHA-1 above) and builds the game on your PC on first run."
 }
