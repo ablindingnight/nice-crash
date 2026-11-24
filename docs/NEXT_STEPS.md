@@ -88,10 +88,17 @@ Next, in order:
 1. **DONE 2026-11-23**: scan_package.py check 3 also looks for data-section runs in host byte order; in our exes a
    run fails inside a generated table (build/dumptables ranges) and is listed for review elsewhere (tables the decomp
    writes as source: nw4hbm's debug font, envelope tables; compiler_rt/mingw constants). The old exe fails (CRC
-   table 0x802F8F08), the new one is clean with 56 review lines. Needs build/dumptables from a game build.
-2. make_package.py `--prebuilt`: ship build/NiceCrash.exe, build/NiceCrashGame.exe (+ import.exe, enhance.exe), dtk,
-   assets, licences and the README; no source, zig or Python. Stamp the game exe with the port commit + decomp pin.
-3. Launcher: when a prebuilt NiceCrashGame.exe is next to it, the first-run checklist is disc check + extract + import
-   only (no build). Keep the build path for source checkouts.
-4. Package scan, then a clean-machine style test (fresh %LOCALAPPDATA%, offscreen), then the user's OK before upload.
-   Repo is public since 2026-11-22: github.com/ablindingnight/nice-crash (CC0). Releases: attach the tester zip.
+   table 0x802F8F08), the new one is clean. Needs build/dumptables from a game build. Standard CRC-32 tables
+   (formula output, lib/crc.cpp's) are allowed by name.
+2. **DONE 2026-11-23** (d9eefda): `make_package.py --prebuilt --dol <main.dol> [--disc DATA] --zip` links a fresh
+   NiceCrashGame.exe into the package with build_info.txt (port commit, decomp pin), launcher fonts in build\fonts,
+   runtime-library licences, README_PREBUILT.txt; no source, zig or Python. Zip 41 MB, of which ~40 MB is the optional
+   AI upscaler (`--no-upscaler`: ~16 MB unzipped).
+3. **DONE 2026-11-23**: launcher tasks::Prebuilt() (game exe next to it, no source): first run = find + verify +
+   index (3.7 s from the .nkit.iso); "Rebuild" becomes "Check again".
+4. **DONE 2026-11-23**: package scan clean; clean-profile test (LOCALAPPDATA pointed at a scratch folder): setup from
+   the NKit image, then the packaged game off-screen: save-file prompt, Create Profile, keyboard.
+5. **NEXT: the user's OK, then upload.** The zip is build/package/NiceCrash-<date>-<commit>.zip in the checkout that
+   made it. When it is the release: update README.md "How to play" / "Why the game is built on your PC" (first run
+   is about a minute now, no build) and attach the zip to a GitHub release. Not yet checked: PLAY from the launcher
+   window itself (only `--launch-game`, which ran 45 s clean) and the in-game Track Music choice.
