@@ -48,6 +48,12 @@
 8. **Remaining stubs** (49) that G7 ranked medium/low: alarms that never fire (OSSetAlarm), the WPAD simple-sync
    (Connect screen), and HOME's dry reverb. See the same G7 doc.
 
+9. **VERY LAST (user 2026-11-23): a Triforce-style setup exe.** One small NiceCrashSetup.exe (like
+   git.triforceproject.com/triforce's TriforceSetup.exe): installs to the user folder without admin, makes shortcuts,
+   downloads the build tools (zig, Python, dtk, optional Real-ESRGAN) from their official sources on first run (confirm
+   the sources with the user), then the launcher does disc + build as today; "Welcome back -> Update" from GitHub
+   releases (github.com/ablindingnight/nice-crash), keeping saves and settings. Game files stay on the player's PC.
+
 ## Reminders
 - Never edit the matching repo `excite-truck`. Never commit Nintendo data. Ask before downloading. Don't push
   unless asked.
