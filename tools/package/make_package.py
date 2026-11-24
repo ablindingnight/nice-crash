@@ -17,6 +17,17 @@ from the decomp source at the pinned commit plus the port source. What goes in:
     build/decomp/<pin12>/      the decomp source export at tools/gametrial/decomp_ref.txt, minus src/sdk_mp3
     sdk/ runtime/ shim/ lib/ patches/ assets/ tools/gametrial/   port source as committed at HEAD (git archive)
 
+--prebuilt (2026-11-23) ships the game ready-made instead, a few MB, no first-run build:
+
+  NiceCrash/
+    Start Nice Crash.cmd, README.txt (README_PREBUILT.txt), LICENSES/ (+ the runtime libraries zig links in)
+    build/NiceCrash.exe, import.exe, enhance.exe, NiceCrashGame.exe, build_info.txt (port commit, decomp pin)
+    build/fonts/               the launcher's fonts (SIL OFL)
+    build/tools/dtk/, build/tools/realesrgan/   as above; no zig, no Python, no source
+
+  NiceCrashGame.exe holds no game data: the decomp's data tables are read from the player's main.dol at start-up
+  (tools/gametrial/dumptables.py). The build needs this PC's main.dol (--dol), and so does the scan.
+
 After assembling, tools/package/scan_package.py checks the folder for anything from the disc or main.dol; the
 script fails if it finds any. --dol/--disc give it the developer's own dump to compare against (read only).
 """
@@ -98,26 +109,30 @@ def find_zig_dir():
     return os.path.dirname(trial.find_zig())
 
 
-def copy_tools(python_zip, upscaler):
+def copy_tools(python_zip, upscaler, prebuilt=False):
     t = os.path.join(PKG, 'build', 'tools')
     dtk = os.path.join(decomp.LIVE, 'build', 'tools', 'dtk.exe')
     os.makedirs(os.path.join(t, 'dtk'), exist_ok=True)
     shutil.copy2(dtk, os.path.join(t, 'dtk', 'dtk.exe'))  # read-only copy from the matching repo
     shutil.copy2(os.path.join(HERE, 'licenses', 'dtk-MIT.txt'), os.path.join(PKG, 'LICENSES', 'dtk-MIT.txt'))
-    zd = find_zig_dir()
-    shutil.copytree(zd, os.path.join(t, 'zig'))
-    shutil.copy2(os.path.join(zd, 'LICENSE'), os.path.join(PKG, 'LICENSES', 'zig-MIT.txt'))
-    log('zig                %s' % os.path.basename(zd))
-    if python_zip:
-        pd = os.path.join(t, 'python')
-        with zipfile.ZipFile(python_zip) as z:
-            z.extractall(pd)
-        shutil.copy2(os.path.join(pd, 'LICENSE.txt'), os.path.join(PKG, 'LICENSES', 'python-PSF.txt'))
-        log('python             %s' % os.path.basename(python_zip))
-    else:
-        log('WARNING: no --python-zip: the package has no Python, so the tester needs Python 3.11+ on PATH')
+    if not prebuilt:  # a ready-made game needs no compiler and no Python
+        zd = find_zig_dir()
+        shutil.copytree(zd, os.path.join(t, 'zig'))
+        shutil.copy2(os.path.join(zd, 'LICENSE'), os.path.join(PKG, 'LICENSES', 'zig-MIT.txt'))
+        log('zig                %s' % os.path.basename(zd))
+        if python_zip:
+            pd = os.path.join(t, 'python')
+            with zipfile.ZipFile(python_zip) as z:
+                z.extractall(pd)
+            shutil.copy2(os.path.join(pd, 'LICENSE.txt'), os.path.join(PKG, 'LICENSES', 'python-PSF.txt'))
+            log('python             %s' % os.path.basename(python_zip))
+        else:
+            log('WARNING: no --python-zip: the package has no Python, so the tester needs Python 3.11+ on PATH')
     if upscaler:
+        # This checkout's build/tools, else the main checkout's (a worktree next to it has no downloads of its own).
         src = os.path.join(PORT, 'build', 'tools', 'realesrgan')
+        if not os.path.exists(os.path.join(src, UPSCALER_FILES[0])):
+            src = os.path.join(PORT, '..', 'port', 'build', 'tools', 'realesrgan')
         if not os.path.exists(os.path.join(src, UPSCALER_FILES[0])):
             log('upscaler           not on this PC, left out (the launcher then scales with Windows\' filter)')
             return
@@ -133,8 +148,54 @@ def copy_tools(python_zip, upscaler):
         log('upscaler           Real-ESRGAN ncnn Vulkan + %d models' % len(UPSCALER_MODELS))
 
 
-def top_files():
-    shutil.copy2(os.path.join(HERE, 'README_TESTER.txt'), os.path.join(PKG, 'README.txt'))
+def build_game(dol):
+    """--prebuilt: a fresh NiceCrashGame.exe (tools/gametrial/link.sh, linked straight into the package). The decomp's
+    data tables are read from the player's main.dol at run time (tools/gametrial/dumptables.py), so the exe holds no
+    game data; the build itself still reads this PC's main.dol (MP3 table shapes, retail vtables): --dol or dump.ini."""
+    dirty = subprocess.run(['git', '-C', PORT, 'status', '--porcelain', '--', 'sdk', 'runtime', 'shim', 'lib',
+                            'patches', 'tools/gametrial'], capture_output=True, text=True).stdout
+    if dirty.strip():
+        sys.exit('make_package: the game source has uncommitted changes (commit them first):\n' + dirty)
+    sh = shutil.which('sh') or r'C:\Program Files\Git\bin\sh.exe'
+    out = os.path.join(PKG, 'build', 'NiceCrashGame.exe')
+    env = dict(os.environ, NICECRASH_LINK_OUT=out)
+    if dol:
+        env['NICECRASH_DOL'] = os.path.abspath(dol)
+    r = subprocess.run([sh, os.path.join(PORT, 'tools', 'gametrial', 'link.sh')], cwd=PORT, capture_output=True,
+                       text=True, errors='replace', env=env)
+    if r.returncode or 'link OK' not in r.stdout or not os.path.exists(out):
+        sys.exit('make_package: the game build failed:\n' + r.stdout[-3000:] + r.stderr[-3000:])
+    for p in (out[:-4] + '.pdb', out[:-4] + '.map'):
+        if os.path.exists(p):
+            os.remove(p)
+    import datetime
+    head = subprocess.run(['git', '-C', PORT, 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip()
+    with open(os.path.join(PKG, 'build', 'build_info.txt'), 'w', newline='\r\n') as f:
+        f.write('# Nice Crash, ready-made (tools/package/make_package.py --prebuilt)\nport=%s\ndecomp=%s\nbuilt=%s\n' %
+                (head, decomp.ref(), datetime.datetime.now().strftime('%Y-%m-%d %H:%M')))
+    tables = next((l for l in r.stdout.splitlines() if l.startswith('dumpdata tables at run time')), '?')
+    log('game               NiceCrashGame.exe at %s; %s' % (head[:7], tables))
+
+
+def prebuilt_extras():
+    """The launcher's fonts (it reads build\\fonts when there's no source) and the licences of the runtime libraries
+    zig links into our exes: libc++, libc++abi, libunwind (Apache-2.0 with LLVM exception), mingw-w64's CRT, and
+    zig's compiler_rt (the zig licence, MIT)."""
+    fd = os.path.join(PKG, 'build', 'fonts')
+    os.makedirs(fd, exist_ok=True)
+    for f in glob.glob(os.path.join(PORT, 'assets', 'fonts', '*.ttf')):
+        shutil.copy2(f, fd)
+    zd = find_zig_dir()
+    for src in ('libcxx', 'libcxxabi', 'libunwind'):
+        shutil.copy2(os.path.join(zd, 'lib', src, 'LICENSE.TXT'), os.path.join(PKG, 'LICENSES', src + '-Apache-LLVM.txt'))
+    shutil.copy2(os.path.join(zd, 'lib', 'libc', 'mingw', 'COPYING'), os.path.join(PKG, 'LICENSES', 'mingw-w64-runtime.txt'))
+    shutil.copy2(os.path.join(zd, 'LICENSE'), os.path.join(PKG, 'LICENSES', 'zig-compiler_rt-MIT.txt'))
+    log('extras             launcher fonts, runtime library licences')
+
+
+def top_files(prebuilt=False):
+    shutil.copy2(os.path.join(HERE, 'README_PREBUILT.txt' if prebuilt else 'README_TESTER.txt'),
+                 os.path.join(PKG, 'README.txt'))
     with open(os.path.join(PKG, 'Start Nice Crash.cmd'), 'w', newline='\r\n') as f:
         f.write('@echo off\nstart "" "%~dp0build\\NiceCrash.exe"\n')
     for f in glob.glob(os.path.join(PORT, 'assets', 'fonts', 'OFL-*.txt')):
@@ -152,18 +213,30 @@ def main():
     ap.add_argument('--zip', action='store_true', help='also write build/package/NiceCrash-<date>-<commit>.zip')
     ap.add_argument('--dol', help='your own main.dol, for the scan (read only)')
     ap.add_argument('--disc', help='your own extracted disc folder (DATA), for the scan (read only)')
+    ap.add_argument('--prebuilt', action='store_true',
+                    help='ship a ready-made NiceCrashGame.exe instead of source + zig + Python (needs --dol for the scan)')
     a = ap.parse_args()
-    if not a.python_zip:
+    if a.prebuilt and not a.dol:
+        sys.exit('make_package: --prebuilt ships an exe, so the scan needs your main.dol: add --dol')
+    if not a.python_zip and not a.prebuilt:
         c = sorted(glob.glob(os.path.join(OUT, '..', 'package-cache', 'python-*-embed-amd64.zip')))
         a.python_zip = c[-1] if c else None
     if os.path.exists(PKG):
         shutil.rmtree(PKG)
     os.makedirs(os.path.join(PKG, 'LICENSES'))
     build_launcher()
-    copy_tracked()
-    copy_decomp()
-    copy_tools(a.python_zip, not a.no_upscaler)
-    top_files()
+    if a.prebuilt:
+        build_game(a.dol)
+        prebuilt_extras()
+        lic = os.path.join(decomp.LIVE, 'LICENSE')
+        if os.path.exists(lic):  # the game exe is the decomp's code: CC0 1.0
+            shutil.copy2(lic, os.path.join(PKG, 'LICENSES', 'decomp-CC0.txt'))
+        shutil.copy2(os.path.join(PORT, 'LICENSE'), os.path.join(PKG, 'LICENSES', 'nicecrash-CC0.txt'))
+    else:
+        copy_tracked()
+        copy_decomp()
+    copy_tools(a.python_zip, not a.no_upscaler, a.prebuilt)
+    top_files(a.prebuilt)
     log('package            %s, %.0f MB' % (PKG, dir_size(PKG) / 1048576))
     scan = [sys.executable, '-I', os.path.join(HERE, 'scan_package.py'), PKG]
     if a.dol:

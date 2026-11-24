@@ -456,7 +456,8 @@ void HomeScreen() {
             Text(L"Not built yet. It takes about two minutes.", F_BODY, 14, vx, vy + 26, col::warn);
         }
     });
-    if (Link(s.built ? L"Rebuild" : L"Build", 734, ry + 18, 15, col::tilt, true, nullptr, RIGHT)) {
+    if (Link(s.prebuilt ? L"Check again" : s.built ? L"Rebuild" : L"Build", 734, ry + 18, 15, col::tilt, true, nullptr,
+             RIGHT)) {
         if (s.dump.verified) StartChecklist(s.built);
         else Go(DISC);
     }
@@ -1343,16 +1344,18 @@ void PageBuilds() {
         std::wstring d = s.built ? (s.decompRef.empty() ? L"" : L"decomp " + ui::W(s.decompRef) + L" \u00B7 ") + L"built " + ui::W(s.builtWhen)
                                  : L"It takes about two minutes.";
         Text(d, F_BODY, 13, kCtlX, cy + 22, col::dim);
-        float bw = TextWidth(s.built ? L"REBUILD" : L"BUILD", F_DISPLAY, 17, 0.12f) + 52;
+        const wchar_t* act = s.prebuilt ? L"Check again" : s.built ? L"Rebuild" : L"Build";
+        float bw = TextWidth(s.prebuilt ? L"CHECK AGAIN" : s.built ? L"REBUILD" : L"BUILD", F_DISPLAY, 17, 0.12f) + 52;
         g.focusCount--;
-        if (Button2(s.built ? L"Rebuild" : L"Build", kMainX + kMainW - bw, cy, nullptr, s.dump.verified) ||
+        if (Button2(act, kMainX + kMainW - bw, cy, nullptr, s.dump.verified) ||
             (Focused(idx) && g.in.accept && !g.consumed && s.dump.verified)) {
             g.consumed = true;
             StartChecklist(s.built);
         }
     }
     {
-        Row(L"Disk use", L"The game, its build files and the compiler's cache. Rebuilds reuse the cache, so they're faster.",
+        Row(L"Disk use", s.prebuilt ? L"Nice Crash's own folder: the launcher, the game and its tools."
+                                    : L"The game, its build files and the compiler's cache. Rebuilds reuse the cache, so they're faster.",
             nullptr, 22, &cy);
         long long n = tasks::BuildDiskUse();
         Text(n < 0 ? L"Measuring…" : tasks::FormatBytes(n), F_BODY_SEMI, 15, kCtlX, cy + 2, n < 0 ? col::dim : col::fg);
@@ -1372,7 +1375,9 @@ void PageBuilds() {
     PickerRow(L"Renderer", "graphics.renderer", {"gl"}, {L"OpenGL"}, L"Only one backend for now.");
     EndRows();
     AsideTitle(L"Builds", kTop);
-    TextWrap(L"Nice Crash is built on this PC from the decomp's source and your own disc. No game exe is downloaded.",
+    TextWrap(s.prebuilt ? L"This download comes with the game ready-made from the decomp's source. It holds no game data: "
+                          L"everything is read from your own disc when the game starts."
+                        : L"Nice Crash is built on this PC from the decomp's source and your own disc. No game exe is downloaded.",
              F_BODY, 13, kAsideX, kTop + 26, kAsideW, col::dim, 1.5f);
     std::string root = tasks::RepoRoot();
     if (!root.empty()) Note(L"Source: this PC's checkout, " + ui::W(root), kTop + 110);

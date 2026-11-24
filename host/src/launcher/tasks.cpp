@@ -630,9 +630,17 @@ State Refresh() {
             if (fgets(b, sizeof b, f)) s.decompRef = std::string(b).substr(0, 7);
             fclose(f);
         }
+    } else if (FILE* f = fopen((ExeDir() + "build_info.txt").c_str(), "r")) {  // make_package.py --prebuilt
+        char b[256];
+        while (fgets(b, sizeof b, f))
+            if (!strncmp(b, "decomp=", 7)) s.decompRef = std::string(b + 7).substr(0, 7);
+        fclose(f);
     }
+    s.prebuilt = s.built && root.empty();
     return s;
 }
+
+bool Prebuilt() { return RepoRoot().empty() && IsFile(GameExe()); }
 
 // ---------------------------------------------------------------- disc search
 
@@ -934,7 +942,11 @@ static DWORD WINAPI CheckThread(void* p) {
     enum { FIND, VERIFY, TOOLS, SOURCE, INDEX, BUILD, SHADERS, READY };
     std::string root = RepoRoot();
     bool haveGame = IsFile(GameExe());
-    bool needBuild = args.rebuild || !haveGame;
+    // A ready-made download (no source here) never builds: "Check again" re-verifies and re-indexes the disc.
+    bool prebuilt = haveGame && root.empty();
+    bool needBuild = (args.rebuild && !prebuilt) || !haveGame;
+    const wchar_t* notNeeded = prebuilt ? L"Not needed: this download comes with the game ready-made"
+                                        : L"Not needed: the game is already built";
 
     // 1. Find the dump.
     SetStep(FIND, ACTIVE);
@@ -959,7 +971,7 @@ static DWORD WINAPI CheckThread(void* p) {
     // 3. Build tools. A player install will unpack the bundled zig and Python here (handoff Q14); a source
     // checkout uses the developer's own.
     if (!needBuild) {
-        SetStep(TOOLS, SKIPPED, L"Not needed: the game is already built");
+        SetStep(TOOLS, SKIPPED, notNeeded);
     } else {
         SetStep(TOOLS, ACTIVE);
         // Space check before anything big starts (design 9): a build takes about 1 GB (objects, zig cache, exe).
@@ -986,7 +998,7 @@ static DWORD WINAPI CheckThread(void* p) {
 
     // 4. Source.
     if (!needBuild) {
-        SetStep(SOURCE, SKIPPED, L"Not needed: the game is already built");
+        SetStep(SOURCE, SKIPPED, notNeeded);
     } else if (root.empty()) {
         Fail(SOURCE, L"The Nice Crash source isn't on this PC. Downloads arrive with the update host.");
         goto out;
@@ -1029,7 +1041,8 @@ static DWORD WINAPI CheckThread(void* p) {
     // 6. Build.
     if (!needBuild) {
         State st = Refresh();
-        SetStep(BUILD, SKIPPED, W("Already built (" + st.builtWhen + ")"));
+        SetStep(BUILD, SKIPPED, prebuilt ? W("Ready-made (" + st.builtWhen + "), no build needed")
+                                         : W("Already built (" + st.builtWhen + ")"));
     } else {
         SetStep(BUILD, ACTIVE, L"Compiling the decomp into a PC game. This takes a few minutes.", -1);
         FILETIME before{};
@@ -1074,8 +1087,10 @@ void StartChecklist(const std::string& dumpPath, bool rebuild) {
         Lk lk;
         if (s_check.running) return;
         s_check = Checklist();
-        s_check.title = rebuild ? L"Rebuilding Nice Crash" : L"Getting Nice Crash ready";
-        s_check.sub = L"We read your disc dump and build the game on this PC. This takes a few minutes.";
+        bool ready = Prebuilt();
+        s_check.title = rebuild ? (ready ? L"Checking your game again" : L"Rebuilding Nice Crash") : L"Getting Nice Crash ready";
+        s_check.sub = ready ? L"We check your disc dump and read its files. This takes a few seconds."
+                            : L"We read your disc dump and build the game on this PC. This takes a few minutes.";
         const wchar_t* titles[] = {L"Find your disc dump", L"Check it's the retail USA disc", L"Unpack the build tools",
                                    L"Get the Nice Crash source", L"Index the game files", L"Build Nice Crash",
                                    L"Prepare the shaders", L"Ready to play"};

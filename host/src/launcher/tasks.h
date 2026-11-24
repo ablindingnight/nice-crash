@@ -42,8 +42,12 @@ struct State {
     bool imported = false;     // dump.ini exists and points at this dump
     bool built = false;
     std::string builtWhen;     // the game exe's date
-    std::string decompRef;     // pinned decomp commit, if the source is here
+    std::string decompRef;     // pinned decomp commit, if the source is here (or build_info.txt says)
+    bool prebuilt = false;     // a download with the game ready-made (Prebuilt())
 };
+// A download with the game ready-made: NiceCrashGame.exe next to the launcher and no source to build from
+// (tools/package/make_package.py --prebuilt). The exe holds no game data; it reads the player's main.dol at start-up.
+bool Prebuilt();
 State Refresh();
 
 // Disc search: Downloads, Desktop, Documents, the last-used folder.
