@@ -10,7 +10,7 @@
     extern int port_autopilot(void);  // sdk/input.cpp
     if (port_autopilot() && !ctl) {
         lbl_8055E522 = 1;
-        ctl = fn_80134E90();
+        ctl = CreateAIDriver();
     }
 >>>
 @@@ playcar.cpp | (same): with the autopilot on, the Hybrid lets the AI driver (offset 0x8) drive on the ground and the player's driver (0xC) in the air
@@ -28,7 +28,7 @@
         // Airborne = no wheel on the ground (car 0x2620); the Hybrid's byte 0x24 used before is not that flag.
         extern int port_autopilot_air(const u8* car);  // sdk/input.cpp
         u8* hy = (u8*)this;  // the Hybrid driver (was `p` before the decomp's real classes, cf6990eea)
-        fn_80191084(hy, port_autopilot_air(PTR(hy, 0x20)) ? U32(hy, 0xC) : U32(hy, 0x8));
+        SwitchActiveView(hy, port_autopilot_air(PTR(hy, 0x20)) ? U32(hy, 0xC) : U32(hy, 0x8));
     } else if (!lbl_8055E529) {
 >>>
 @@@ tutorial.cpp | (same, testing): NICECRASH_TUTLEVEL=<n> starts the profile's Tutorial at lesson n (1 = Drive, 6 = Cooling Down; the profile's "tutorial_level", 1 + lessons passed), as read for the set menu's locks

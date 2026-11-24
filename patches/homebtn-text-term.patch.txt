@@ -1,9 +1,9 @@
 @@@ homebtn.cpp | PORT-ONLY (memory safety): HOME files are read into a buffer of exactly the file's size; home.csv (UTF-16) has no terminator, and the HOME menu walks it to a zero character. Retail only reads past the end; the port's byte-order fixer (sdk/hbmres.cpp port_hbm_text_fix) also writes, which swapped the next heap block's header ("homeFile") and broke the heap: "PANIC: MemDump fails" loading Tutorial Basics 2 (2026-11-17). Two zero bytes end the text inside its own buffer.
 <<<
     u8* buf = new ("homeFile") u8[size];
-    fn_802E3804(fd, buf, size);
+    ReadFileBuffer(fd, buf, size);
 ===
     u8* buf = new ("homeFile") u8[size + 2];
-    fn_802E3804(fd, buf, size);
+    ReadFileBuffer(fd, buf, size);
     buf[size] = buf[size + 1] = 0;
 >>>
