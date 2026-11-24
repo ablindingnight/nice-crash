@@ -13,7 +13,8 @@ Bring your own disc: **no game files are included**. Everything is read from you
 **You need**
 - your own **Excite Truck disc (USA, game ID REXE01)**, dumped from your Wii to a disc image (`.iso`, `.rvz`, `.wbfs`,
   `.wia`, `.gcz`, `.ciso`) or extracted with Dolphin (right-click the game > Properties > Filesystem > Extract Entire Disc).
-  Other regions don't work yet;
+  A plain `.nkit.iso` works too; if the launcher says an NKit image can't be read, convert it with Dolphin
+  (right-click the game > Convert File > ISO or RVZ) and pick that file. Other regions don't work yet;
 - Windows 10 or 11 (64-bit) with any graphics card or laptop graphics from the last ten years (OpenGL 3.0);
 - about 2 GB of free disk space;
 - a game controller (Xbox-style) or the keyboard.

@@ -308,13 +308,145 @@ void MigrateLegacyData() {
         }
 }
 
-// The image's game ID, and (for the USA disc) the extracted folder. False with why when it can't be used.
-static bool PrepareImage(const std::string& img, std::string& folder, std::string& id, std::string& why) {
-    if (DtkExe().empty()) {
-        why = "The disc-image reader (tools\\dtk\\dtk.exe) is missing. Extract the disc with Dolphin instead "
-              "(right-click the game, Extract Entire Disc) and choose that folder.";
+// ---- NKit images (.nkit.iso) ----
+// dtk's disc library reads NKit only inside WBFS/CISO containers. A plain Wii .nkit.iso ("NKIT" at 0x200) keeps the
+// game partition decrypted and without hash blocks, and its FST already points at where each file sits in the image,
+// so the files can be copied straight out (checked 2026-11-23: all 261 files and main.dol identical to a Dolphin
+// extraction; only sys/boot.bin and fst.bin differ, NKit rewrote their offsets). Anything else NKit-shaped gets a
+// message asking for a Dolphin conversion.
+static const char kNKitConvert[] =
+    "NKit images can't be read directly. Convert it with Dolphin: right-click the game > Convert File > ISO or RVZ, "
+    "then pick that file.";
+
+static bool HasNKitName(const std::string& p) {
+    std::string l = p;
+    for (char& c : l) c = (char)tolower((unsigned char)c);
+    return l.find(".nkit.") != std::string::npos;
+}
+
+static uint32_t BE32(const unsigned char* p) { return (uint32_t)p[0] << 24 | p[1] << 16 | p[2] << 8 | p[3]; }
+
+static bool ReadAt(FILE* f, long long off, void* buf, size_t n) {
+    return _fseeki64(f, off, SEEK_SET) == 0 && fread(buf, 1, n, f) == n;
+}
+
+// Copies n bytes at off into a new file at path.
+static bool CopyOut(FILE* f, long long off, long long n, const std::string& path) {
+    FILE* o = fopen(path.c_str(), "wb");
+    if (!o) return false;
+    std::vector<unsigned char> b(1 << 20);
+    bool ok = _fseeki64(f, off, SEEK_SET) == 0;
+    while (ok && n > 0) {
+        size_t k = (size_t)std::min<long long>(n, (long long)b.size());
+        ok = fread(b.data(), 1, k, f) == k && fwrite(b.data(), 1, k, o) == k;
+        n -= (long long)k;
+    }
+    return fclose(o) == 0 && ok;
+}
+
+// 1 = NKit image, 0 = not NKit, -1 = unreadable. id gets the game ID from the image header.
+static int IsNKitImage(const std::string& img, std::string& id) {
+    FILE* f = fopen(img.c_str(), "rb");
+    if (!f) return -1;
+    unsigned char h[0x210];
+    bool ok = ReadAt(f, 0, h, sizeof h);
+    fclose(f);
+    if (!ok) return 0;
+    if (memcmp(h + 0x200, "NKIT", 4)) return 0;
+    id.assign((const char*)h, 6);
+    return 1;
+}
+
+// Extracts sys and files from a plain Wii NKit image into data. False with why when the layout isn't the one above.
+static bool ExtractNKit(const std::string& img, const std::string& data, std::string& why) {
+    FILE* f = fopen(img.c_str(), "rb");
+    if (!f) {
+        why = "The disc image can't be opened.";
         return false;
     }
+    std::string fail;
+    unsigned char b[0x440];
+    long long part = -1, base = 0;
+    // Partition table: four groups of (count, offset >> 2); the data partition has type 0.
+    if (ReadAt(f, 0x40000, b, 0x20)) {
+        for (int g = 0; g < 4 && part < 0; g++) {
+            uint32_t n = BE32(b + g * 8), at = BE32(b + g * 8 + 4);
+            for (uint32_t i = 0; i < n && i < 16 && part < 0; i++) {
+                unsigned char e[8];
+                if (ReadAt(f, (long long)at * 4 + i * 8, e, 8) && BE32(e + 4) == 0) part = (long long)BE32(e) * 4;
+            }
+        }
+    }
+    unsigned char ph[4];
+    if (part < 0 || !ReadAt(f, part + 0x2b8, ph, 4)) fail = "no data partition";
+    else base = part + (long long)BE32(ph) * 4;
+    // A decrypted partition starts with the game ID again.
+    if (fail.empty() && (!ReadAt(f, base, b, sizeof b) || memcmp(b, "REXE01", 6))) fail = "partition is encrypted";
+    std::vector<unsigned char> fst;
+    long long dolOff = 0, dolSize = 0;
+    if (fail.empty()) {
+        dolOff = (long long)BE32(b + 0x420) * 4;
+        long long fstOff = (long long)BE32(b + 0x424) * 4, fstSize = (long long)BE32(b + 0x428) * 4;
+        unsigned char dh[0x100], al[0x20];
+        if (fstSize < 12 || fstSize > (16 << 20)) fail = "bad FST";
+        else {
+            fst.resize((size_t)fstSize);
+            if (!ReadAt(f, base + fstOff, fst.data(), fst.size()) || !ReadAt(f, base + dolOff, dh, sizeof dh) ||
+                !ReadAt(f, base + 0x2440, al, sizeof al))
+                fail = "short read";
+            else {
+                for (int i = 0; i < 18; i++)
+                    dolSize = std::max<long long>(dolSize, (long long)BE32(dh + i * 4) + BE32(dh + 0x90 + i * 4));
+                std::string sys = data + "\\sys";
+                CreateDirectoryA(sys.c_str(), nullptr);
+                if (!CopyOut(f, base, 0x440, sys + "\\boot.bin") || !CopyOut(f, base + 0x440, 0x2000, sys + "\\bi2.bin") ||
+                    !CopyOut(f, base + 0x2440, 0x20 + (long long)BE32(al + 0x14) + BE32(al + 0x18), sys + "\\apploader.img") ||
+                    !CopyOut(f, base + dolOff, dolSize, sys + "\\main.dol") ||
+                    !CopyOut(f, base + fstOff, fstSize, sys + "\\fst.bin"))
+                    fail = "writing sys failed";
+            }
+        }
+    }
+    // The FST: 12-byte entries (flags|name offset, offset >> 2 or parent, size or next index), then the names.
+    if (fail.empty()) {
+        uint32_t n = BE32(fst.data() + 8);
+        size_t names = (size_t)n * 12;
+        if (n < 1 || names > fst.size()) fail = "bad FST";
+        std::vector<std::pair<uint32_t, std::string>> dirs{{n, data + "\\files"}};  // (end index, path)
+        CreateDirectoryA(dirs[0].second.c_str(), nullptr);
+        for (uint32_t i = 1; fail.empty() && i < n; i++) {
+            while (dirs.size() > 1 && i >= dirs.back().first) dirs.pop_back();
+            const unsigned char* e = fst.data() + i * 12;
+            size_t no = names + (BE32(e) & 0xffffff);
+            if (no >= fst.size()) {
+                fail = "bad FST name";
+                break;
+            }
+            std::string name((const char*)fst.data() + no, strnlen((const char*)fst.data() + no, fst.size() - no));
+            if (name.empty() || name.find_first_of("\\/:") != std::string::npos || name == "." || name == "..") {
+                fail = "bad FST name";
+                break;
+            }
+            std::string path = dirs.back().second + "\\" + name;
+            if (e[0]) {
+                CreateDirectoryA(path.c_str(), nullptr);
+                dirs.push_back({BE32(e + 8), path});
+            } else if (!CopyOut(f, base + (long long)BE32(e + 4) * 4, BE32(e + 8), path))
+                fail = "writing " + name + " failed";
+        }
+    }
+    fclose(f);
+    if (!fail.empty()) {
+        LogLine("[launcher] NKit image %s: %s", img.c_str(), fail.c_str());
+        why = kNKitConvert;
+        return false;
+    }
+    LogLine("[launcher] NKit image read directly: %s", img.c_str());
+    return true;
+}
+
+// The image's game ID, and (for the USA disc) the extracted folder. False with why when it can't be used.
+static bool PrepareImage(const std::string& img, std::string& folder, std::string& id, std::string& why) {
     std::string dir = DiscCacheDir(), data = dir + "\\DATA";
     char st[128];
     snprintf(st, sizeof st, "|%lld|%s", FileSize64(img), FileDate(img).c_str());
@@ -331,12 +463,39 @@ static bool PrepareImage(const std::string& img, std::string& folder, std::strin
         }
     }
     CreateDirectoryA(dir.c_str(), nullptr);
+    std::string nkId;
+    if (IsNKitImage(img, nkId) == 1) {
+        id = nkId;
+        if (id != "REXE01") {
+            why = id.substr(0, 3) == "REX" ? "Nice Crash is built from the USA version only." : "This isn't Excite Truck.";
+            return false;
+        }
+        RemoveTree(data);
+        CreateDirectoryA(data.c_str(), nullptr);
+        if (!ExtractNKit(img, data, why)) {
+            RemoveTree(data);
+            return false;
+        }
+        if (FILE* f = fopen((dir + "\\image.txt").c_str(), "wb")) {
+            fwrite(stamp.data(), 1, stamp.size(), f);
+            fclose(f);
+        }
+        folder = data;
+        return true;
+    }
+    if (DtkExe().empty()) {
+        why = HasNKitName(img) ? kNKitConvert
+                               : "The disc-image reader (tools\\dtk\\dtk.exe) is missing. Extract the disc with Dolphin "
+                                 "instead (right-click the game, Extract Entire Disc) and choose that folder.";
+        return false;
+    }
     std::string probe = dir + "\\probe";
     RemoveTree(probe);
     CreateDirectoryA(probe.c_str(), nullptr);
     std::string out;
     if (Dtk("vfs cp --no-decompress -q \"" + img + ":sys/boot.bin\" \"" + probe + "\\boot.bin\"", &out) != 0) {
-        why = "This file couldn't be read as a Wii disc image. " + out.substr(0, 200);
+        why = HasNKitName(img) ? std::string(kNKitConvert)
+                               : "This file couldn't be read as a Wii disc image. " + out.substr(0, 200);
         return false;
     }
     char b[7] = {};
@@ -354,7 +513,7 @@ static bool PrepareImage(const std::string& img, std::string& folder, std::strin
     CreateDirectoryA(data.c_str(), nullptr);  // dtk creates sys and files itself
     if (Dtk("vfs cp --no-decompress -q \"" + img + ":sys\" \"" + data + "\\sys\"", &out) != 0 ||
         Dtk("vfs cp --no-decompress -q \"" + img + ":files\" \"" + data + "\\files\"", &out) != 0) {
-        why = "Reading the disc image failed: " + out.substr(0, 200);
+        why = HasNKitName(img) ? std::string(kNKitConvert) : "Reading the disc image failed: " + out.substr(0, 200);
         RemoveTree(data);
         return false;
     }
