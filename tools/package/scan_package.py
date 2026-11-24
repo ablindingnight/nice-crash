@@ -135,14 +135,48 @@ def main():
             if os.path.getsize(p) == len(dol) and sha1(p) == dh:
                 problems.append('file: %s is main.dol' % rel(p))
 
-        # 3. 32-byte runs of the DOL in our own files
-        chunks = set()
-        for sec in dol_sections(dol):
-            for i in range(0, len(sec) - 31, 4):
-                c = sec[i:i + 32]
-                if len(set(c)) >= 12 and not counting(c):
-                    chunks.add(c)
+        # 3. 32-byte runs of the DOL in our own files. Data sections also in host byte order (each 4-byte and each
+        # 2-byte element swapped): a table compiled into an x86 exe is stored little-endian (the exes before
+        # 2026-11-23 held the DUMP_DATA tables that way and passed the big-endian check).
+        # In our compiled files (.exe/.dll, which packages ship since the prebuilt exe) a run fails when it lies in a
+        # table the decomp generates from main.dol (DUMP_DATA, the MP3 decoder's; ranges in build/dumptables/*.tsv,
+        # written by tools/gametrial/dumptables.py): those must be read at run time. Other runs there are tables the
+        # decomp writes as source (nw4hbm's debug font and ASCII table, envelope tables) or runtime-library
+        # constants (compiler_rt, mingw powers of ten): listed for review. In any other file every run fails.
+        # Not the last two data sections, .sdata and .sdata2: MWCC puts only objects of 8 bytes or less there, so a
+        # run of them is several separate scalars, the compiler's constants from the source (betarace.cpp's named
+        # floats, pooled in the same order by our compiler), never a table.
+        gen = []
+        mdir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'build', 'dumptables')
+        if os.path.isdir(mdir):
+            for f in os.listdir(mdir):
+                if f.endswith('.tsv'):
+                    for line in open(os.path.join(mdir, f), encoding='utf-8'):
+                        q = line.split('\t')
+                        if len(q) > 2:
+                            gen.append((int(q[1], 16), int(q[2], 16)))
+        else:
+            print('scan 3: no build/dumptables (run the game build first): exe runs are only listed')
+        chunks = {}  # run -> (Wii address, host byte order?)
+        data_secs = [k for k in range(7, 18) if struct.unpack_from('>I', dol, 0x90 + k * 4)[0]]
+        for k in range(18):
+            off, addr, size = (struct.unpack_from('>I', dol, x)[0] for x in (k * 4, 0x48 + k * 4, 0x90 + k * 4))
+            sec = dol[off:off + size]
+            forms = [(sec, False)]
+            if k in data_secs[:-2]:
+                n4 = len(sec) // 4 * 4
+                forms += [(b''.join(sec[j:j + 4][::-1] for j in range(0, n4, 4)), True),
+                          (b''.join(sec[j:j + 2][::-1] for j in range(0, n4, 2)), True)]
+            for f, swapped in forms:
+                for i in range(0, len(f) - 31, 4):
+                    c = f[i:i + 32]
+                    if len(set(c)) >= 12 and not counting(c):
+                        if swapped:
+                            chunks.setdefault(c, (addr + i, True))
+                        else:
+                            chunks[c] = (addr + i, False)
         n = strings = 0
+        exe_review = []
         for p in files:
             if third(p):
                 continue
@@ -158,11 +192,24 @@ def main():
                         strings += 1
                         i += 32
                         continue
-                    problems.append('bytes: %s offset 0x%x matches main.dol' % (rel(p), i))
+                    wa, swapped = chunks[c]
+                    order = 'host byte order' if swapped else 'Wii byte order'
+                    generated = any(ga - 32 < wa < ga + gn for ga, gn in gen)
+                    if p.lower().endswith(('.exe', '.dll')) and not generated:
+                        exe_review.append('%s offset 0x%x = main.dol 0x%08X (%s)' % (rel(p), i, wa, order))
+                        i += 32
+                        continue
+                    where = ' (a generated table: must be read at run time)' if generated else ''
+                    problems.append('bytes: %s offset 0x%x = main.dol 0x%08X, %s%s' % (rel(p), i, wa, order, where))
                     break
                 i += 1
         print('scan 3 bytes        %d of our files against %d DOL chunks; %d string-literal runs '
-              '(code text, allowed)' % (n, len(chunks), strings), flush=True)
+              '(code text, allowed); %d runs in our exes outside generated tables (review)' %
+              (n, len(chunks), strings, len(exe_review)), flush=True)
+        for s in exe_review[:8]:
+            print('  review: ' + s)
+        if len(exe_review) > 8:
+            print('  review: ... %d more' % (len(exe_review) - 8))
 
         # 4. numeric tables in source: initializers (`= { ... }`) whose values equal consecutive words of a DOL
         # data section. Float literals count as their bits. Code constants and small-number tables (month lengths,

@@ -85,8 +85,10 @@ What read main.dol at build time, and what it does now:
   (gentables.py still needs a main.dol on the build machine too; only its names and shapes are kept.)
 
 Next, in order:
-1. scan_package.py: run check 3 over the game exe in both byte orders (the old exe held the tables little-endian,
-   which the big-endian run check couldn't see). The old exe must fail it, the new one pass.
+1. **DONE 2026-11-23**: scan_package.py check 3 also looks for data-section runs in host byte order; in our exes a
+   run fails inside a generated table (build/dumptables ranges) and is listed for review elsewhere (tables the decomp
+   writes as source: nw4hbm's debug font, envelope tables; compiler_rt/mingw constants). The old exe fails (CRC
+   table 0x802F8F08), the new one is clean with 56 review lines. Needs build/dumptables from a game build.
 2. make_package.py `--prebuilt`: ship build/NiceCrash.exe, build/NiceCrashGame.exe (+ import.exe, enhance.exe), dtk,
    assets, licences and the README; no source, zig or Python. Stamp the game exe with the port commit + decomp pin.
 3. Launcher: when a prebuilt NiceCrashGame.exe is next to it, the first-run checklist is disc check + extract + import
