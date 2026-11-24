@@ -37,7 +37,11 @@
    in the in-game menu today).
 6. **Gameplay smoothing beyond menus:** the HUD and gameplay textures via the same pack system (ui_textures.md
    covers the next steps).
-7. **MP3 custom soundtrack** (the user wants it). The game's SD-card MP3 player becomes a music folder on PC:
+7. **DONE 2026-11-23 (653277e)**: playback verified by recording; choosing it from the Options "Track Music" menu is
+   not yet checked by hand. Folder: audio.music_folder, default %USERPROFILE%\Music\Nice Crash (an EXCITE TRUCK
+   subfolder first, like the SD card). FOR THE NEXT TESTER ZIP: include the decomp's src/sdk_mp3 sources and
+   tools/mp3/gentables.py (the package excluded sdk_mp3 while it carried DOL tables; they're generated locally now),
+   then rescan. Original: **MP3 custom soundtrack** (the user wants it). The game's SD-card MP3 player becomes a music folder on PC:
    implement the TMCCMP3*/VF* stubs, build the decomp's sdk_mp3 with its generated tables (prep must run the
    decomp's `tools/mp3/gentables.py` like datagen), and turn the SD flag on when the folder has songs. Background:
    G7's notes, `handoff/dossier/port_support/G7_STUBS_TUTORIAL.md` in the matching repo.
