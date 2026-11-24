@@ -64,10 +64,7 @@ void PPCSync(void) {}
 // ---- GX ----
 u32 GXGetOverflowCount(void) { return 0; }
 
-// ---- VF (the SD card's file system; SD-card music is not supported yet) ----
-s32 VFInit(void) { return 0; }
-s32 VFAttachDrive(void* a, void* b, void* c, void* d) { (void)a; (void)b; (void)c; (void)d; return 0; }
-void* VFSetMediaCallback(void* cb) { (void)cb; return nullptr; }
+// ---- VF: the SD card's file system is the music folder (sdk/vfmusic.cpp) ----
 
 // ---- WPAD: the remote's speaker is not emulated ----
 s32 WPADControlSpeaker(s32 chan, u32 command, void* cb) { (void)chan; (void)command; (void)cb; return 0; }

@@ -51,6 +51,7 @@ const Def kDefs[] = {
     {"audio.remote_speaker", "main", 0, nullptr},
     {"audio.mute_unfocused", "1", 0, nullptr},
     {"audio.device", "default", kRestart, nullptr},
+    {"audio.music_folder", "", kRestart, nullptr},  // custom soundtrack (the SD card's MP3s); "" = Music\Nice Crash
     {"controls.device", "auto", 0, nullptr},
     {"controls.steer_source", "stick", 0, nullptr},
     {"controls.tilt_sensitivity", "100", 0, nullptr},

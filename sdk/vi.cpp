@@ -535,6 +535,22 @@ void sdk_vi_poll() {
             sdk_time_add_pause(g_last.QuadPart - p0.QuadPart);
         }
     }
+    // Test hook, NICECRASH_MP3TEST=<retrace>[:<track>]: from that retrace, ask the game's SD-card player
+    // (game/sdmp3.cpp) to play a custom-soundtrack track, as the Options' Track Music choice would.
+    static const char* mt = getenv("NICECRASH_MP3TEST");
+    if (mt) {
+        static unsigned at = 0, track = 0;
+        static bool done;
+        if (!at) sscanf(mt, "%u:%u", &at, &track);
+        if (!done && g_retrace >= at) {
+            done = true;
+            extern void fn_802EC11C(s32 i);  // game/sdmp3.cpp: request track i
+            extern void fn_802EC138(void);   // enable playback
+            fn_802EC11C((s32)track);
+            fn_802EC138();
+            fprintf(stderr, "[mp3test] retrace %u: requested track %u\n", g_retrace, track);
+        }
+    }
     // The Nice Crash menu (sdk/menu.cpp): the game thread waits here, at its retrace, while the menu runs over the
     // last picture; audio underruns to silence (AX isn't ticked). The clock restarts afterwards (no catch-up).
     if (sdk_input_take_menu_request() | sdk_menu_test_wants_open()) {

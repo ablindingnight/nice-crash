@@ -277,6 +277,14 @@ def main():
             sys.exit('link: hbmbuild failed:\n' + r.stdout[-3000:])
     import hbmbuild
     good += [o for o in hbmbuild.objects() if os.path.exists(o)]
+    # The SDK MP3 decoder (tools/gametrial/mp3build.py): the custom soundtrack from the music folder (sdk/vfmusic.cpp).
+    # Its tables are generated from the player's main.dol, like the dumpdata tables.
+    if '--nocompile' not in sys.argv:
+        r = subprocess.run([sys.executable, '-I', os.path.join(HERE, 'mp3build.py')], capture_output=True, text=True)
+        if r.returncode:
+            sys.exit('link: mp3build failed:\n' + r.stdout[-3000:] + r.stderr[-2000:])
+    import mp3build
+    good += mp3build.objects()
     # Port runtime objects.
     rt = []
     import glob as _g
