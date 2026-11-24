@@ -5,10 +5,21 @@ A copy of Nice Crash someone else can run on their own Windows PC with their own
 
 ## The rule
 
-The package contains **no Nintendo data**: no disc files, no `main.dol`, nothing generated from them. That is why the
-game exe is not shipped. `tools/gametrial/link.py` builds `NiceCrashGame.exe` with DUMP_DATA tables made from the
-player's own `main.dol` (`prep.py` → the decomp's `tools/datagen.py`), and reads it again to recognise retail vtables.
-So the tester's PC imports **their** disc and builds the game itself, with the bundled toolchain.
+The package contains **no Nintendo data**: no disc files, no `main.dol`, nothing generated from them.
+
+**Since 2026-11-23 releases ship the game ready-made** (`make_package.py --prebuilt --dol <main.dol> --disc <DATA>
+--zip`): the decomp's DUMP_DATA tables and the MP3 decoder's tables are views of the retail data at its Wii address,
+read from the player's `main.dol` at start-up (`tools/gametrial/dumptables.py`, `runtime/dolload.cpp`), so
+`NiceCrashGame.exe` holds none of it. The package is the launcher, importer, enhance.exe, the game exe,
+`build_info.txt` (port commit, decomp pin), `build/fonts`, dtk, the optional upscaler and `LICENSES` (plus the
+runtime libraries zig links in: libc++/libc++abi/libunwind, mingw-w64's CRT, compiler_rt); no source, zig or Python.
+The tester's readme is `README_PREBUILT.txt`. First run: find → verify → index (seconds), no build. Zip 41 MB with the
+upscaler (~16 MB unpacked without it). Clean-profile test 2026-11-23: `--setup` from a `.nkit.iso` in 3.7 s, then the
+packaged game off-screen to the save prompt, Create Profile and the name keyboard. The scan (check 3) now also
+reads our exes in host byte order and fails on any generated-table run; the old exe fails it.
+
+The rest of this page describes the earlier **source package** (no `--prebuilt`), which is still made the same way:
+`tools/gametrial/link.py` builds `NiceCrashGame.exe` on the tester's PC with the bundled toolchain.
 
 `make_package.py` ends with `tools/package/scan_package.py`, and refuses the package if the scan finds anything:
 

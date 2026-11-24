@@ -16,16 +16,17 @@ Bring your own disc: **no game files are included**. Everything is read from you
   A plain `.nkit.iso` works too; if the launcher says an NKit image can't be read, convert it with Dolphin
   (right-click the game > Convert File > ISO or RVZ) and pick that file. Other regions don't work yet;
 - Windows 10 or 11 (64-bit) with any graphics card or laptop graphics from the last ten years (OpenGL 3.0);
-- about 2 GB of free disk space;
+- about 1 GB of free disk space;
 - a game controller (Xbox-style) or the keyboard.
 
-**First run** (5 to 15 minutes, once)
+**First run** (about a minute, once)
 1. Download the latest zip from **[Releases](https://github.com/ablindingnight/nice-crash/releases)** and unzip it
    somewhere with a short path, e.g. `C:\Games\NiceCrash`.
 2. Double-click **Start Nice Crash.cmd**. If Windows SmartScreen warns about an unrecognised app, click
    *More info* > *Run anyway*.
 3. Drag your disc image (or extracted folder) onto the launcher, or pick it.
-4. The launcher checks it's the retail USA disc, unpacks it and builds the game on your PC. Leave it open.
+4. The launcher checks it's the retail USA disc, unpacks it and indexes its files. The game comes ready-made: nothing
+   is compiled on your PC.
 
 ![First run: getting Nice Crash ready](docs/images/launcher-first-run.png)
 
@@ -41,10 +42,12 @@ Shift+Up/Down lean, Space = A, Enter = HOME menu. A gamepad works too, and every
 **If something goes wrong**: the launcher's **Logs** page lists every run, and *Save report* makes a folder with the log
 and your settings (your user name is removed). Nothing is ever sent anywhere.
 
-## Why the game is built on your PC
-The download contains no Nintendo data. Some of the game's tables come from your own disc's `main.dol`, so the
-launcher builds the game exe on your PC from the open source here plus your disc, with a bundled compiler. (Planned:
-load those tables at run time instead, so a ready-made exe can ship and the first run takes seconds.)
+## What's in the download
+The launcher, the game (`NiceCrashGame.exe`, compiled from the decompilation and the port source here), a disc-image
+reader ([dtk](https://github.com/encounter/decomp-toolkit)) and an optional AI upscaler for *Enhance my game*. **No
+Nintendo data**: the game's own data tables are read from your disc's `main.dol` when the game starts, never compiled
+in, and every release is scanned for anything from the disc or `main.dol` (`tools/package/scan_package.py`) before
+it's uploaded. `build/build_info.txt` names the exact port and decomp commits the game was made from.
 
 ## Licence
 CC0 1.0 (public domain), the same as the decompilation. The launcher's art (star, tilt ring, truck) is our own.

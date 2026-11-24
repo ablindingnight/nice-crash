@@ -41,5 +41,5 @@
     "launcher",
     "bring-your-own-disc"
   ],
-  "notes": "Early preview (v0.1-preview, Windows). No game files are included: the launcher checks and reads your own USA disc (REXE01, main.dol SHA-1 above) and builds the game on your PC on first run."
+  "notes": "Early preview (v0.2-preview, Windows). No game files are included: the launcher checks and reads your own USA disc (REXE01, main.dol SHA-1 above); the game ships ready-made and reads its data tables from your disc at start-up."
 }

@@ -697,20 +697,23 @@ void MakeShortcuts() {
 tasks::Checklist DemoChecklist() {
     tasks::Checklist c;
     c.title = L"Getting Nice Crash ready";
-    c.sub = L"We read your disc dump and build the game on this PC. This takes a few minutes.";
+    // The ready-made download's first run (make_package.py --prebuilt), for the README screenshot.
+    c.sub = L"We check your disc dump and read its files. This takes a few seconds.";
     c.running = true;
     double n = GetTickCount64() / 1000.0;
     const wchar_t* t[] = {L"Find your disc dump", L"Check it's the retail USA disc", L"Unpack the build tools",
                           L"Get the Nice Crash source", L"Index the game files", L"Build Nice Crash",
                           L"Prepare the shaders", L"Ready to play"};
-    const wchar_t* d[] = {L"D:\\Games\\Wii\\dump (extracted folder, 1.12 GB)", L"main.dol SHA-1 matches REXE01 e516\u2026672b",
-                          L"Using zig and Python already on this PC (developer setup)", L"Using the local source \u00B7 decomp dc71f87",
+    const wchar_t* d[] = {L"D:\\Games\\Wii\\Excite Truck (USA).rvz (disc image, 557 MB)",
+                          L"main.dol SHA-1 matches REXE01 e516\u2026672b",
+                          L"Not needed: this download comes with the game ready-made",
+                          L"Not needed: this download comes with the game ready-made",
                           L"Reading every resource set and checking its CRCs", L"", L"", L""};
     for (int i = 0; i < 8; i++) {
         tasks::Step s;
         s.title = t[i];
         s.detail = d[i];
-        s.state = i < 4 ? tasks::DONE : i == 4 ? tasks::ACTIVE : tasks::PENDING;
+        s.state = i < 2 ? tasks::DONE : i < 4 ? tasks::SKIPPED : i == 4 ? tasks::ACTIVE : tasks::PENDING;
         s.t0 = n - 18 + i * 2;
         s.t1 = n - 16 + i * 2;
         if (i == 4) s.progress = 0.62f;
