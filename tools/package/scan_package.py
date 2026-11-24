@@ -175,7 +175,23 @@ def main():
                             chunks.setdefault(c, (addr + i, True))
                         else:
                             chunks[c] = (addr + i, False)
-        n = strings = 0
+        # Tables computed from a published formula, not game data: the CRC-32 tables (MSB-first 0x04C11DB7, which the
+        # game's lbl_802F8F08 is and lib/crc.cpp generates; the reflected 0xEDB88320), in either byte order.
+        std_runs = set()
+        for poly, msb in ((0x04C11DB7, True), (0xEDB88320, False)):
+            tab = []
+            for v in range(256):
+                x = v << 24 if msb else v
+                for _ in range(8):
+                    if msb:
+                        x = ((x << 1) ^ poly if x & 0x80000000 else x << 1) & 0xFFFFFFFF
+                    else:
+                        x = (x >> 1) ^ poly if x & 1 else x >> 1
+                tab.append(x)
+            for fmt in ('>256I', '<256I'):
+                tb = struct.pack(fmt, *tab)
+                std_runs.update(tb[k:k + 32] for k in range(0, len(tb) - 31, 4))
+        n = strings = standard = 0
         exe_review = []
         for p in files:
             if third(p):
@@ -192,6 +208,10 @@ def main():
                         strings += 1
                         i += 32
                         continue
+                    if c in std_runs:
+                        standard += 1
+                        i += 32
+                        continue
                     wa, swapped = chunks[c]
                     order = 'host byte order' if swapped else 'Wii byte order'
                     generated = any(ga - 32 < wa < ga + gn for ga, gn in gen)
@@ -204,8 +224,8 @@ def main():
                     break
                 i += 1
         print('scan 3 bytes        %d of our files against %d DOL chunks; %d string-literal runs '
-              '(code text, allowed); %d runs in our exes outside generated tables (review)' %
-              (n, len(chunks), strings, len(exe_review)), flush=True)
+              '(code text, allowed); %d standard CRC-table runs (allowed); %d runs in our exes outside generated '
+              'tables (review)' % (n, len(chunks), strings, standard, len(exe_review)), flush=True)
         for s in exe_review[:8]:
             print('  review: ' + s)
         if len(exe_review) > 8:
