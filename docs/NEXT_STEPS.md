@@ -22,7 +22,8 @@
      `docs/investigations/truck_reflections_2026-11-17.md`);
    - the menus and HUD at 1920x1080 with Sharp on and off (`docs/investigations/ui_textures.md`);
    - 3+ race loads in one run plus HOME open/close, with no PANIC.
-2. **Re-pin the decomp** (ask TC for the latest good commit). Pending, all PC-safe:
+2. **DONE 2026-11-23** (3980be1): pinned cdc03e26b6; patches follow the decomp's renames; nanscan debug patch removed;
+   6 min play-test clean. Original step: **Re-pin the decomp** (ask TC for the latest good commit). Pending, all PC-safe:
    - `2c00b4efd`: fn_801DCEC0 prototype;
    - `17b044b8c`: StackAlloc string;
    - `08dc91f44` + `8570465f0`: the MP3 tables are now generated at build time (the port doesn't build sdk_mp3);
@@ -32,7 +33,7 @@
    before it goes online (TC uploads through the Hostinger connector). Test boots run windowed and off-screen.
 4. **Autopilot:** steer to the Power Item, then the remaining lessons
    (`docs/investigations/tutorial_autopilot_2026-11-17.md`). Testing tool only.
-5. **Launcher:** add the "Sharpen videos" row (`graphics.video_sharpen`) to the launcher's Graphics page (it's only
+5. **DONE 2026-11-23**: launcher Graphics page has the "Sharpen videos" row. Original: add the "Sharpen videos" row (`graphics.video_sharpen`) to the launcher's Graphics page (it's only
    in the in-game menu today).
 6. **Gameplay smoothing beyond menus:** the HUD and gameplay textures via the same pack system (ui_textures.md
    covers the next steps).

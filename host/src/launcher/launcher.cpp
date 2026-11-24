@@ -1216,6 +1216,8 @@ void PageGraphics() {
            L"Game keeps the original. The others sharpen angled textures.");
     SegRow(L"Menu and HUD art", "graphics.ui_filter", {{"game", L"Game"}, {"smooth", L"Smooth"}, {"sharp", L"Sharp"}},
            L"Menus, HUD and text upscaled live for big windows. Sharp keeps text and outlines crisp.");
+    ToggleRow(L"Sharpen videos", "graphics.video_sharpen",
+              L"The intro and other videos sharpened and scaled up smoothly, live (no waiting).");
     ToggleRow(L"Show FPS", "graphics.show_fps");
     // "Enhance my game" (ENHANCE_MY_GAME_2026-11-15.md): the player's own intro video is upscaled on this PC into
     // the cache (tasks::StartEnhance; menus, HUD and truck textures come later), never touching the originals.
