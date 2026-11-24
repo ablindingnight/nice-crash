@@ -411,6 +411,17 @@ def main():
     counts['x87-returns'] = n
     for b, i in game.items():
         outputs[i] = (outputs[i][0], texts[b])
+    # DUMP_DATA tables: views of the retail data at its Wii address (dumptables.py), filled from the player's
+    # main.dol at run time by runtime/dolload.cpp. No DOL is read here.
+    import dumptables
+    tables = []
+    for k, (dst, t) in enumerate(outputs):
+        if 'dumpdata/' in t:
+            t, found = dumptables.rewrite(t, os.path.relpath(dst, OUT))
+            outputs[k] = (dst, t)
+            tables += found
+    dumptables.write_manifest('game', tables)
+    counts['dumpdata-runtime'] = len(tables)
     for dst, t in outputs:
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         old = open(dst, encoding='utf-8', errors='surrogateescape').read() if os.path.exists(dst) else None
@@ -430,31 +441,6 @@ def main():
     print('%-24s %d' % ('patches', applied))
     for k, v in counts.items():
         print('%-24s %d' % (k, v))
-    dumpdata()
-
-
-def dumpdata():
-    """Data tables the decomp no longer carries (`#include "dumpdata/<label>.inc"`): generated from the player's
-    own main.dol by the decomp's tools/datagen.py into build/dumpinc/dumpdata (on trial.py's include path)."""
-    tool = os.path.join(decomp.root(), 'tools', 'datagen.py')
-    if not os.path.exists(tool):
-        return
-    dol = os.environ.get('NICECRASH_DOL')
-    if not dol:
-        ini = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'NiceCrash', 'dump.ini')
-        if os.path.exists(ini):
-            for line in open(ini, encoding='utf-8'):
-                if line.startswith('dol='):
-                    dol = line[4:].strip()
-    if not dol or not os.path.exists(dol):
-        sys.exit("prep: the dumpdata tables need the player's main.dol (NICECRASH_DOL or dump.ini)")
-    out = os.path.join(PORT, 'build', 'dumpinc', 'dumpdata')
-    r = subprocess.run([sys.executable, '-I', tool, '--version', 'REXE01', '--dol', dol,
-                        '--symbols', os.path.join(decomp.root(), 'config', 'REXE01', 'symbols.txt'), '--out', out],
-                       capture_output=True, text=True)
-    if r.returncode:
-        sys.exit('prep: datagen failed:\n' + r.stdout[-2000:] + r.stderr[-2000:])
-    print('%-24s %d' % ('dumpdata tables', len(os.listdir(out))))
 
 
 if __name__ == '__main__':

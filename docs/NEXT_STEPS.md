@@ -67,11 +67,29 @@
   NICECRASH_PAUSETEST / NICECRASH_NOPAUSECLOCK, NICECRASH_ENHANCE_PLAYTEST (launcher --enhance),
   NICECRASH_VIDEODUMP_MOVIE, NICECRASH_AUTOPILOT=1|2.
 
-## Planned 2026-11-22: drop the build-on-the-tester's-PC step (no zig/Python in the package)
-Today the package ships source + zig + Python because NiceCrashGame.exe compiles in DUMP_DATA tables generated from the
-player's main.dol (tools/gametrial/link.py -> prep.py -> decomp tools/datagen.py), and link.py reads main.dol again to
-recognise retail vtables. Plan: load those tables from the player's main.dol AT RUN TIME (the launcher already verifies
-the dump), and do the vtable recognition at load time. Then a prebuilt NiceCrashGame.exe with no Nintendo data can ship:
-package ~156 MB -> a few MB, no 7-minute first build, no compiler on the player's PC. scan_package.py must still pass
-(it already checks for main.dol runs and generated tables). Good first task for the Monday port session.
-Repo is public since 2026-11-22: github.com/ablindingnight/nice-crash (CC0). Releases: attach the tester zip.
+## Drop the build-on-the-tester's-PC step (no zig/Python in the package), started 2026-11-23
+Why: the package ships source + zig + Python because NiceCrashGame.exe compiled in tables made from the player's
+main.dol. Goal: one prebuilt NiceCrashGame.exe with no Nintendo data, package ~156 MB -> a few MB, first run in seconds.
+
+What read main.dol at build time, and what it does now:
+- DUMP_DATA tables (decomp tools/datagen.py; 46 in the game, 5 in the HOME menu library) and the MP3 decoder's 407
+  tables (decomp tools/mp3/gentables.py): **DONE 2026-11-23.** tools/gametrial/dumptables.py rewrites each definition
+  into a view at its Wii address (`#define lbl_X (*(T (*)[N])0x8xxxxxxx)`, with a sizeof check); runtime/dolload.cpp
+  already loads main.dol's data sections there, and the multi-byte fields' swap runs (from the marker types) go into
+  port_dolfix_table via build/dumptables/*.tsv. Checked: every 16-byte window of those tables, in both byte orders,
+  searched in the exe: the old exe held 7239, the new one 0 (4 hits are a plain 00 01 02 .. ramp); 110 s Tutorial
+  autopilot run clean (profile keyboard, lesson, HUD); a custom-soundtrack MP3 recorded sample-identical to the old
+  exe (and louder than a control run without it).
+- link.py's retail-vtable and pointer-word recognition: still reads main.dol, but only at OUR build, and it writes
+  host addresses, not DOL bytes (today: 0 vtables, 5 data-pointer words). Fine for a prebuilt exe.
+  (gentables.py still needs a main.dol on the build machine too; only its names and shapes are kept.)
+
+Next, in order:
+1. scan_package.py: run check 3 over the game exe in both byte orders (the old exe held the tables little-endian,
+   which the big-endian run check couldn't see). The old exe must fail it, the new one pass.
+2. make_package.py `--prebuilt`: ship build/NiceCrash.exe, build/NiceCrashGame.exe (+ import.exe, enhance.exe), dtk,
+   assets, licences and the README; no source, zig or Python. Stamp the game exe with the port commit + decomp pin.
+3. Launcher: when a prebuilt NiceCrashGame.exe is next to it, the first-run checklist is disc check + extract + import
+   only (no build). Keep the build path for source checkouts.
+4. Package scan, then a clean-machine style test (fresh %LOCALAPPDATA%, offscreen), then the user's OK before upload.
+   Repo is public since 2026-11-22: github.com/ablindingnight/nice-crash (CC0). Releases: attach the tester zip.

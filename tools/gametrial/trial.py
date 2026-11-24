@@ -93,7 +93,7 @@ def run(zig, src, obj):
            # Non-void functions that fall off the end (UICustom::Slot68): PPC returns whatever r3/f1 holds; clang
            # would treat the path as unreachable and run into the next function.
            '-fno-strict-return'] + (['-fno-exceptions'] if mode == 'c++' else []) + os.environ.get('PORT_CFLAGS', '').split() + [
-           '-I', SHIM, '-I', os.path.join(PORT, 'build', 'dumpinc'), '-I', os.path.join(PORT, 'build', 'gamesrc', 'include'), '-I', os.path.join(ET, 'include'), '-I', os.path.join(PORT, 'build', 'gamesrc'), '-I', os.path.join(ET, 'src'),
+           '-I', SHIM, '-I', os.path.join(PORT, 'build', 'gamesrc', 'include'), '-I', os.path.join(ET, 'include'), '-I', os.path.join(PORT, 'build', 'gamesrc'), '-I', os.path.join(ET, 'src'),
            *bte_dirs(), *unit_defines(b), '-include', os.path.join(SHIM, 'port_prefix.h'), src]
     p = subprocess.run(cmd, env=env, cwd=PORT, capture_output=True, text=True, errors='replace',
                        creationflags=0x08000000)

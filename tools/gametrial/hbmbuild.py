@@ -133,6 +133,18 @@ def prep():
                 raise SystemExit('hbmbuild: Color.h rewrite %r matches %d times in %s' % (old, t.count(old), path))
             t = t.replace(old, new)
         open(path, 'w', encoding='utf-8', newline='').write(t)
+    # DUMP_DATA tables (sin/cos, pitch and pan tables, ...): views of the retail data at its Wii address, read from
+    # the player's main.dol at run time (dumptables.py, runtime/dolload.cpp), only in the units we compile.
+    import dumptables
+    tables = []
+    for tree, unit in units():
+        path = os.path.join(tree_root(tree), unit)
+        t = open(path, encoding='utf-8', errors='surrogateescape').read()
+        if 'dumpdata/' in t:
+            t, found = dumptables.rewrite(t, '%s:%s' % (tree, unit))
+            open(path, 'w', encoding='utf-8', errors='surrogateescape', newline='').write(t)
+            tables += found
+    dumptables.write_manifest('hbm', tables)
     # tp_include/global.h without its non-MWCC intrinsic declarations (they clash with the port prefix's).
     g = open(os.path.join(d, 'libs', 'tp_include', 'global.h'), encoding='utf-8').read()
     g = re.sub(r'#ifndef __MWERKS__\n// Silence clangd.*?#endif\n', '', g, flags=re.S)
@@ -168,8 +180,6 @@ def compile_one(zig, tree, unit, syntax):
     cmd = [zig, 'c++', '-target', 'x86-windows-gnu', *trial.HOST_TRIPLE, '-std=gnu++14', *out, '-w',
            '-ferror-limit=100', '-O1', '-g', '-fno-sanitize=all', '-fno-strict-aliasing', '-fwrapv',
            '-fno-omit-frame-pointer', '-fno-strict-return', '-fno-exceptions', *COMMON,
-           # Data tables the decomp generates from the player's DOL (prep.py runs datagen into build/dumpinc).
-           '-I', os.path.join(PORT, 'build', 'dumpinc'),
            '-include', os.path.join(PORT, 'shim', 'include', 'port_prefix.h'), *flags(tree), src]
     p = subprocess.run(cmd, cwd=PORT, capture_output=True, text=True, errors='replace', creationflags=0x08000000,
                        env=dict(os.environ, ZIG_LOCAL_CACHE_DIR=os.path.join(PORT, 'build', 'zigcache', 'hbm', b)))

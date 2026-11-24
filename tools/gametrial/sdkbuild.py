@@ -147,7 +147,7 @@ def compile_one(zig, src):
     o = os.path.join(OBJ, 'sdk_' + b + '.o')
     cmd = [zig, 'cc', '-target', 'x86-windows-gnu', *trial.HOST_TRIPLE, '-std=gnu99', '-fgnu89-inline', '-O1', '-g', '-w', '-fno-sanitize=all',
            '-fno-strict-aliasing', '-fwrapv', '-c', '-ferror-limit=50', '-Wno-error=implicit-function-declaration', '-Wno-error=int-conversion', '-Wno-error=incompatible-pointer-types',
-           '-I', os.path.join(PORT, 'shim', 'sdk_include'), '-I', os.path.join(PORT, 'build', 'dumpinc'),
+           '-I', os.path.join(PORT, 'shim', 'sdk_include'),
            '-I', os.path.join(OUT, 'include'), '-I', os.path.join(MSC, 'include'),
            '-include', os.path.join(PORT, 'shim', 'sdk_include', 'port_sdk_prefix.h'),
            '-DBUILD_VERSION=3', '-DVERSION_R4QJ01', src, '-o', o]

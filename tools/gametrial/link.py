@@ -389,6 +389,16 @@ def main():
             text_names.setdefault(int(m.group(2), 16), m.group(1))
     dol = read_dol_data()
     elems = decl_elem_sizes()
+    # DUMP_DATA tables now live at their Wii addresses (dumptables.py): their swap runs come from the markers'
+    # types, so the DOL-word guessing below must leave those bytes alone.
+    import dumptables
+    dd = dumptables.read_manifests()
+    for _a, _n, runs in dd:
+        fixes.extend([list(r) for r in runs])
+
+    def in_dumptable(a, n):
+        return any(a < da + dn and da < a + n for da, dn, _ in dd)
+    print('dumpdata tables at run time: %d (%d swap runs)' % (len(dd), sum(len(r) for _, _, r in dd)))
     nvt = 0
     ptrfix = []
     data_rw = ['\t.data']
@@ -486,6 +496,11 @@ def main():
             continue
         if re.match(r'(sdk_|gxr_|gxi_|port_)', name):
             sys.exit('link: the port\'s own symbol %s is undefined (declaration/linkage mismatch?)' % name)
+        if kind == 'object' and addr and in_dumptable(int(addr, 16), max(int(size), 1)):
+            # A DUMP_DATA table named from another unit: the same Wii address, swapped by its manifest runs.
+            data += ['\t.globl %s' % gas_name(sym), '\t.set %s, 0x%s' % (gas_name(sym), addr)]
+            nd += 1
+            continue
         vt = dol_vtable(addr, size) if kind == 'object' and addr else None
         if vt:
             # A retail MWCC vtable in asm-only data: build the host (Itanium-layout) table from the same functions.

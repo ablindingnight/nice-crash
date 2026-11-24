@@ -3,6 +3,9 @@
 // absolute symbols at their Wii addresses in build/stubs.s) reads real retail bytes, including code that indexes
 // past a label. Scalars among those labels (4- and 8-byte values listed in port_dolfix_table) are byte-swapped
 // once here; everything else (strings, byte tables) is used as it is. Text sections (PowerPC code) are not loaded.
+// The decomp's DUMP_DATA tables and the MP3 decoder's tables live here too (tools/gametrial/dumptables.py): the
+// sources see them at their Wii addresses and their multi-byte fields are among port_dolfix_table's runs, so the
+// game exe holds no bytes from main.dol.
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <cstdio>

@@ -2,8 +2,9 @@
 
 The SD-card custom soundtrack (game/sdmp3.cpp) decodes with it; on the PC the "SD card" is a music folder
 (sdk/vfmusic.cpp). The decoder's constant tables are not in the decomp: its tools/mp3/gentables.py generates them
-from the player's own main.dol (NICECRASH_DOL or dump.ini, as prep.py's dumpdata step), here into
-build/mp3src/include/sdk_mp3. Nothing from the DOL is ever stored in the port repo.
+from main.dol (NICECRASH_DOL or dump.ini) into build/mp3src/include/sdk_mp3; we then keep only each table's name,
+type and shape there (dumptables.rewrite_generated): the tables are read from the player's main.dol at run time
+(runtime/dolload.cpp), so the compiled objects carry no DOL data. Nothing from the DOL is stored in the port repo.
 
 Usage: python mp3build.py  -> build/mp3obj/*.o, logs next to them
 """
@@ -50,6 +51,16 @@ def gen_tables():
                        creationflags=0x08000000)
     if r.returncode:
         sys.exit('mp3build: gentables failed:\n' + r.stdout[-2000:] + r.stderr[-2000:])
+    # Keep the names and shapes, drop the bytes: each table becomes a view at its Wii address, filled from the
+    # player's main.dol at run time (dumptables.py, runtime/dolload.cpp). The exe carries no DOL data.
+    import dumptables
+    tables = []
+    for f in sorted(glob.glob(os.path.join(out, '*.inc'))):
+        t = open(f, encoding='utf-8').read()
+        t2, found = dumptables.rewrite_generated(t, os.path.basename(f))
+        open(f, 'w', encoding='utf-8', newline='\n').write(t2)
+        tables += found
+    dumptables.write_runs('mp3', tables)
     return out
 
 
